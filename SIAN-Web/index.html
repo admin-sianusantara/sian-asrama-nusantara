@@ -370,7 +370,7 @@
         import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
         // =====================================================================
-        // KONFIGURASI FIREBASE PROYEK SIAN ANDA (TERTANAM PERMANEN)
+        // KONFIGURASI FIREBASE & VAPID KEY PROYEK SIAN (TERTANAM PERMANEN)
         // =====================================================================
         const DEFAULT_FIREBASE_CONFIG = {
             apiKey: "AIzaSyC7spgWIt7iPsPpVOPTmk0e-XYO8TgZINI",
@@ -382,8 +382,8 @@
             measurementId: "G-Z20J923GWW"
         };
 
-        // Web Push VAPID Key (Opsional diisi di sini — atau otomatis tersinkron dari Admin via Firestore)
-        window.DEFAULT_VAPID_KEY = "MASUKKAN_VAPID_KEY_FIREBASE_ANDA";
+        // Web Push VAPID Key Tertanam Permanen untuk Semua Laptop & HP Pengurus
+        window.DEFAULT_VAPID_KEY = "BMQSFmMqkKYMT9E9GEzN85QH8Vx3Wd2BX-SyDkDsz312geMySlydZohNW4OdXwK5naJitZrzJQtYQ-QZ6xg0__A";
 
         let savedLocalConfig = null;
         try {
@@ -854,6 +854,10 @@
                 if (token) {
                     currentFcmToken = token;
                     localStorage.setItem('sian_fcm_token', token);
+                    const statusLabelEl = document.getElementById('fcm-modal-status-label');
+                    if (statusLabelEl) {
+                        statusLabelEl.textContent = 'Aktif & Terdaftar Otomatis ✅';
+                    }
                     if (currentUser && currentUser.email) {
                         await window.FB.updateDoc(
                             window.FB.doc(window.FB.db, 'pengurus', currentUser.email.toLowerCase()),
@@ -2357,7 +2361,7 @@
                                         </div>
                                         <div class="flex items-center gap-2">
                                             <button onclick="prosesAccPengurus('${escHtml(p.email)}', 'approved')" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">ACC & Aktifkan</button>
-                                            <button onclick="prosesAccPengurus('${escHtml(p.email)}', 'rejected')" class="px-3 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
+                                            <button onclick="prosesAccPengurus('${escHtml(p.email)}', 'rejected')" class="px-3.5 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
                                         </div>
                                     </div>
                                 `).join('')}
@@ -4045,11 +4049,11 @@
 
                     <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
                         <p class="font-bold text-white flex items-center gap-1.5"><i class="ph-fill ph-bell-ringing text-amber-400"></i> 1. Notifikasi Real-Time HP</p>
-                        <p class="text-[11px] text-slate-300">Status HP ini: <strong class="text-emerald-300">${statusText}</strong></p>
+                        <p class="text-[11px] text-slate-300">Status HP ini: <strong id="fcm-modal-status-label" class="text-emerald-300">${statusText}</strong></p>
 
                         ${showVapidBox ? `
                             <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1.5">
-                                <label class="block text-[11px] font-semibold text-amber-200">Pengaturan Pusat Admin (Cukup Diisi 1 Kali — Otomatis Aktif di Semua HP):</label>
+                                <label class="block text-[11px] font-semibold text-amber-200">Pengaturan Pusat Admin (Sudah Tertanam Permanen):</label>
                                 <div class="flex gap-1.5">
                                     <input id="input-vapid-key" type="text" value="${escHtml(activeVapid)}" placeholder="Tempel VAPID Key dari Firebase Console..." class="w-full border border-asrama-border rounded-xl px-3 py-1.5 text-xs font-mono">
                                     <button type="button" onclick="saveVapidKeyAndRegister()" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shrink-0 cursor-pointer">Simpan</button>
@@ -4146,7 +4150,7 @@
         async function testRemoteFcmPush() {
             const token = currentFcmToken || localStorage.getItem('sian_fcm_token') || await registerFcmDeviceToken(false);
             if (!token) {
-                showToast('Daftarkan HP ini terlebih dahulu dengan mengisi VAPID Key & mengizinkan notifikasi!', 'error');
+                showToast('Daftarkan HP ini terlebih dahulu dengan mengizinkan notifikasi!', 'error');
                 return;
             }
             showLoading(true, 'Menguji pengiriman Push FCM via server Vercel...');
