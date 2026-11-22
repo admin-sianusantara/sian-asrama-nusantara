@@ -87,17 +87,26 @@ function isRecipientEligible(userFields, eventPayload) {
     }
 
     if (eventType === 'izin_baru') {
-        if (isAdmin || isKetuaAsrama) return true;
+        if (isAdmin) return true;
         const targetSektor = norm(eventPayload.sektor);
+        const jenis = norm(eventPayload.jenis);
+        const kategoriPulang = norm(eventPayload.kategoriPulang);
         const tujuan = norm(eventPayload.divisiTujuan);
-        if (isKetuaLantai && userSektor === targetSektor) return true;
-        if (tujuan === 'keamanan') {
-            return ketuaUtamaDiv === 'keamanan' || (userDivisi.includes('keamanan') && userSektor === targetSektor);
-        }
-        if (tujuan === 'kesehatan') {
+
+        // 1. Izin Sakit -> hanya dikirim ke Divisi Kesehatan (tidak ke Ketua Asrama/Sektor)
+        if (jenis === 'sakit' || tujuan === 'kesehatan') {
             return ketuaUtamaDiv === 'kesehatan' || (userDivisi.includes('kesehatan') && userSektor === targetSektor);
         }
-        return false;
+
+        // 2. Izin Pulang Acara Keluarga -> hanya dikirim ke Ketua Sektor terkait & Ketua Asrama
+        if (kategoriPulang === 'pulang_keluarga' || tujuan === 'pimpinan') {
+            if (isKetuaAsrama) return true;
+            if (isKetuaLantai && userSektor === targetSektor) return true;
+            return false;
+        }
+
+        // 3. Izin Pulang karena Sakit -> hanya dikirim ke Divisi Keamanan
+        return ketuaUtamaDiv === 'keamanan' || (userDivisi.includes('keamanan') && userSektor === targetSektor);
     }
 
     if (eventType === 'izin_dihapus') {

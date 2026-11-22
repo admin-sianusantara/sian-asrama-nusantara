@@ -68,7 +68,6 @@
         }
     </style>
     <script>
-        // Registrasi Service Worker (/sw.js) untuk WebAPK & Notifikasi Push FCM Android
         window.sianSwRegistration = null;
         if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
             window.addEventListener('load', () => {
@@ -78,7 +77,6 @@
             });
         }
 
-        // Data URL Logo SVG SIAN untuk pratinjau instan & generator PNG
         window.SIAN_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
             <defs>
                 <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -527,6 +525,10 @@
         let adminFilterSektor = 'ALL';
         let adminIzinFilter = 'ALL';
         let adminIzinSektorFilter = 'ALL';
+        let adminIzinKamarFilter = 'ALL';
+        let adminIzinKegiatanFilter = 'ALL';
+        let adminIzinTanggalFilter = '';
+        let adminIzinStatusFilter = 'ALL';
         let adminPulangSektorFilter = 'ALL';
         let pelFilterSektor = 'ALL';
         let kebFilterSektor = 'ALL';
@@ -564,7 +566,11 @@
         let selectedPelSantriIds = [];
         let pelSearchTerm = '';
         let izinSearchTerm = '';
+        let izinRiwayatSearchTerm = '';
         let selectedSantriForIzin = null;
+        let izinFormJenis = 'sakit';
+        let izinFormKategoriPulang = 'pulang_sakit';
+        let izinFormKegiatanSakit = ['Sekolah', 'Halaqoh Sore', 'Madin'];
 
         let pengurusList = [];
         let santriList = [];
@@ -1006,7 +1012,7 @@
         }
 
         // =========================================================================
-        // 5. HELPER PERAN (ADMIN, KETUA ASRAMA, KETUA SEKTOR, MUROBBI & DIVISI)
+        // 5. HELPER PERAN & ROUTING PERIZINAN
         // =========================================================================
         function isRecordAdmin(u) {
             if (!u) return false;
@@ -1079,6 +1085,16 @@
             return santriList.filter(s => s.sektor === currentUser.sektor && s.kamar === currentUser.kamar);
         }
 
+        function isIzinPulangKeluarga(p) {
+            if (!p || p.jenis !== 'pulang') return false;
+            return p.kategoriPulang === 'pulang_keluarga' || p.divisiTujuan === 'pimpinan';
+        }
+
+        function isIzinPulangSakit(p) {
+            if (!p || p.jenis !== 'pulang') return false;
+            return p.kategoriPulang === 'pulang_sakit' || (!p.kategoriPulang && p.divisiTujuan !== 'pimpinan');
+        }
+
         function getPendingCount() {
             if (!currentUser) return 0;
             if (isRecordAdmin(currentUser)) {
@@ -1087,17 +1103,27 @@
                 return pendingIzin + pendingUser;
             }
             if (isRecordKetuaAsrama(currentUser)) {
-                return perizinanList.filter(p => p.status === 'menunggu').length;
+                // Ketua Asrama hanya menerima notif/antrean untuk Izin Pulang Acara Keluarga (tidak untuk izin sakit)
+                return perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangKeluarga(p)).length;
             }
             if (isRecordKetuaLantai(currentUser)) {
-                return perizinanList.filter(p => p.status === 'menunggu' && p.sektor === currentUser.sektor).length;
+                // Ketua Sektor menerima antrean untuk Izin Pulang Acara Keluarga di sektornya
+                return perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangKeluarga(p) && p.sektor === currentUser.sektor).length;
             }
             let count = 0;
             if (hasDivisiAccess('keamanan')) {
-                count += perizinanList.filter(p => p.status === 'menunggu' && p.divisiTujuan === 'keamanan' && (currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor)).length;
+                count += perizinanList.filter(p =>
+                    p.status === 'menunggu' &&
+                    isIzinPulangSakit(p) &&
+                    (currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor)
+                ).length;
             }
             if (hasDivisiAccess('kesehatan')) {
-                count += perizinanList.filter(p => p.status === 'menunggu' && p.divisiTujuan === 'kesehatan' && (currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor)).length;
+                count += perizinanList.filter(p =>
+                    p.status === 'menunggu' &&
+                    p.jenis === 'sakit' &&
+                    (currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor)
+                ).length;
             }
             const unreadNotif = murobbiNotifList.filter(n => !n.dibaca && n.sektor === currentUser.sektor && n.kamar === currentUser.kamar).length;
             return count + unreadNotif;
@@ -1244,7 +1270,6 @@
                 const userRef = window.FB.doc(window.FB.db, 'pengurus', docId);
                 let userSnap = await window.FB.getDoc(userRef);
 
-                // Fallback cari berdasarkan field email jika docId berbeda
                 if (!userSnap.exists()) {
                     const allSnap = await window.FB.getDocs(window.FB.collection(window.FB.db, 'pengurus'));
                     allSnap.forEach(d => {
@@ -1254,7 +1279,6 @@
                     });
                 }
 
-                // Auto-provision Admin Utama jika pertama kali login
                 if (!userSnap.exists() && email === PRIMARY_ADMIN_EMAIL) {
                     const adminData = {
                         email: PRIMARY_ADMIN_EMAIL,
@@ -1303,7 +1327,6 @@
                     return;
                 }
 
-                // Ambil pengaturan asrama terlebih dahulu
                 try {
                     const asramaSnap = await window.FB.getDoc(window.FB.doc(window.FB.db, 'settings', 'asrama'));
                     if (asramaSnap.exists()) {
@@ -1432,15 +1455,34 @@
                             const p = chg.doc.data();
                             const key = 'izin_' + chg.doc.id;
                             if (p.status === 'menunggu' && !notifiedRecordIds.has(key)) {
-                                const isEligible = isRecordAdmin(currentUser) ||
-                                    isRecordKetuaAsrama(currentUser) ||
-                                    (isRecordKetuaLantai(currentUser) && p.sektor === currentUser.sektor) ||
-                                    (p.divisiTujuan === 'keamanan' && hasDivisiAccess('keamanan') && (currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor)) ||
-                                    (p.divisiTujuan === 'kesehatan' && hasDivisiAccess('kesehatan') && (currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor));
+                                let isEligible = false;
+                                if (isRecordAdmin(currentUser)) {
+                                    isEligible = true;
+                                } else if (p.jenis === 'sakit') {
+                                    // Izin sakit tidak masuk notif ke Ketua Asrama/Sektor, hanya ke Divisi Kesehatan
+                                    isEligible = !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) &&
+                                        hasDivisiAccess('kesehatan') &&
+                                        (currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor);
+                                } else if (isIzinPulangKeluarga(p)) {
+                                    // Izin pulang acara keluarga hanya masuk notif ke Ketua Sektor terkait & Ketua Asrama
+                                    isEligible = isRecordKetuaAsrama(currentUser) ||
+                                        (isRecordKetuaLantai(currentUser) && p.sektor === currentUser.sektor);
+                                } else {
+                                    // Izin pulang karena sakit hanya masuk notif ke Divisi Keamanan
+                                    isEligible = !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) &&
+                                        hasDivisiAccess('keamanan') &&
+                                        (currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor);
+                                }
+
                                 if (isEligible) {
                                     notifiedRecordIds.add(key);
+                                    const jenisLabel = p.jenis === 'sakit'
+                                        ? 'Izin Sakit'
+                                        : isIzinPulangKeluarga(p)
+                                            ? 'Izin Pulang (Acara Keluarga)'
+                                            : 'Izin Pulang (Sakit)';
                                     triggerSystemNotification(
-                                        `Pengajuan Izin ${p.jenis === 'pulang' ? 'Pulang' : 'Sakit'} Baru`,
+                                        `Pengajuan ${jenisLabel} Baru`,
                                         `${p.santriNama} (${p.kamar}) — ${p.kategori}`
                                     );
                                 }
@@ -1453,7 +1495,7 @@
                 renderCurrentPage();
             }));
 
-            // 6. Notifikasi Khusus Murobbi (Izin Pulang Ditolak / Dihapus Keamanan)
+            // 6. Notifikasi Khusus Murobbi
             unsubscribeListeners.push(onSnapshot(collection(db, 'murobbi_notif'), (snap) => {
                 murobbiNotifList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
                     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -1584,9 +1626,9 @@
             if (isRecordAdmin(currentUser)) {
                 const pendingUser = pengurusList.filter(u => u.status === 'pending').length;
                 navigate(pendingUser > 0 ? 'admin_pengurus' : 'admin_izin');
-            } else if (isRecordKetuaAsrama(currentUser)) {
-                navigate('admin_izin');
-            } else if (isRecordKetuaLantai(currentUser) || hasDivisiAccess('keamanan')) {
+            } else if (isRecordKetuaAsrama(currentUser) || isRecordKetuaLantai(currentUser)) {
+                navigate('ketua_acc_pulang');
+            } else if (hasDivisiAccess('keamanan')) {
                 navigate('div_keamanan_izin');
             } else if (hasDivisiAccess('kesehatan')) {
                 navigate('div_kesehatan_izin');
@@ -1618,7 +1660,8 @@
                         ${navItem('admin_info', 'ph-buildings', 'Info Kamar & Murobbi', 'text-emerald-400')}
                         ${navItem('admin_santri', 'ph-users-three', 'Data Santri & Import Excel', 'text-sky-400')}
                         ${navItem('admin_absen', 'ph-clipboard-text', 'Laporan Absen Semua Santri', 'text-teal-400')}
-                        ${navItem('admin_izin', 'ph-file-xls', 'Semua Izin & Ekspor Excel', 'text-indigo-400')}
+                        ${navItem('ketua_acc_pulang', 'ph-seal-check', 'ACC Izin Pulang (Acara Keluarga)', 'text-amber-300')}
+                        ${navItem('admin_izin', 'ph-file-xls', 'Semua Izin Sakit & Pulang', 'text-indigo-400')}
                         ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
                         ${navItem('div_penilaian', 'ph-exam', 'Rubrik & Hasil Penilaian', 'text-emerald-400')}
                     </div>
@@ -1626,11 +1669,12 @@
             } else if (isRecordKetuaAsrama(currentUser)) {
                 html += `
                     <div class="space-y-1">
-                        <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">Monitoring Ketua Asrama</p>
+                        <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">Monitoring & ACC Ketua Asrama</p>
+                        ${navItem('ketua_acc_pulang', 'ph-seal-check', 'ACC Izin Pulang (Acara Keluarga)', 'text-amber-400')}
                         ${navItem('admin_absen', 'ph-clipboard-text', 'Laporan Absen Semua Santri', 'text-emerald-400')}
-                        ${navItem('admin_izin', 'ph-file-xls', 'Monitor Izin Sakit & Pulang', 'text-sky-400')}
+                        ${navItem('admin_izin', 'ph-first-aid-kit', 'Monitor Izin Sakit & Pulang', 'text-sky-400')}
                         ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
-                        ${navItem('ketua_telat', 'ph-warning-circle', 'Rekap Telat & Takziran', 'text-amber-400')}
+                        ${navItem('ketua_telat', 'ph-warning-circle', 'Rekap Telat & Takziran', 'text-amber-300')}
                         ${navItem('ketua_kebersihan', 'ph-broom', 'Jadwal Roan & Kas Kebersihan', 'text-teal-400')}
                         ${navItem('div_penilaian', 'ph-exam', 'Rekap Penilaian Hafalan/Mengaji', 'text-emerald-300')}
                         ${navItem('ketua_info_kamar', 'ph-buildings', 'Info Kamar & Murobbi', 'text-slate-300')}
@@ -1640,8 +1684,9 @@
                 html += `
                     <div class="space-y-1">
                         <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                            ${isRecordKetuaLantai(currentUser) ? 'Pantauan Kamar Sektor' : 'Tugas Murobbi Kamar'}
+                            ${isRecordKetuaLantai(currentUser) ? 'Pantauan & ACC Ketua Sektor' : 'Tugas Murobbi Kamar'}
                         </p>
+                        ${isRecordKetuaLantai(currentUser) ? navItem('ketua_acc_pulang', 'ph-seal-check', 'ACC Izin Pulang (Acara Keluarga)', 'text-amber-400') : ''}
                         ${navItem('murobbi_presensi', 'ph-check-square-offset', 'Presensi Kamar & Kegiatan', 'text-emerald-400')}
                         ${navItem('murobbi_penilaian', 'ph-exam', 'Input & Pantau Penilaian', 'text-emerald-300')}
                         ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Izin Sakit, Pulang & Kembali', 'text-sky-400')}
@@ -1653,7 +1698,7 @@
                     html += `
                         <div class="space-y-1 pt-2 border-t border-asrama-border/60">
                             <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-purple-400 mb-1.5">Divisi Keamanan</p>
-                            ${navItem('div_keamanan_izin', 'ph-shield-check', 'ACC Izin Pulang & Kembali', 'text-purple-400')}
+                            ${navItem('div_keamanan_izin', 'ph-shield-check', 'ACC Izin Pulang (Sakit)', 'text-purple-400')}
                             ${navItem('div_keamanan_aset', 'ph-laptop', 'Laptop, Sitaan & Tebusan', 'text-purple-400')}
                         </div>
                     `;
@@ -1741,6 +1786,7 @@
                 case 'admin_absen': container.innerHTML = renderLaporanAbsenSemuaSantri(); break;
                 case 'admin_izin': container.innerHTML = renderAdminIzin(); break;
                 case 'admin_pulang': container.innerHTML = renderAdminPulang(); break;
+                case 'ketua_acc_pulang': container.innerHTML = renderKetuaAccIzinPulangKeluarga(); break;
                 case 'ketua_telat': container.innerHTML = renderRekapTelatSemua(); break;
                 case 'ketua_kebersihan': container.innerHTML = renderDivKebersihan(true); break;
                 case 'murobbi_presensi': container.innerHTML = renderMurobbiPresensi(); break;
@@ -1803,11 +1849,14 @@
                 `;
             } else if (isRecordKetuaAsrama(currentUser)) {
                 quickActions = `
+                    <button onclick="navigate('ketua_acc_pulang')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-lg cursor-pointer">
+                        <i class="ph-bold ph-seal-check text-base"></i> ACC Izin Pulang Keluarga (${pendingCount})
+                    </button>
                     <button onclick="navigate('admin_absen')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg cursor-pointer">
                         <i class="ph-bold ph-clipboard-text text-base"></i> Laporan Absen Semua Santri
                     </button>
-                    <button onclick="navigate('admin_pulang')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer">
-                        <i class="ph-bold ph-airplane-takeoff text-base text-purple-400"></i> Monitoring Pulang
+                    <button onclick="navigate('admin_izin')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer">
+                        <i class="ph-bold ph-first-aid-kit text-base text-sky-400"></i> Monitor Izin Sakit & Pulang
                     </button>
                 `;
             } else {
@@ -1903,7 +1952,7 @@
                                 <span class="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center"><i class="ph-fill ph-thermometer text-lg"></i></span>
                             </div>
                             <p class="text-2xl font-extrabold text-white">${sakit}</p>
-                            <p class="text-[11px] text-slate-400">Izin sekolah / madin / halaqoh</p>
+                            <p class="text-[11px] text-slate-400">Izin sekolah / halaqoh / madin</p>
                         </div>
 
                         <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-2">
@@ -2075,7 +2124,6 @@
             const p = pengurusList.find(x => x.id === id);
             if (!p || !window.FB?.ready) return;
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), { status: 'approved' });
-            // Sinkronkan nama Murobbi ke kamar terkait
             if (p.sektor && p.kamar && kamarBySektor[p.sektor]) {
                 const idx = kamarBySektor[p.sektor].findIndex(k => k.nama === p.kamar);
                 if (idx >= 0) {
@@ -2116,7 +2164,7 @@
                         <select id="add-p-role" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="murobbi">Murobbi Kamar + Divisi</option>
                             <option value="ketua_sektor">Ketua Sektor Lantai (1 Sektor)</option>
-                            <option value="ketua_asrama">Ketua Asrama Nusantara (Monitoring Semua Sektor)</option>
+                            <option value="ketua_asrama">Ketua Asrama Nusantara (Monitoring & ACC Keluarga)</option>
                             <option value="admin">Administrator Pusat</option>
                         </select>
                     </div>
@@ -2579,7 +2627,6 @@
                         </button>
                     </div>
 
-                    <!-- Ringkasan Per Sektor -->
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
                         ${SEKTOR_ASRAMA.map(sec => {
                             const listSec = santriList.filter(s => s.sektor === sec);
@@ -2595,7 +2642,6 @@
                         }).join('')}
                     </div>
 
-                    <!-- Filter Bar -->
                     <div class="flex flex-wrap items-center gap-2">
                         <input type="text" value="${escHtml(searchQuery)}" oninput="searchQuery=this.value.toLowerCase(); renderCurrentPage();" placeholder="Cari nama santri..." class="border border-asrama-border rounded-xl px-3 py-2 text-xs w-56">
                         <select onchange="absenMonitorSektor=this.value; absenMonitorKamar='ALL'; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
@@ -2668,37 +2714,111 @@
         }
 
         // =========================================================================
-        // 11. MONITOR IZIN & SANTRI PULANG (ADMIN & KETUA ASRAMA)
+        // 11. MONITOR IZIN SAKIT & PULANG (KETUA ASRAMA & ADMIN) + SANTRI PULANG
         // =========================================================================
         function renderAdminIzin() {
+            const kamarOpts = adminIzinSektorFilter === 'ALL'
+                ? []
+                : (kamarBySektor[adminIzinSektorFilter] || []);
+
+            if (adminIzinSektorFilter === 'ALL') {
+                adminIzinKamarFilter = 'ALL';
+            }
+
             const list = perizinanList.filter(p => {
-                const matchJenis = adminIzinFilter === 'ALL' || p.jenis === adminIzinFilter;
+                const matchJenis = adminIzinFilter === 'ALL'
+                    || (adminIzinFilter === 'sakit' && p.jenis === 'sakit')
+                    || (adminIzinFilter === 'pulang_sakit' && isIzinPulangSakit(p))
+                    || (adminIzinFilter === 'pulang_keluarga' && isIzinPulangKeluarga(p))
+                    || (adminIzinFilter === 'pulang' && p.jenis === 'pulang');
                 const matchSec = adminIzinSektorFilter === 'ALL' || p.sektor === adminIzinSektorFilter;
-                const matchQ = !searchQuery || (p.santriNama || '').toLowerCase().includes(searchQuery) || (p.kamar || '').toLowerCase().includes(searchQuery);
-                return matchJenis && matchSec && matchQ;
+                const matchKam = adminIzinKamarFilter === 'ALL' || p.kamar === adminIzinKamarFilter;
+                const matchStatus = adminIzinStatusFilter === 'ALL' || p.status === adminIzinStatusFilter;
+                const matchTgl = !adminIzinTanggalFilter || p.tanggal === adminIzinTanggalFilter;
+                const matchKeg = adminIzinKegiatanFilter === 'ALL' || (
+                    p.jenis === 'sakit' && Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.includes(adminIzinKegiatanFilter)
+                );
+                const matchQ = !searchQuery
+                    || (p.santriNama || '').toLowerCase().includes(searchQuery)
+                    || (p.kamar || '').toLowerCase().includes(searchQuery)
+                    || (p.kategori || '').toLowerCase().includes(searchQuery);
+                return matchJenis && matchSec && matchKam && matchStatus && matchTgl && matchKeg && matchQ;
             });
+
+            const totalSakitAktif = perizinanList.filter(p => p.jenis === 'sakit' && p.status !== 'ditolak').length;
 
             return `
                 <div class="space-y-5">
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
                         <div>
-                            <h2 class="text-xl font-extrabold text-white">Monitoring Semua Izin Sakit & Pulang</h2>
-                            <p class="text-xs text-slate-300">Seluruh riwayat pengajuan izin lintas sektor Asrama Nusantara.</p>
+                            <h2 class="text-xl font-extrabold text-white">Monitor Semua Izin Sakit & Pulang Santri</h2>
+                            <p class="text-xs text-slate-300">Pantau seluruh santri yang izin sakit tidak masuk kegiatan maupun izin pulang dengan filter lengkap (${totalSakitAktif} riwayat izin sakit).</p>
                         </div>
-                        <div class="flex flex-wrap gap-2">
-                            <select onchange="adminIzinSektorFilter=this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                <option value="ALL" ${adminIzinSektorFilter === 'ALL' ? 'selected' : ''}>Semua Sektor</option>
-                                ${SEKTOR_ASRAMA.map(sec => `<option value="${escHtml(sec)}" ${adminIzinSektorFilter === sec ? 'selected' : ''}>${escHtml(sec)}</option>`).join('')}
-                            </select>
-                            <select onchange="adminIzinFilter=this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                <option value="ALL" ${adminIzinFilter === 'ALL' ? 'selected' : ''}>Semua Jenis</option>
-                                <option value="sakit" ${adminIzinFilter === 'sakit' ? 'selected' : ''}>Izin Sakit</option>
-                                <option value="pulang" ${adminIzinFilter === 'pulang' ? 'selected' : ''}>Izin Pulang</option>
-                            </select>
-                            <button onclick="exportIzinExcel()" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
-                                <i class="ph-bold ph-file-xls"></i> Ekspor Excel (.xlsx)
-                            </button>
+                        <button onclick="exportIzinExcel()" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start">
+                            <i class="ph-bold ph-file-xls"></i> Ekspor Excel (.xlsx)
+                        </button>
+                    </div>
+
+                    <!-- Filter Bar Lengkap -->
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-400 mb-1">Cari Santri / Alasan</label>
+                                <input type="text" value="${escHtml(searchQuery)}" oninput="searchQuery = this.value.toLowerCase(); renderCurrentPage();" placeholder="Ketik nama santri..." class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-400 mb-1">Jenis Perizinan</label>
+                                <select onchange="adminIzinFilter=this.value; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <option value="ALL" ${adminIzinFilter === 'ALL' ? 'selected' : ''}>Semua Jenis Izin</option>
+                                    <option value="sakit" ${adminIzinFilter === 'sakit' ? 'selected' : ''}>Izin Sakit (Tidak Masuk Kegiatan)</option>
+                                    <option value="pulang_sakit" ${adminIzinFilter === 'pulang_sakit' ? 'selected' : ''}>Izin Pulang (Sakit)</option>
+                                    <option value="pulang_keluarga" ${adminIzinFilter === 'pulang_keluarga' ? 'selected' : ''}>Izin Pulang (Acara Keluarga)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-400 mb-1">Sektor Lantai</label>
+                                <select onchange="adminIzinSektorFilter=this.value; adminIzinKamarFilter='ALL'; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <option value="ALL" ${adminIzinSektorFilter === 'ALL' ? 'selected' : ''}>Semua Sektor (6 Sektor)</option>
+                                    ${SEKTOR_ASRAMA.map(sec => `<option value="${escHtml(sec)}" ${adminIzinSektorFilter === sec ? 'selected' : ''}>${escHtml(sec.replace('Asrama Nusantara ', 'NS '))}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-400 mb-1">Kamar</label>
+                                <select onchange="adminIzinKamarFilter=this.value; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs" ${adminIzinSektorFilter === 'ALL' ? 'disabled' : ''}>
+                                    <option value="ALL">Semua Kamar</option>
+                                    ${kamarOpts.map(k => `<option value="${escHtml(k.nama)}" ${adminIzinKamarFilter === k.nama ? 'selected' : ''}>${escHtml(k.nama)}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-400 mb-1">Kegiatan Izin Sakit</label>
+                                <select onchange="adminIzinKegiatanFilter=this.value; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <option value="ALL" ${adminIzinKegiatanFilter === 'ALL' ? 'selected' : ''}>Semua Kegiatan</option>
+                                    <option value="Sekolah" ${adminIzinKegiatanFilter === 'Sekolah' ? 'selected' : ''}>Sekolah</option>
+                                    <option value="Halaqoh Sore" ${adminIzinKegiatanFilter === 'Halaqoh Sore' ? 'selected' : ''}>Halaqoh Sore</option>
+                                    <option value="Madin" ${adminIzinKegiatanFilter === 'Madin' ? 'selected' : ''}>Madin</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-400 mb-1">Tanggal & Status ACC</label>
+                                <div class="flex gap-1.5">
+                                    <input type="date" value="${escHtml(adminIzinTanggalFilter)}" onchange="adminIzinTanggalFilter=this.value; renderCurrentPage();" class="w-1/2 border border-asrama-border rounded-xl px-2 py-2 text-xs">
+                                    <select onchange="adminIzinStatusFilter=this.value; renderCurrentPage();" class="w-1/2 border border-asrama-border rounded-xl px-2 py-2 text-xs">
+                                        <option value="ALL" ${adminIzinStatusFilter === 'ALL' ? 'selected' : ''}>Semua Status</option>
+                                        <option value="menunggu" ${adminIzinStatusFilter === 'menunggu' ? 'selected' : ''}>Menunggu</option>
+                                        <option value="disetujui" ${adminIzinStatusFilter === 'disetujui' ? 'selected' : ''}>Disetujui</option>
+                                        <option value="ditolak" ${adminIzinStatusFilter === 'ditolak' ? 'selected' : ''}>Ditolak</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
+                        ${(adminIzinFilter !== 'ALL' || adminIzinSektorFilter !== 'ALL' || adminIzinKegiatanFilter !== 'ALL' || adminIzinTanggalFilter || adminIzinStatusFilter !== 'ALL' || searchQuery) ? `
+                            <div class="flex items-center justify-between pt-1 text-[11px]">
+                                <span class="text-slate-400">Menampilkan <strong class="text-white">${list.length}</strong> data sesuai filter.</span>
+                                <button onclick="adminIzinFilter='ALL'; adminIzinSektorFilter='ALL'; adminIzinKamarFilter='ALL'; adminIzinKegiatanFilter='ALL'; adminIzinTanggalFilter=''; adminIzinStatusFilter='ALL'; searchQuery=''; renderCurrentPage();" class="text-amber-300 hover:underline font-semibold cursor-pointer">
+                                    Reset Semua Filter
+                                </button>
+                            </div>
+                        ` : ''}
                     </div>
 
                     <div class="bg-asrama-card border border-asrama-border rounded-2xl overflow-hidden">
@@ -2707,14 +2827,22 @@
                                 <thead>
                                     <tr class="border-b border-asrama-border bg-asrama-bg/70 text-[11px] uppercase text-slate-400">
                                         <th class="py-3 px-4">Santri & Kamar</th>
-                                        <th class="py-3 px-4">Jenis & Alasan</th>
-                                        <th class="py-3 px-4">Jadwal</th>
+                                        <th class="py-3 px-4">Jenis & Detail Izin</th>
+                                        <th class="py-3 px-4">Hari & Tanggal</th>
                                         <th class="py-3 px-4">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-asrama-border text-xs">
-                                    ${list.map(p => {
+                                    ${list.length === 0 ? `
+                                        <tr><td colspan="4" class="py-8 text-center text-slate-400">Tidak ada data perizinan yang sesuai dengan filter.</td></tr>
+                                    ` : list.map(p => {
                                         const telatInfo = p.sudahKembali ? hitungTelatKembali(p.kembali, p.jamKembali || DEFAULT_BATAS_JAM_KEMBALI, p.tanggalKembaliAktual, p.jamKembaliAktual) : { isTelat: false };
+                                        const kegList = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0 ? p.kegiatanSakitList.join(', ') : '';
+                                        const badgeJenis = p.jenis === 'sakit'
+                                            ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300">IZIN SAKIT</span>`
+                                            : isIzinPulangKeluarga(p)
+                                                ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-sky-500/20 text-sky-300">PULANG · ACARA KELUARGA</span>`
+                                                : `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-500/20 text-purple-300">PULANG · SAKIT</span>`;
                                         return `
                                             <tr class="${telatInfo.isTelat ? 'bg-red-500/10' : 'hover:bg-asrama-cardHover/40'}">
                                                 <td class="py-3 px-4">
@@ -2722,13 +2850,18 @@
                                                     <p class="text-[11px] text-slate-400">${escHtml((p.sektor || '').replace('Asrama Nusantara ', 'NS '))} • ${escHtml(p.kamar)} (${escHtml(p.murobbi || '-')})</p>
                                                 </td>
                                                 <td class="py-3 px-4">
-                                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${p.jenis === 'pulang' ? 'bg-purple-500/20 text-purple-300' : 'bg-amber-500/20 text-amber-300'}">${escHtml(p.jenis)}</span>
-                                                    <p class="text-slate-200 mt-1">${escHtml(p.kategori)}</p>
+                                                    ${badgeJenis}
+                                                    ${kegList ? `<p class="text-[11px] text-emerald-300 font-semibold mt-1">Kegiatan: ${escHtml(kegList)}</p>` : ''}
+                                                    <p class="text-slate-200 mt-0.5">${escHtml(p.kategori)}</p>
                                                 </td>
                                                 <td class="py-3 px-4 text-slate-300">
-                                                    <p>Mulai: ${formatTanggalHari(p.tanggal)}</p>
-                                                    <p>Batas: ${formatTanggalHari(p.kembali)} (${escHtml(p.jamKembali || DEFAULT_BATAS_JAM_KEMBALI)} WIB)</p>
-                                                    ${p.sudahKembali ? `<p class="${telatInfo.isTelat ? 'text-red-300 font-bold' : 'text-emerald-300'}">Kembali: ${formatTanggalHari(p.tanggalKembaliAktual)} ${telatInfo.isTelat ? `(${telatInfo.label})` : ''}</p>` : ''}
+                                                    ${p.jenis === 'sakit' ? `
+                                                        <p class="font-semibold text-white">${formatTanggalHari(p.tanggal)}</p>
+                                                    ` : `
+                                                        <p>Pulang: ${formatTanggalHari(p.tanggal)}</p>
+                                                        <p>Batas: ${formatTanggalHari(p.kembali)} (${escHtml(p.jamKembali || DEFAULT_BATAS_JAM_KEMBALI)} WIB)</p>
+                                                        ${p.sudahKembali ? `<p class="${telatInfo.isTelat ? 'text-red-300 font-bold' : 'text-emerald-300'}">Kembali: ${formatTanggalHari(p.tanggalKembaliAktual)} ${telatInfo.isTelat ? `(${telatInfo.label})` : ''}</p>` : ''}
+                                                    `}
                                                 </td>
                                                 <td class="py-3 px-4">${renderApprovalBadge(p.status)}</td>
                                             </tr>
@@ -2744,19 +2877,28 @@
 
         function exportIzinExcel() {
             if (typeof XLSX === 'undefined') return;
-            const rows = perizinanList.map((p, idx) => ({
-                NO: idx + 1,
-                NAMA_SANTRI: p.santriNama,
-                SEKTOR: p.sektor,
-                KAMAR: p.kamar,
-                MUROBBI: p.murobbi,
-                JENIS: p.jenis,
-                ALASAN: p.kategori,
-                TANGGAL_MULAI: formatTanggalHari(p.tanggal),
-                BATAS_KEMBALI: `${formatTanggalHari(p.kembali)} (${p.jamKembali || DEFAULT_BATAS_JAM_KEMBALI} WIB)`,
-                STATUS_ACC: p.status,
-                KEMBALI_AKTUAL: p.sudahKembali ? formatTanggalHari(p.tanggalKembaliAktual) : 'Belum Kembali'
-            }));
+            const rows = perizinanList.map((p, idx) => {
+                const kegList = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0 ? p.kegiatanSakitList.join(', ') : '-';
+                const jenisLabel = p.jenis === 'sakit'
+                    ? 'Izin Sakit'
+                    : isIzinPulangKeluarga(p)
+                        ? 'Izin Pulang (Acara Keluarga)'
+                        : 'Izin Pulang (Sakit)';
+                return {
+                    NO: idx + 1,
+                    NAMA_SANTRI: p.santriNama,
+                    SEKTOR: p.sektor,
+                    KAMAR: p.kamar,
+                    MUROBBI: p.murobbi,
+                    JENIS: jenisLabel,
+                    KEGIATAN_IZIN_SAKIT: p.jenis === 'sakit' ? kegList : '-',
+                    ALASAN: p.kategori,
+                    TANGGAL_MULAI: formatTanggalHari(p.tanggal),
+                    BATAS_KEMBALI: p.jenis === 'pulang' ? `${formatTanggalHari(p.kembali)} (${p.jamKembali || DEFAULT_BATAS_JAM_KEMBALI} WIB)` : '-',
+                    STATUS_ACC: p.status,
+                    KEMBALI_AKTUAL: p.jenis === 'pulang' ? (p.sudahKembali ? formatTanggalHari(p.tanggalKembaliAktual) : 'Belum Kembali') : '-'
+                };
+            });
             const ws = XLSX.utils.json_to_sheet(rows);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Rekap Perizinan');
@@ -2788,7 +2930,7 @@
         // =========================================================================
         // 12. KARTU IZIN PULANG (HARI+TANGGAL, JAM 22:00, KONFIRMASI KEMBALI & TELAT MERAH)
         // =========================================================================
-        function renderKartuIzinPulangDetail(p, canSecurityManage = false, canMurobbiConfirmReturn = false) {
+        function renderKartuIzinPulangDetail(p, canManageApproval = false, canMurobbiConfirmReturn = false) {
             const batasJam = p.jamKembali || DEFAULT_BATAS_JAM_KEMBALI;
             const telatInfo = p.sudahKembali
                 ? hitungTelatKembali(p.kembali, batasJam, p.tanggalKembaliAktual, p.jamKembaliAktual)
@@ -2798,6 +2940,9 @@
             const cardBorderClass = isLateCard
                 ? 'bg-red-950/40 border-red-500/70'
                 : 'bg-asrama-card border-asrama-border';
+            const kategoriPulangBadge = isIzinPulangKeluarga(p)
+                ? `<span class="px-2 py-0.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/40 text-[10px] font-bold">Pulang · Acara Keluarga (ACC Ketua Sektor/Asrama)</span>`
+                : `<span class="px-2 py-0.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-bold">Pulang · Sakit (ACC Keamanan)</span>`;
 
             return `
                 <div class="${cardBorderClass} border rounded-2xl p-4 space-y-3 transition-all">
@@ -2805,6 +2950,7 @@
                         <div>
                             <div class="flex flex-wrap items-center gap-2">
                                 <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
+                                ${kategoriPulangBadge}
                                 ${renderApprovalBadge(p.status)}
                                 ${p.status === 'disetujui' ? (
                                     p.sudahKembali
@@ -2814,7 +2960,7 @@
                             </div>
                             <p class="text-xs text-emerald-400 mt-0.5">${escHtml(p.sektor)} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi || '-')})</p>
                         </div>
-                        ${canSecurityManage ? `
+                        ${canManageApproval ? `
                             <button onclick="openHapusIzinPulangModal('${escJs(p.id)}')" class="px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/30 border border-red-500/40 text-red-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer" title="Hapus Pengajuan Izin & Kirim Notif ke Murobbi">
                                 <i class="ph-bold ph-trash"></i> Hapus Izin
                             </button>
@@ -2825,6 +2971,7 @@
                         <p><span class="text-slate-400">Alasan:</span> <strong>${escHtml(p.kategori)}</strong></p>
                         <p><span class="text-slate-400">Tanggal Pulang:</span> ${formatTanggalHari(p.tanggal)}</p>
                         <p><span class="text-slate-400">Batas Kembali:</span> <strong class="text-amber-300">${formatTanggalHari(p.kembali)} (${escHtml(batasJam)} WIB)</strong></p>
+                        ${p.diprosesOleh ? `<p><span class="text-slate-400">Diproses Oleh:</span> ${escHtml(p.diprosesOleh)}</p>` : ''}
                         ${p.sudahKembali ? `
                             <p class="${isLateCard ? 'text-red-300 font-bold' : 'text-emerald-300 font-semibold'}">
                                 <span class="text-slate-400 font-normal">Kembali Aktual:</span> ${formatTanggalHari(p.tanggalKembaliAktual)} (${escHtml(p.jamKembaliAktual || '-')} WIB)
@@ -2836,14 +2983,14 @@
                     </div>
 
                     <div class="flex flex-wrap items-center justify-end gap-2">
-                        ${canSecurityManage && p.status === 'menunggu' ? `
+                        ${canManageApproval && p.status === 'menunggu' ? `
                             <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'disetujui')" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Setujui (ACC)</button>
                             <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'ditolak')" class="px-3.5 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
                         ` : ''}
-                        ${canSecurityManage && p.status === 'disetujui' ? `
+                        ${canManageApproval && p.status === 'disetujui' ? `
                             <button onclick="openUbahBatasKembaliModal('${escJs(p.id)}')" class="px-3 py-1.5 rounded-xl bg-asrama-bg border border-asrama-border text-slate-200 hover:text-white text-xs font-semibold cursor-pointer">Ubah Batas Kembali</button>
                         ` : ''}
-                        ${(canSecurityManage || canMurobbiConfirmReturn) && p.status === 'disetujui' && !p.sudahKembali ? `
+                        ${(canManageApproval || canMurobbiConfirmReturn) && p.status === 'disetujui' && !p.sudahKembali ? `
                             <button onclick="openKonfirmasiSantriKembaliModal('${escJs(p.id)}')" class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                                 <i class="ph-bold ph-check-circle"></i> Konfirmasi Santri Sudah Kembali
                             </button>
@@ -2979,7 +3126,7 @@
         async function confirmHapusIzinPulang(izinId) {
             const p = perizinanList.find(x => x.id === izinId);
             if (!p || !window.FB?.ready) return;
-            const alasan = (document.getElementById('hapus-izin-alasan')?.value || '').trim() || 'Ditolak dan dihapus oleh Divisi Keamanan.';
+            const alasan = (document.getElementById('hapus-izin-alasan')?.value || '').trim() || 'Ditolak dan dihapus oleh pengurus.';
 
             await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'perizinan', izinId));
 
@@ -2993,11 +3140,11 @@
                 }
             }
 
-            const pesanNotif = `Pengajuan izin pulang ananda ${p.santriNama} (${p.kamar}) ditolak dan dihapus oleh ${currentUser.nama} (Divisi Keamanan). Catatan: ${alasan}`;
+            const pesanNotif = `Pengajuan izin pulang ananda ${p.santriNama} (${p.kamar}) ditolak dan dihapus oleh ${currentUser.nama} (${getRoleLabelText(currentUser)}). Catatan: ${alasan}`;
             await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
                 sektor: p.sektor,
                 kamar: p.kamar,
-                judul: 'Izin Pulang Ditolak & Dihapus Keamanan',
+                judul: 'Izin Pulang Ditolak & Dihapus',
                 pesan: pesanNotif,
                 tanggal: getTodayIso(),
                 dibaca: false,
@@ -3116,48 +3263,121 @@
         }
 
         function renderMurobbiIzin() {
-            const scopedSantri = getScopedSantri();
-            const riwayat = perizinanList.filter(p => isRecordKetuaLantai(currentUser) ? p.sektor === currentUser.sektor : (p.sektor === currentUser.sektor && p.kamar === currentUser.kamar));
+            const allScopedSantri = getScopedSantri();
+            const filteredSantriForForm = allScopedSantri.filter(s =>
+                !izinSearchTerm ||
+                (s.nama || '').toLowerCase().includes(izinSearchTerm) ||
+                (s.kelas || '').toLowerCase().includes(izinSearchTerm) ||
+                (s.kamar || '').toLowerCase().includes(izinSearchTerm)
+            );
+
+            if (filteredSantriForForm.length > 0 && !filteredSantriForForm.some(s => s.id === selectedSantriForIzin)) {
+                selectedSantriForIzin = filteredSantriForForm[0].id;
+            } else if (filteredSantriForForm.length === 0) {
+                selectedSantriForIzin = null;
+            }
+
+            const riwayat = perizinanList.filter(p => {
+                const matchScope = isRecordKetuaLantai(currentUser)
+                    ? p.sektor === currentUser.sektor
+                    : (p.sektor === currentUser.sektor && p.kamar === currentUser.kamar);
+                const matchSearch = !izinRiwayatSearchTerm ||
+                    (p.santriNama || '').toLowerCase().includes(izinRiwayatSearchTerm) ||
+                    (p.kategori || '').toLowerCase().includes(izinRiwayatSearchTerm);
+                return matchScope && matchSearch;
+            });
+
+            const kegSakitOptions = ['Sekolah', 'Halaqoh Sore', 'Madin'];
 
             return `
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
                     <div class="lg:col-span-5 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
                         <div>
                             <h2 class="text-base font-extrabold text-white">Ajukan Izin Santri</h2>
-                            <p class="text-xs text-slate-300">Batas jam kembali default izin pulang adalah <strong>22:00 WIB</strong> pada hari yang ditentukan.</p>
+                            <p class="text-xs text-slate-300">Cari nama santri, lalu pilih jenis izin sakit (kegiatan) atau izin pulang.</p>
                         </div>
                         <div class="space-y-3">
                             <div>
-                                <label class="block text-xs font-semibold text-slate-200 mb-1">Pilih Santri</label>
-                                <select id="izin-santri-id" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                    ${scopedSantri.map(s => `<option value="${escHtml(s.id)}">${escHtml(s.nama)} (${escHtml(s.kamar)})</option>`).join('')}
+                                <label class="block text-xs font-semibold text-slate-200 mb-1">Cari & Pilih Santri *</label>
+                                <div class="relative mb-1.5">
+                                    <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                    <input type="text" value="${escHtml(izinSearchTerm)}" oninput="izinSearchTerm = this.value.toLowerCase(); renderCurrentPage();" placeholder="Cari nama santri atau kelas..." class="w-full border border-emerald-500/40 rounded-xl pl-8 pr-3 py-2 text-xs">
+                                </div>
+                                <select id="izin-santri-id" onchange="selectedSantriForIzin = this.value;" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    ${filteredSantriForForm.length === 0
+                                        ? `<option value="">-- Tidak ada santri cocok dengan pencarian --</option>`
+                                        : filteredSantriForForm.map(s => `<option value="${escHtml(s.id)}" ${s.id === selectedSantriForIzin ? 'selected' : ''}>${escHtml(s.nama)} (${escHtml(s.kamar)} • ${escHtml(s.kelas || '-')})</option>`).join('')
+                                    }
                                 </select>
                             </div>
+
                             <div>
-                                <label class="block text-xs font-semibold text-slate-200 mb-1">Jenis Perizinan</label>
-                                <select id="izin-jenis" onchange="toggleFormIzinJamKembali(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                    <option value="sakit">Izin Sakit (Divisi Kesehatan)</option>
-                                    <option value="pulang">Izin Pulang (Divisi Keamanan)</option>
+                                <label class="block text-xs font-semibold text-slate-200 mb-1">Jenis Perizinan *</label>
+                                <select id="izin-jenis" onchange="izinFormJenis = this.value; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs font-semibold">
+                                    <option value="sakit" ${izinFormJenis === 'sakit' ? 'selected' : ''}>Izin Sakit (Tidak Masuk Kegiatan — ACC Kesehatan)</option>
+                                    <option value="pulang" ${izinFormJenis === 'pulang' ? 'selected' : ''}>Izin Pulang ke Rumah</option>
                                 </select>
                             </div>
+
+                            ${izinFormJenis === 'sakit' ? `
+                                <div class="p-3 rounded-xl bg-asrama-bg border border-amber-500/35 space-y-2">
+                                    <label class="block text-xs font-bold text-amber-300">Pilih Kegiatan yang Tidak Diikuti (Bisa Lebih dari Satu) *</label>
+                                    <div class="grid grid-cols-3 gap-2">
+                                        ${kegSakitOptions.map(keg => {
+                                            const checked = izinFormKegiatanSakit.includes(keg);
+                                            return `
+                                                <button type="button" onclick="toggleIzinKegiatanSakit('${escJs(keg)}')" class="py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${checked ? 'bg-emerald-600 border-emerald-400 text-white shadow' : 'bg-asrama-card border-asrama-border text-slate-400 hover:text-white'}">
+                                                    <i class="ph-bold ${checked ? 'ph-check-square' : 'ph-square'}"></i>
+                                                    <span>${escHtml(keg)}</span>
+                                                </button>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            ` : `
+                                <div class="p-3 rounded-xl bg-asrama-bg border border-purple-500/35 space-y-2">
+                                    <label class="block text-xs font-bold text-purple-300">Kategori Pengajuan Izin Pulang *</label>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <button type="button" onclick="izinFormKategoriPulang = 'pulang_sakit'; renderCurrentPage();" class="p-2.5 rounded-xl border text-left transition-all cursor-pointer ${izinFormKategoriPulang === 'pulang_sakit' ? 'bg-purple-600/25 border-purple-400 text-white' : 'bg-asrama-card border-asrama-border text-slate-400 hover:text-white'}">
+                                            <p class="text-xs font-extrabold">Pulang karena Sakit</p>
+                                            <p class="text-[10px] text-slate-300 mt-0.5">ACC oleh Divisi Keamanan</p>
+                                        </button>
+                                        <button type="button" onclick="izinFormKategoriPulang = 'pulang_keluarga'; renderCurrentPage();" class="p-2.5 rounded-xl border text-left transition-all cursor-pointer ${izinFormKategoriPulang === 'pulang_keluarga' ? 'bg-sky-600/25 border-sky-400 text-white' : 'bg-asrama-card border-asrama-border text-slate-400 hover:text-white'}">
+                                            <p class="text-xs font-extrabold">Pulang Acara Keluarga</p>
+                                            <p class="text-[10px] text-slate-300 mt-0.5">ACC Ketua Sektor & Ketua Asrama</p>
+                                        </button>
+                                    </div>
+                                </div>
+                            `}
+
                             <div>
-                                <label class="block text-xs font-semibold text-slate-200 mb-1">Alasan / Keterangan</label>
-                                <input id="izin-alasan" type="text" placeholder="Contoh: Demam tinggi / Acara keluarga" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                <label class="block text-xs font-semibold text-slate-200 mb-1">Alasan / Keterangan Detail *</label>
+                                <input id="izin-alasan" type="text" placeholder="${izinFormJenis === 'sakit' ? 'Contoh: Demam tinggi & pusing' : (izinFormKategoriPulang === 'pulang_sakit' ? 'Contoh: Periksa ke dokter spesialis / rawat jalan' : 'Contoh: Walimah kakak kandung / acara keluarga')}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             </div>
-                            <div class="grid grid-cols-2 gap-2">
+
+                            ${izinFormJenis === 'sakit' ? `
                                 <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Tanggal Mulai</label>
-                                    <input id="izin-tgl" type="date" value="${getTodayIso()}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Hari & Tanggal Izin Sakit *</label>
+                                    <input id="izin-tgl" type="date" value="${getTodayIso()}" onchange="document.getElementById('izin-tgl-hari-preview').textContent = formatTanggalHari(this.value);" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <p class="text-[11px] text-emerald-300 font-semibold mt-1">Hari Terpilih: <span id="izin-tgl-hari-preview">${formatTanggalHari(getTodayIso())}</span></p>
+                                </div>
+                            ` : `
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-200 mb-1">Tanggal Pulang *</label>
+                                        <input id="izin-tgl" type="date" value="${getTodayIso()}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-200 mb-1">Tanggal Kembali *</label>
+                                        <input id="izin-kembali" type="date" value="${getTodayIso()}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    </div>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Tanggal Kembali</label>
-                                    <input id="izin-kembali" type="date" value="${getTodayIso()}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Jam Batas Kembali (Default 22:00 WIB)</label>
+                                    <input id="izin-jam-kembali" type="time" value="${DEFAULT_BATAS_JAM_KEMBALI}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                                 </div>
-                            </div>
-                            <div id="izin-jam-kembali-wrap" class="hidden">
-                                <label class="block text-xs font-semibold text-slate-200 mb-1">Jam Batas Kembali (Default 22:00 WIB)</label>
-                                <input id="izin-jam-kembali" type="time" value="${DEFAULT_BATAS_JAM_KEMBALI}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                            </div>
+                            `}
+
                             <button onclick="submitPengajuanIzin()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow cursor-pointer">
                                 Kirim Pengajuan Izin
                             </button>
@@ -3165,18 +3385,24 @@
                     </div>
 
                     <div class="lg:col-span-7 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-3">
-                        <h3 class="text-sm font-bold text-white">Riwayat Pengajuan & Konfirmasi Kepulangan Kamar</h3>
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <h3 class="text-sm font-bold text-white">Riwayat Pengajuan & Konfirmasi Kepulangan Kamar</h3>
+                            <input type="text" value="${escHtml(izinRiwayatSearchTerm)}" oninput="izinRiwayatSearchTerm = this.value.toLowerCase(); renderCurrentPage();" placeholder="Cari riwayat santri..." class="border border-asrama-border rounded-xl px-3 py-1.5 text-xs sm:w-48">
+                        </div>
                         <div class="space-y-3">
                             ${riwayat.length === 0 ? `<p class="text-xs text-slate-400">Belum ada pengajuan izin.</p>` : riwayat.map(p => {
                                 if (p.jenis === 'pulang') {
                                     return renderKartuIzinPulangDetail(p, false, true);
                                 }
+                                const kegText = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0
+                                    ? p.kegiatanSakitList.join(', ')
+                                    : '';
                                 return `
                                     <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                         <div>
                                             <p class="text-xs font-bold text-white">${escHtml(p.santriNama)} <span class="text-slate-400 font-normal">(${escHtml(p.kamar)})</span></p>
-                                            <p class="text-[11px] text-amber-300 mt-0.5">IZIN SAKIT — ${escHtml(p.kategori)}</p>
-                                            <p class="text-[11px] text-slate-400">${formatTanggalHari(p.tanggal)} s.d. ${formatTanggalHari(p.kembali)}</p>
+                                            <p class="text-[11px] text-amber-300 mt-0.5">IZIN SAKIT ${kegText ? `(${escHtml(kegText)})` : ''} — ${escHtml(p.kategori)}</p>
+                                            <p class="text-[11px] text-slate-400">Hari/Tanggal: <strong class="text-slate-200">${formatTanggalHari(p.tanggal)}</strong></p>
                                         </div>
                                         ${renderApprovalBadge(p.status)}
                                     </div>
@@ -3188,36 +3414,81 @@
             `;
         }
 
-        function toggleFormIzinJamKembali(jenis) {
-            const wrap = document.getElementById('izin-jam-kembali-wrap');
-            if (!wrap) return;
-            if (jenis === 'pulang') wrap.classList.remove('hidden');
-            else wrap.classList.add('hidden');
+        function toggleIzinKegiatanSakit(keg) {
+            const idx = izinFormKegiatanSakit.indexOf(keg);
+            if (idx >= 0) {
+                if (izinFormKegiatanSakit.length <= 1) {
+                    return showToast('Minimal pilih 1 kegiatan (Sekolah, Halaqoh Sore, atau Madin).', 'info');
+                }
+                izinFormKegiatanSakit.splice(idx, 1);
+            } else {
+                izinFormKegiatanSakit.push(keg);
+            }
+            renderCurrentPage();
         }
 
         async function submitPengajuanIzin() {
-            const santriId = document.getElementById('izin-santri-id')?.value;
-            const jenis = document.getElementById('izin-jenis')?.value || 'sakit';
+            const santriId = document.getElementById('izin-santri-id')?.value || selectedSantriForIzin;
+            const jenis = izinFormJenis;
             const alasan = (document.getElementById('izin-alasan')?.value || '').trim();
             const tanggal = document.getElementById('izin-tgl')?.value || getTodayIso();
-            const kembali = document.getElementById('izin-kembali')?.value || tanggal;
-            const jamKembali = document.getElementById('izin-jam-kembali')?.value || DEFAULT_BATAS_JAM_KEMBALI;
 
             const s = santriList.find(x => x.id === santriId);
-            if (!s || !alasan) return showToast('Pilih santri dan isi alasan perizinan!', 'error');
+            if (!s) return showToast('Pilih santri terlebih dahulu!', 'error');
+            if (!alasan) return showToast('Isi alasan / keterangan perizinan terlebih dahulu!', 'error');
 
-            const divisiTujuan = jenis === 'pulang' ? 'keamanan' : 'kesehatan';
+            if (jenis === 'sakit') {
+                if (!Array.isArray(izinFormKegiatanSakit) || izinFormKegiatanSakit.length === 0) {
+                    return showToast('Pilih minimal 1 kegiatan (Sekolah, Halaqoh Sore, atau Madin)!', 'error');
+                }
+                const kegJoined = izinFormKegiatanSakit.join(', ');
+                const docRef = await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
+                    santriId: s.id,
+                    santriNama: s.nama,
+                    sektor: s.sektor,
+                    kamar: s.kamar,
+                    murobbi: currentUser.nama,
+                    jenis: 'sakit',
+                    kegiatanSakitList: [...izinFormKegiatanSakit],
+                    kategori: alasan,
+                    tanggal,
+                    kembali: tanggal,
+                    status: 'menunggu',
+                    divisiTujuan: 'kesehatan',
+                    createdAt: new Date().toISOString()
+                });
+
+                await sendFcmPushEvent({
+                    eventType: 'izin_baru',
+                    dedupId: 'izin_' + docRef.id,
+                    jenis: 'sakit',
+                    sektor: s.sektor,
+                    divisiTujuan: 'kesehatan',
+                    title: 'SIAN · Pengajuan Izin Sakit Baru',
+                    body: `${s.nama} (${s.kamar}) — ${kegJoined} • ${alasan}`
+                });
+
+                showToast(`Pengajuan izin sakit (${kegJoined}) terkirim ke Divisi Kesehatan.`, 'success');
+                return;
+            }
+
+            const kembali = document.getElementById('izin-kembali')?.value || tanggal;
+            const jamKembali = document.getElementById('izin-jam-kembali')?.value || DEFAULT_BATAS_JAM_KEMBALI;
+            const isKeluarga = izinFormKategoriPulang === 'pulang_keluarga';
+            const divisiTujuan = isKeluarga ? 'pimpinan' : 'keamanan';
+
             const docRef = await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
                 santriId: s.id,
                 santriNama: s.nama,
                 sektor: s.sektor,
                 kamar: s.kamar,
                 murobbi: currentUser.nama,
-                jenis,
+                jenis: 'pulang',
+                kategoriPulang: izinFormKategoriPulang,
                 kategori: alasan,
                 tanggal,
                 kembali,
-                jamKembali: jenis === 'pulang' ? jamKembali : '',
+                jamKembali,
                 sudahKembali: false,
                 status: 'menunggu',
                 divisiTujuan,
@@ -3227,13 +3498,20 @@
             await sendFcmPushEvent({
                 eventType: 'izin_baru',
                 dedupId: 'izin_' + docRef.id,
+                jenis: 'pulang',
+                kategoriPulang: izinFormKategoriPulang,
                 sektor: s.sektor,
                 divisiTujuan,
-                title: `SIAN · Pengajuan Izin ${jenis === 'pulang' ? 'Pulang' : 'Sakit'}`,
+                title: isKeluarga ? 'SIAN · Izin Pulang (Acara Keluarga)' : 'SIAN · Izin Pulang (Sakit)',
                 body: `${s.nama} (${s.kamar}) — ${alasan}`
             });
 
-            showToast(`Pengajuan izin ${jenis} terkirim ke Divisi ${divisiTujuan}.`, 'success');
+            showToast(
+                isKeluarga
+                    ? 'Pengajuan izin pulang (Acara Keluarga) terkirim ke Ketua Sektor & Ketua Asrama.'
+                    : 'Pengajuan izin pulang (Sakit) terkirim ke Divisi Keamanan.',
+                'success'
+            );
         }
 
         function renderMurobbiPelanggaran() {
@@ -3336,21 +3614,43 @@
         }
 
         // =========================================================================
-        // 14. DIVISI KEAMANAN, KESEHATAN, KEBERSIHAN & KEGIATAN
+        // 14. DIVISI KEAMANAN, KETUA SEKTOR/ASRAMA (ACC PULANG KELUARGA), KESEHATAN, KEBERSIHAN & KEGIATAN
         // =========================================================================
         function renderDivKeamananIzin() {
             const list = perizinanList.filter(p =>
-                p.divisiTujuan === 'keamanan' &&
-                (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor)
+                isIzinPulangSakit(p) &&
+                (isRecordAdmin(currentUser) || currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor)
             );
             return `
                 <div class="space-y-5">
                     <div>
-                        <h2 class="text-xl font-extrabold text-white">Divisi Keamanan — ACC Izin Pulang & Kepulangan</h2>
-                        <p class="text-xs text-slate-300">Setujui izin pulang, atur batas kembali (default 22:00 WIB), catat kepulangan, atau hapus pengajuan dengan notifikasi otomatis ke Murobbi kamar.</p>
+                        <h2 class="text-xl font-extrabold text-white">Divisi Keamanan — ACC Izin Pulang (Karena Sakit)</h2>
+                        <p class="text-xs text-slate-300">Khusus persetujuan izin pulang karena sakit (izin pulang acara keluarga diproses oleh Ketua Sektor & Ketua Asrama).</p>
                     </div>
                     <div class="space-y-3">
-                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Belum ada pengajuan izin pulang.</div>` : list.map(p => renderKartuIzinPulangDetail(p, true, true)).join('')}
+                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Belum ada pengajuan izin pulang karena sakit.</div>` : list.map(p => renderKartuIzinPulangDetail(p, true, true)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderKetuaAccIzinPulangKeluarga() {
+            const canApprove = isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordKetuaLantai(currentUser);
+            const list = perizinanList.filter(p => {
+                if (!isIzinPulangKeluarga(p)) return false;
+                if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return true;
+                if (isRecordKetuaLantai(currentUser)) return p.sektor === currentUser.sektor;
+                return false;
+            });
+
+            return `
+                <div class="space-y-5">
+                    <div>
+                        <h2 class="text-xl font-extrabold text-white">ACC Izin Pulang — Kategori Acara Keluarga</h2>
+                        <p class="text-xs text-slate-300">Persetujuan izin pulang karena acara keluarga hanya dapat diberikan oleh <strong>Ketua Sektor</strong> atau <strong>Ketua Asrama Nusantara</strong>.</p>
+                    </div>
+                    <div class="space-y-3">
+                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Belum ada pengajuan izin pulang karena acara keluarga.</div>` : list.map(p => renderKartuIzinPulangDetail(p, canApprove, true)).join('')}
                     </div>
                 </div>
             `;
@@ -3359,15 +3659,31 @@
         async function prosesApprovalIzin(izinId, keputusan) {
             const p = perizinanList.find(x => x.id === izinId);
             if (!p || !window.FB?.ready) return;
+
+            if (isIzinPulangKeluarga(p) && !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser)) {
+                return showToast('Izin pulang acara keluarga hanya boleh disetujui oleh Ketua Sektor atau Ketua Asrama.', 'error');
+            }
+
+            const approverRole = isRecordKetuaAsrama(currentUser)
+                ? 'Ketua Asrama'
+                : isRecordKetuaLantai(currentUser)
+                    ? 'Ketua Sektor'
+                    : p.divisiTujuan === 'keamanan'
+                        ? 'Keamanan'
+                        : 'Kesehatan';
+
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), {
                 status: keputusan,
                 jamKembali: p.jamKembali || DEFAULT_BATAS_JAM_KEMBALI,
-                diprosesOleh: currentUser.nama
+                diprosesOleh: `${currentUser.nama} (${approverRole})`
             });
             if (keputusan === 'disetujui' && p.santriId) {
+                const kegInfo = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0
+                    ? ` [${p.kegiatanSakitList.join(', ')}]`
+                    : '';
                 await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', p.santriId), {
                     status: p.jenis === 'pulang' ? 'P' : 'S',
-                    catatan: `${p.kategori} (ACC ${p.divisiTujuan === 'keamanan' ? 'Keamanan' : 'Kesehatan'})`
+                    catatan: `${p.kategori}${kegInfo} (ACC ${approverRole})`
                 });
             }
             showToast(`Perizinan ${p.santriNama} ${keputusan === 'disetujui' ? 'DISETUJUI' : 'DITOLAK'}.`, keputusan === 'disetujui' ? 'success' : 'info');
@@ -3499,34 +3815,40 @@
 
         function renderDivKesehatanIzin() {
             const list = perizinanList.filter(p =>
-                p.divisiTujuan === 'kesehatan' &&
-                (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor)
+                p.jenis === 'sakit' &&
+                (isRecordAdmin(currentUser) || currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor)
             );
             return `
                 <div class="space-y-5">
                     <div>
                         <h2 class="text-xl font-extrabold text-white">Divisi Kesehatan — ACC & Rekap Izin Sakit</h2>
-                        <p class="text-xs text-slate-300">Persetujuan izin sakit tidak mengikuti kegiatan sekolah, madin, atau halaqoh.</p>
+                        <p class="text-xs text-slate-300">Persetujuan izin sakit tidak mengikuti kegiatan Sekolah, Halaqoh Sore, atau Madin.</p>
                     </div>
                     <div class="space-y-3">
-                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada pengajuan izin sakit.</div>` : list.map(p => `
-                            <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <div class="space-y-1">
-                                    <div class="flex items-center gap-2">
-                                        <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
-                                        ${renderApprovalBadge(p.status)}
+                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada pengajuan izin sakit.</div>` : list.map(p => {
+                            const kegText = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0
+                                ? p.kegiatanSakitList.join(', ')
+                                : '-';
+                            return `
+                                <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                    <div class="space-y-1">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
+                                            ${renderApprovalBadge(p.status)}
+                                        </div>
+                                        <p class="text-xs text-rose-400">${escHtml(p.sektor)} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi || '-')})</p>
+                                        <p class="text-xs text-emerald-300 font-semibold">Kegiatan Izin: ${escHtml(kegText)}</p>
+                                        <p class="text-xs text-slate-200">Keluhan: <strong>${escHtml(p.kategori)}</strong> • Hari/Tanggal: <strong>${formatTanggalHari(p.tanggal)}</strong></p>
                                     </div>
-                                    <p class="text-xs text-rose-400">${escHtml(p.sektor)} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi || '-')})</p>
-                                    <p class="text-xs text-slate-200">Keluhan: <strong>${escHtml(p.kategori)}</strong> (${formatTanggalHari(p.tanggal)} s.d. ${formatTanggalHari(p.kembali)})</p>
+                                    ${p.status === 'menunggu' ? `
+                                        <div class="flex items-center gap-2 shrink-0">
+                                            <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'disetujui')" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer">ACC Izin Sakit</button>
+                                            <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'ditolak')" class="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
+                                        </div>
+                                    ` : ''}
                                 </div>
-                                ${p.status === 'menunggu' ? `
-                                    <div class="flex items-center gap-2 shrink-0">
-                                        <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'disetujui')" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer">ACC Izin Sakit</button>
-                                        <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'ditolak')" class="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
-                                    </div>
-                                ` : ''}
-                            </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
@@ -4041,7 +4363,6 @@
                         <input id="rubrik-deskripsi" type="text" value="${escHtml(existing?.deskripsi || '')}" placeholder="Contoh: Setoran hafalan rutin & evaluasi kemampuan mengaji santri" class="w-full border border-asrama-border rounded-xl px-3 py-2">
                     </div>
 
-                    <!-- BAGIAN 1: KRITERIA / KOLOM PENILAIAN -->
                     <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
                         <div class="flex flex-wrap items-center justify-between gap-1.5">
                             <span class="font-bold text-emerald-300">1. Kriteria / Kolom Penilaian:</span>
@@ -4059,7 +4380,6 @@
                         </button>
                     </div>
 
-                    <!-- BAGIAN 2: CAKUPAN SHARE -->
                     <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
                         <span class="font-bold text-sky-300 block">2. Bagikan (Share) Rubrik Ini Untuk:</span>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -4079,7 +4399,6 @@
                         </div>
                     </div>
 
-                    <!-- BAGIAN 3: PENUGASAN PENGUJI -->
                     <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
                         <span class="font-bold text-amber-300 block">3. Penugasan Penguji (Siapa Menilai Kamar Mana):</span>
                         <select id="rubrik-penugasan-mode" onchange="toggleRubrikPenugasanBox(this.value)" class="w-full border border-asrama-border rounded-xl px-2.5 py-2">
