@@ -731,6 +731,36 @@
             return String(p?.targetKegiatan || p?.kegiatan || p?.alasanKegiatan || 'Sekolah, Halaqoh Sore, Madin');
         }
 
+        function normalizeToIsoDate(val) {
+            if (!val) return '';
+            const str = String(val).trim();
+            const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+            const dmyMatch = str.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/);
+            if (dmyMatch) return `${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`;
+            const sortable = toSortableTime(val);
+            const sortMatch = sortable.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            return sortMatch ? `${sortMatch[1]}-${sortMatch[2]}-${sortMatch[3]}` : '';
+        }
+
+        function getIzinStartIso(p) {
+            return normalizeToIsoDate(p?.tanggal || p?.tanggalMulai || p?.tgl || p?.createdAt);
+        }
+
+        function getIzinEndIso(p) {
+            return normalizeToIsoDate(p?.kembali || p?.tanggalKembali);
+        }
+
+        function matchIzinDateFilter(p, filterIso) {
+            if (!filterIso) return true;
+            const startIso = getIzinStartIso(p);
+            const endIso = getIzinEndIso(p);
+            if (!startIso) return false;
+            if (startIso === filterIso) return true;
+            if (endIso && startIso <= filterIso && filterIso <= endIso) return true;
+            return false;
+        }
+
         function isIzinInSektor(p, targetSektor) {
             if (!targetSektor) return false;
             if (isSameSektor(p?.sektor, targetSektor)) return true;
@@ -2561,7 +2591,7 @@
                     const kegTxt = getIzinKegiatanText(p).toLowerCase();
                     if (!kegTxt.includes(adminIzinKegiatanFilter.toLowerCase())) return false;
                 }
-                if (adminIzinTanggalFilter && p.tanggal !== adminIzinTanggalFilter) return false;
+                if (adminIzinTanggalFilter && !matchIzinDateFilter(p, adminIzinTanggalFilter)) return false;
                 if (adminIzinStatusFilter !== 'ALL' && p.status !== adminIzinStatusFilter) return false;
                 if (searchQuery && !(p.santriNama || '').toLowerCase().includes(searchQuery) && !(p.kamar || '').toLowerCase().includes(searchQuery) && !(p.kategori || '').toLowerCase().includes(searchQuery)) return false;
                 return true;
@@ -3660,13 +3690,15 @@
                     if (!kegTxt.includes(kesFilterKegiatan.toLowerCase())) return false;
                 }
                 if (kesFilterStatus !== 'ALL' && p.status !== kesFilterStatus) return false;
-                if (kesFilterTanggal && p.tanggal !== kesFilterTanggal) return false;
+                if (kesFilterTanggal && !matchIzinDateFilter(p, kesFilterTanggal)) return false;
                 const q = (kesSearchTerm || searchQuery).toLowerCase();
                 if (q && !(p.santriNama || '').toLowerCase().includes(q) && !(p.kamar || '').toLowerCase().includes(q) && !(p.kategori || '').toLowerCase().includes(q)) return false;
                 return true;
             });
 
-            const hiddenByFilterCount = Math.max(0, sektorSakit.length - list.length);
+            const hiddenSakitRecords = sektorSakit.filter(p => !list.some(item => item.id === p.id));
+            const hiddenByFilterCount = hiddenSakitRecords.length;
+            const hiddenNamesPreview = [...new Set(hiddenSakitRecords.map(p => `${p.santriNama} (${formatTanggalHari(getIzinStartIso(p))})`))].slice(0, 3).join(', ');
 
             // Santri yang ditandai Sakit (S) langsung pada presensi kamar tanpa pengajuan form izin
             const sakitPresensiTanpaForm = santriList.filter(s => {
@@ -3722,38 +3754,48 @@
                             <option value="disetujui" ${kesFilterStatus === 'disetujui' ? 'selected' : ''}>Disetujui</option>
                             <option value="ditolak" ${kesFilterStatus === 'ditolak' ? 'selected' : ''}>Ditolak</option>
                         </select>
-                        <input type="date" value="${escHtml(kesFilterTanggal)}" onchange="kesFilterTanggal = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        <input type="date" value="${escHtml(kesFilterTanggal)}" onchange="kesFilterTanggal = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs" title="Kosongkan tanggal untuk melihat semua hari">
                     </div>
 
                     ${hiddenByFilterCount > 0 ? `
                         <div class="p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                            <span class="text-amber-200">Terdapat <strong>${hiddenByFilterCount} pengajuan izin sakit lain</strong> (kegiatan Madin / Halaqoh Sore / tanggal lain) yang tersembunyi oleh filter aktif.</span>
+                            <span class="text-amber-200">
+                                Terdapat <strong>${hiddenByFilterCount} pengajuan izin sakit lain</strong> dari tanggal/kegiatan berbeda (${escHtml(hiddenNamesPreview)}) yang tersembunyi oleh filter aktif.
+                            </span>
                             <button onclick="kesFilterKegiatan='ALL'; kesFilterStatus='ALL'; kesFilterTanggal=''; kesSearchTerm=''; renderCurrentPage();" class="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-extrabold cursor-pointer shrink-0">
-                                Tampilkan Semua (${sektorSakit.length})
+                                Tampilkan Semua Tanggal (${sektorSakit.length})
                             </button>
                         </div>
                     ` : ''}
 
                     <div class="space-y-3">
-                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada pengajuan izin sakit yang sesuai dengan filter.</div>` : list.map(p => `
-                            <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <div class="space-y-1">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
-                                        ${renderApprovalBadge(p.status)}
+                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada pengajuan izin sakit yang sesuai dengan filter.</div>` : list.map(p => {
+                            const santriObj = santriList.find(s => (p.santriId && s.id === p.santriId) || (p.santriNama && String(s.nama || '').trim().toLowerCase() === String(p.santriNama).trim().toLowerCase()));
+                            const masihSakit = santriObj && santriObj.status === 'S';
+                            return `
+                                <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                    <div class="space-y-1">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
+                                            ${renderApprovalBadge(p.status)}
+                                            ${masihSakit ? `<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">Status Kamar: Sakit (S)</span>` : ''}
+                                        </div>
+                                        <p class="text-xs text-rose-400">${escHtml(toCanonicalSektor(p.sektor))} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi || '-')})</p>
+                                        <p class="text-xs text-slate-200">Keluhan: <strong>${escHtml(p.kategori || '-')}</strong> • Kegiatan: <strong class="text-amber-300">${escHtml(getIzinKegiatanText(p))}</strong></p>
+                                        <p class="text-[11px] text-slate-400">Hari & Tanggal Izin: ${escHtml(formatTanggalHari(getIzinStartIso(p)))}</p>
                                     </div>
-                                    <p class="text-xs text-rose-400">${escHtml(toCanonicalSektor(p.sektor))} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi || '-')})</p>
-                                    <p class="text-xs text-slate-200">Keluhan: <strong>${escHtml(p.kategori || '-')}</strong> • Kegiatan: <strong class="text-amber-300">${escHtml(getIzinKegiatanText(p))}</strong></p>
-                                    <p class="text-[11px] text-slate-400">Hari & Tanggal Izin: ${escHtml(formatTanggalHari(p.tanggal))}</p>
+                                    <div class="flex flex-wrap items-center gap-2 shrink-0">
+                                        ${p.status === 'menunggu' ? `
+                                            <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'disetujui')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">ACC Izin Sakit</button>
+                                            <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'ditolak')" class="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
+                                        ` : ''}
+                                        ${masihSakit ? `
+                                            <button onclick="tandaiSantriSembuh('${escJs(santriObj.id)}', '${escJs(santriObj.nama)}')" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer">Tandai Sembuh (H)</button>
+                                        ` : ''}
+                                    </div>
                                 </div>
-                                ${p.status === 'menunggu' ? `
-                                    <div class="flex items-center gap-2 shrink-0">
-                                        <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'disetujui')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">ACC Izin Sakit</button>
-                                        <button onclick="prosesApprovalIzin('${escJs(p.id)}', 'ditolak')" class="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
-                                    </div>
-                                ` : ''}
-                            </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
 
                     ${sakitPresensiTanpaForm.length > 0 ? `
@@ -3769,7 +3811,10 @@
                                             <p class="text-xs font-bold text-white">${escHtml(s.nama)}</p>
                                             <p class="text-[11px] text-slate-400">${escHtml(shortSektorLabel(s.sektor))} • ${escHtml(s.kamar)} • Keterangan: <strong class="text-amber-300">${escHtml(s.catatan || 'Sakit')}</strong></p>
                                         </div>
-                                        ${renderStatusBadge('S')}
+                                        <div class="flex items-center gap-2">
+                                            ${renderStatusBadge('S')}
+                                            <button onclick="tandaiSantriSembuh('${escJs(s.id)}', '${escJs(s.nama)}')" class="px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer">Sembuh (H)</button>
+                                        </div>
                                     </div>
                                 `).join('')}
                             </div>
@@ -3777,6 +3822,15 @@
                     ` : ''}
                 </div>
             `;
+        }
+
+        async function tandaiSantriSembuh(santriId, santriNama) {
+            if (!window.FB || !window.FB.ready || !santriId) return;
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), {
+                status: 'H',
+                catatan: ''
+            });
+            showToast(`${santriNama} ditandai sudah sembuh (Hadir).`, 'success');
         }
 
         // =========================================================================
