@@ -175,7 +175,7 @@
             <!-- PANEL 2: DAFTAR PENGURUS BARU (KHUSUS MUROBBI KAMAR) -->
             <div id="auth-panel-signup" class="hidden space-y-3 relative z-10">
                 <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-200">
-                    Pendaftaran khusus <strong>Murobbi Kamar</strong>. Jabatan Ketua Sektor / Ketua Divisi Utama ditetapkan oleh Administrator setelah ACC.
+                    Pendaftaran khusus <strong>Murobbi Kamar</strong>. Jabatan Ketua Asrama / Ketua Sektor / Ketua Divisi Utama ditetapkan oleh Administrator setelah ACC.
                 </div>
                 <div>
                     <label class="block text-[11px] font-semibold text-slate-300 mb-1">Email Google (Gmail Aktif) *</label>
@@ -382,7 +382,6 @@
             measurementId: "G-Z20J923GWW"
         };
 
-        // Web Push VAPID Key Tertanam Permanen untuk Semua Laptop & HP Pengurus
         window.DEFAULT_VAPID_KEY = "BMQSFmMqkKYMT9E9GEzN85QH8Vx3Wd2BX-SyDkDsz312geMySlydZohNW4OdXwK5naJitZrzJQtYQ-QZ6xg0__A";
 
         let savedLocalConfig = null;
@@ -529,6 +528,16 @@
         let adminInfoSelectedKamar = kamarBySektor[SEKTOR_ASRAMA[0]][0].nama;
         let adminFilterSektor = 'ALL';
         let adminIzinFilter = 'ALL';
+        let adminIzinSektorFilter = 'ALL';
+        let adminPulangSektorFilter = 'ALL';
+        let pelFilterSektor = 'ALL';
+        let kebFilterSektor = 'ALL';
+
+        // Filter khusus Halaman Laporan Absen Semua Santri (Ketua Asrama / Admin)
+        let absenMonitorSektor = 'ALL';
+        let absenMonitorKamar = 'ALL';
+        let absenMonitorStatus = 'ALL';
+
         let kesFilterTanggal = '';
         let kesFilterKamar = 'ALL';
         let kesFilterKegiatan = 'ALL';
@@ -545,6 +554,7 @@
         let santriList = [];
         let perizinanList = [];
         let pindahKamarList = [];
+        let murobbiNotifList = [];
         let pelanggaranList = [];
         let laptopList = [];
         let sitaanList = [];
@@ -553,7 +563,7 @@
         let kegiatanList = [...DEFAULT_KEGIATAN];
 
         let unsubscribeListeners = [];
-        let initialSyncDone = { perizinan: false, pindah: false, pengurus: false };
+        let initialSyncDone = { perizinan: false, pindah: false, pengurus: false, murobbiNotif: false };
         let notifiedRecordIds = new Set();
         let deferredPwaPrompt = null;
         let currentFcmToken = '';
@@ -561,7 +571,7 @@
         let sianAudioCtx = null;
 
         // =========================================================================
-        // 3. UTILITAS DASAR, FORMAT TANGGAL, HARI & HAK AKSES
+        // 3. UTILITAS DASAR, FORMAT TANGGAL (DD-MM-YYYY + HARI) & HAK AKSES
         // =========================================================================
         function escHtml(str) {
             return String(str ?? '')
@@ -590,6 +600,41 @@
             const idx = d.getDay();
             const map = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
             return map[idx] || 'Senin';
+        }
+
+        // Format seragam: "Hari, DD-MM-YYYY" (misal: "Ahad, 22-11-2026")
+        function formatTanggalHari(dateStr) {
+            if (!dateStr) return '-';
+            const raw = String(dateStr).trim();
+            const ymdMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            let dObj = null;
+            let ddmmyyyy = raw;
+
+            if (ymdMatch) {
+                const [, yyyy, mm, dd] = ymdMatch;
+                ddmmyyyy = `${dd}-${mm}-${yyyy}`;
+                dObj = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+            } else {
+                const dmyMatch = raw.match(/^(\d{2})-(\d{2})-(\d{4})/);
+                if (dmyMatch) {
+                    const [, dd, mm, yyyy] = dmyMatch;
+                    ddmmyyyy = `${dd}-${mm}-${yyyy}`;
+                    dObj = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+                }
+            }
+
+            if (dObj && !isNaN(dObj.getTime())) {
+                const hariMap = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+                return `${hariMap[dObj.getDay()]}, ${ddmmyyyy}`;
+            }
+            return ddmmyyyy;
+        }
+
+        function formatRentangTanggalHari(tglMulai, tglKembali) {
+            if (!tglMulai) return '-';
+            const startFormatted = formatTanggalHari(tglMulai);
+            if (!tglKembali || tglKembali === tglMulai) return startFormatted;
+            return `${startFormatted} s.d. ${formatTanggalHari(tglKembali)}`;
         }
 
         function getKegiatanForDay(hariNama) {
@@ -641,8 +686,13 @@
             return rec.isAdmin === true || String(rec.role || '').toLowerCase() === 'admin';
         }
 
-        function isRecordKetuaLantai(rec) {
+        function isRecordKetuaAsrama(rec) {
             if (!rec || isRecordAdmin(rec)) return false;
+            return rec.isKetuaAsrama === true || String(rec.role || '').toLowerCase() === 'ketua_asrama';
+        }
+
+        function isRecordKetuaLantai(rec) {
+            if (!rec || isRecordAdmin(rec) || isRecordKetuaAsrama(rec)) return false;
             return rec.isKetuaLantai === true || String(rec.role || '').toLowerCase() === 'ketua_sektor';
         }
 
@@ -654,6 +704,7 @@
         function hasDivisiAccess(divName) {
             if (!currentUser) return false;
             if (isRecordAdmin(currentUser)) return true;
+            if (isRecordKetuaAsrama(currentUser)) return true;
             if (isRecordKetuaLantai(currentUser)) return true;
             if (isKetuaUtamaOf(divName)) return true;
             const d = String(currentUser.divisi || '').toLowerCase();
@@ -671,7 +722,7 @@
 
         function getScopedSantri() {
             if (!currentUser) return [];
-            if (isRecordAdmin(currentUser)) return santriList;
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return santriList;
             if (isRecordKetuaLantai(currentUser)) {
                 return santriList.filter(s => s.sektor === currentUser.sektor);
             }
@@ -688,7 +739,7 @@
         }
 
         function getPendingPindahForCurrentUser() {
-            if (!currentUser || isRecordAdmin(currentUser)) return [];
+            if (!currentUser || isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return [];
             return pindahKamarList.filter(pk =>
                 pk.status === 'menunggu_verifikasi' &&
                 pk.keSektor === currentUser.sektor &&
@@ -701,12 +752,24 @@
             if (isRecordAdmin(currentUser)) {
                 return pindahKamarList.filter(pk => !pk.adminRead);
             }
+            if (isRecordKetuaAsrama(currentUser)) {
+                return pindahKamarList.filter(pk => !pk.ketuaAsramaRead);
+            }
             if (isRecordKetuaLantai(currentUser)) {
                 return pindahKamarList.filter(pk =>
                     !pk.ketuaRead && (pk.dariSektor === currentUser.sektor || pk.keSektor === currentUser.sektor)
                 );
             }
             return [];
+        }
+
+        function getUnreadMurobbiNotifs() {
+            if (!currentUser || isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return [];
+            return murobbiNotifList.filter(n =>
+                !n.readByMurobbi &&
+                n.sektor === currentUser.sektor &&
+                n.kamar === currentUser.kamar
+            );
         }
 
         function getPendingCount() {
@@ -718,12 +781,18 @@
                 total += getUnreadPindahNotifForLeaders().length;
                 return total;
             }
+            if (isRecordKetuaAsrama(currentUser)) {
+                total += perizinanList.filter(p => p.status === 'menunggu').length;
+                total += getUnreadPindahNotifForLeaders().length;
+                return total;
+            }
             if (isRecordKetuaLantai(currentUser)) {
                 total += perizinanList.filter(p => p.status === 'menunggu' && p.sektor === currentUser.sektor).length;
                 total += getUnreadPindahNotifForLeaders().length;
                 return total;
             }
             total += getPendingPindahForCurrentUser().length;
+            total += getUnreadMurobbiNotifs().length;
             if (hasDivisiAccess('keamanan')) {
                 total += perizinanList.filter(p =>
                     p.status === 'menunggu' &&
@@ -1048,6 +1117,7 @@
                     divisiLabel: divLabelMap[divisi] || divisi,
                     role: 'murobbi',
                     isAdmin: false,
+                    isKetuaAsrama: false,
                     isKetuaLantai: false,
                     ketuaUtamaDivisi: '',
                     status: 'pending',
@@ -1076,7 +1146,7 @@
         }
 
         // =========================================================================
-        // 6. GOOGLE LOGIN & RESOLVE SESSION PENGURUS / ADMIN
+        // 6. GOOGLE LOGIN & RESOLVE SESSION PENGURUS / KETUA ASRAMA / ADMIN
         // =========================================================================
         async function handleGoogleLogin() {
             unlockSianAudio();
@@ -1119,6 +1189,7 @@
                         divisiLabel: 'Administrator Pusat',
                         role: 'admin',
                         isAdmin: true,
+                        isKetuaAsrama: false,
                         isKetuaLantai: false,
                         ketuaUtamaDivisi: '',
                         status: 'approved'
@@ -1158,12 +1229,14 @@
                 }
 
                 const isAdmin = isRecordAdmin(userData);
+                const isKetuaAsrama = isRecordKetuaAsrama(userData);
                 const isKetua = isRecordKetuaLantai(userData);
 
                 currentUser = {
                     ...userData,
                     email,
                     isAdmin,
+                    isKetuaAsrama,
                     isKetuaLantai: isKetua,
                     inisial: (userData.nama || 'US').replace(/^Ust\.?\s+/i, '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'US'
                 };
@@ -1234,7 +1307,7 @@
             });
 
             pengurusList.forEach(p => {
-                if (p.status !== 'approved' || isRecordAdmin(p) || isRecordKetuaLantai(p)) return;
+                if (p.status !== 'approved' || isRecordAdmin(p) || isRecordKetuaAsrama(p) || isRecordKetuaLantai(p)) return;
                 if (!p.sektor || !p.kamar || !kamarBySektor[p.sektor]) return;
                 const kObj = kamarBySektor[p.sektor].find(k => k.nama === p.kamar);
                 if (kObj && (!kObj.murobbi || kObj.murobbi === 'Belum Ada Murobbi')) {
@@ -1268,9 +1341,9 @@
             if (!window.FB?.ready) return;
             unsubscribeListeners.forEach(fn => { try { fn(); } catch (_) {} });
             unsubscribeListeners = [];
-            initialSyncDone = { perizinan: false, pindah: false, pengurus: false };
+            initialSyncDone = { perizinan: false, pindah: false, pengurus: false, murobbiNotif: false };
 
-            // 1. Pengaturan (Kamar, Pengumuman, Kegiatan, VAPID Key Pusat)
+            // 1. Pengaturan
             unsubscribeListeners.push(
                 window.FB.onSnapshot(window.FB.collection(window.FB.db, 'pengaturan'), (snap) => {
                     snap.forEach(d => {
@@ -1347,6 +1420,7 @@
                                 if (p.status === 'menunggu' && !notifiedRecordIds.has(key)) {
                                     const tujuan = String(p.divisiTujuan || '').toLowerCase();
                                     const eligible = isRecordAdmin(currentUser)
+                                        || isRecordKetuaAsrama(currentUser)
                                         || (isRecordKetuaLantai(currentUser) && p.sektor === currentUser.sektor)
                                         || (tujuan === 'keamanan' && hasDivisiAccess('keamanan') && (isKetuaUtamaOf('keamanan') || p.sektor === currentUser.sektor))
                                         || (tujuan === 'kesehatan' && hasDivisiAccess('kesehatan') && (isKetuaUtamaOf('kesehatan') || p.sektor === currentUser.sektor));
@@ -1379,7 +1453,7 @@
                             if (chg.type === 'added') {
                                 const pk = chg.doc.data();
                                 const key = 'pindah_' + chg.doc.id;
-                                const isTargetMurobbi = !isRecordAdmin(currentUser) && !isRecordKetuaLantai(currentUser)
+                                const isTargetMurobbi = !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser)
                                     && pk.keSektor === currentUser.sektor && pk.keKamar === currentUser.kamar;
                                 if (pk.status === 'menunggu_verifikasi' && isTargetMurobbi && !notifiedRecordIds.has(key)) {
                                     notifiedRecordIds.add(key);
@@ -1397,7 +1471,37 @@
                 })
             );
 
-            // 6. Pelanggaran / Keterlambatan
+            // 6. Notifikasi Murobbi Kamar (Saat Izin Pulang Ditolak & Dihapus Keamanan)
+            unsubscribeListeners.push(
+                window.FB.onSnapshot(window.FB.collection(window.FB.db, 'notifikasi_murobbi'), (snap) => {
+                    murobbiNotifList = snap.docs
+                        .map(d => ({ id: d.id, ...d.data() }))
+                        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+
+                    if (initialSyncDone.murobbiNotif && currentUser) {
+                        snap.docChanges().forEach(chg => {
+                            if (chg.type === 'added') {
+                                const n = chg.doc.data();
+                                const key = 'mnotif_' + chg.doc.id;
+                                const isTargetMurobbi = !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser)
+                                    && n.sektor === currentUser.sektor && n.kamar === currentUser.kamar;
+                                if (!n.readByMurobbi && isTargetMurobbi && !notifiedRecordIds.has(key)) {
+                                    notifiedRecordIds.add(key);
+                                    triggerSystemNotification(
+                                        `SIAN · Izin Pulang Ditolak & Dihapus (${n.kamar})`,
+                                        `Izin pulang ${n.santriNama} telah ditolak & dihapus oleh ${n.dihapusOleh || 'Divisi Keamanan'}.`
+                                    );
+                                }
+                            }
+                        });
+                    }
+                    initialSyncDone.murobbiNotif = true;
+                    updatePendingBadge();
+                    if (currentUser) renderCurrentPage();
+                })
+            );
+
+            // 7. Pelanggaran / Keterlambatan
             unsubscribeListeners.push(
                 window.FB.onSnapshot(window.FB.collection(window.FB.db, 'pelanggaran'), (snap) => {
                     pelanggaranList = snap.docs
@@ -1407,7 +1511,7 @@
                 })
             );
 
-            // 7. Keamanan Aset (Laptop & Sitaan)
+            // 8. Keamanan Aset (Laptop & Sitaan)
             unsubscribeListeners.push(
                 window.FB.onSnapshot(window.FB.collection(window.FB.db, 'keamanan_aset'), (snap) => {
                     laptopList = [];
@@ -1421,7 +1525,7 @@
                 })
             );
 
-            // 8. Kebersihan (Roan & Kas)
+            // 9. Kebersihan (Roan & Kas)
             unsubscribeListeners.push(
                 window.FB.onSnapshot(window.FB.collection(window.FB.db, 'kebersihan'), (snap) => {
                     roanList = [];
@@ -1443,22 +1547,26 @@
             if (!currentUser) return;
             document.getElementById('sidebar-email').textContent = currentUser.email;
             const isAdmin = isRecordAdmin(currentUser);
+            const isKetuaAsrama = isRecordKetuaAsrama(currentUser);
             const isKetua = isRecordKetuaLantai(currentUser);
 
             let badgeTxt = `${currentUser.sektor.replace('Asrama Nusantara ', 'NS ')} • ${currentUser.kamar}`;
             if (isAdmin) badgeTxt = 'Administrator Pusat • 6 Sektor';
+            else if (isKetuaAsrama) badgeTxt = 'Ketua Asrama Nusantara • Semua Sektor';
             else if (isKetua) badgeTxt = `${currentUser.sektor.replace('Asrama Nusantara ', 'NS ')} • Ketua Sektor`;
             else if (currentUser.ketuaUtamaDivisi) badgeTxt += ` • Ketua ${currentUser.ketuaUtamaDivisi.toUpperCase()} Utama`;
 
             document.getElementById('sidebar-sektor-badge').textContent = badgeTxt;
-            document.getElementById('mobile-role-subtitle').textContent = currentUser.divisiLabel || 'Pengurus';
+            document.getElementById('mobile-role-subtitle').textContent = isKetuaAsrama ? 'Ketua Asrama Nusantara' : (currentUser.divisiLabel || 'Pengurus');
             document.getElementById('user-avatar').textContent = currentUser.inisial;
             document.getElementById('user-name').textContent = currentUser.nama;
             document.getElementById('user-roles').innerHTML = isAdmin
                 ? `<span class="text-amber-400 font-semibold">Administrator Pusat</span> • Asrama Nusantara`
-                : isKetua
-                    ? `<span class="text-emerald-400 font-semibold">Ketua Sektor Lantai</span> • ${currentUser.sektor.replace('Asrama Nusantara ', 'NS ')}`
-                    : `${escHtml(currentUser.kamar)} • <span class="text-emerald-400 font-semibold">${escHtml(currentUser.divisiLabel || '')}</span>`;
+                : isKetuaAsrama
+                    ? `<span class="text-emerald-400 font-semibold">Ketua Asrama Nusantara</span> • Semua Sektor`
+                    : isKetua
+                        ? `<span class="text-emerald-400 font-semibold">Ketua Sektor Lantai</span> • ${currentUser.sektor.replace('Asrama Nusantara ', 'NS ')}`
+                        : `${escHtml(currentUser.kamar)} • <span class="text-emerald-400 font-semibold">${escHtml(currentUser.divisiLabel || '')}</span>`;
 
             updatePendingBadge();
         }
@@ -1484,7 +1592,10 @@
                 if (pendingPengurus > 0) return navigate('admin_pengurus');
                 return navigate('admin_izin');
             }
-            if (getPendingPindahForCurrentUser().length > 0) {
+            if (isRecordKetuaAsrama(currentUser)) {
+                return navigate('admin_izin');
+            }
+            if (getPendingPindahForCurrentUser().length > 0 || getUnreadMurobbiNotifs().length > 0) {
                 return navigate('beranda');
             }
             if (isRecordKetuaLantai(currentUser)) return navigate('div_keamanan_izin');
@@ -1504,11 +1615,24 @@
                         <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1.5">Menu Administrator</p>
                         ${navItem('admin_info', 'ph-buildings', 'Info Asrama (Kamar & Murobbi)', 'text-amber-400')}
                         ${navItem('admin_santri', 'ph-users-three', 'Data Santri & Import Excel', 'text-emerald-400')}
+                        ${navItem('ketua_asrama_absen', 'ph-check-square-offset', 'Laporan Absen Semua Santri', 'text-emerald-300')}
                         ${navItem('admin_pengurus', 'ph-user-circle-check', 'Akun Google Pengurus', 'text-teal-400')}
                         ${navItem('div_kegiatan', 'ph-calendar-check', 'Atur & Edit Kegiatan Harian', 'text-amber-400')}
                         ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Rekap Telat & Takziran WA', 'text-rose-400')}
                         ${navItem('admin_izin', 'ph-file-xls', 'Semua Izin & Ekspor Data', 'text-sky-400')}
                         ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
+                    </div>
+                `;
+            } else if (isRecordKetuaAsrama(currentUser)) {
+                html += `
+                    <div class="space-y-1">
+                        <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">Monitoring Ketua Asrama</p>
+                        ${navItem('ketua_asrama_absen', 'ph-check-square-offset', 'Laporan Absen Semua Santri', 'text-emerald-400')}
+                        ${navItem('admin_izin', 'ph-file-xls', 'Monitor Izin Sakit & Pulang', 'text-sky-400')}
+                        ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
+                        ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Rekap Telat & Takziran', 'text-amber-400')}
+                        ${navItem('div_kebersihan', 'ph-broom', 'Jadwal Roan & Kebersihan', 'text-teal-400')}
+                        ${navItem('ketua_asrama_kamar', 'ph-buildings', 'Info Kamar & Murobbi (6 Sektor)', 'text-emerald-300')}
                     </div>
                 `;
             } else {
@@ -1612,6 +1736,8 @@
                 case 'admin_pengurus': container.innerHTML = renderAdminPengurus(); break;
                 case 'admin_izin': container.innerHTML = renderAdminIzin(); break;
                 case 'admin_pulang': container.innerHTML = renderAdminPulang(); break;
+                case 'ketua_asrama_absen': container.innerHTML = renderKetuaAsramaAbsen(); break;
+                case 'ketua_asrama_kamar': container.innerHTML = renderKetuaAsramaInfoKamar(); break;
                 case 'murobbi_presensi': container.innerHTML = renderMurobbiPresensi(); break;
                 case 'murobbi_izin': container.innerHTML = renderMurobbiIzin(); break;
                 case 'murobbi_pelanggaran': container.innerHTML = renderMurobbiPelanggaran(); break;
@@ -1625,7 +1751,7 @@
         }
 
         // =========================================================================
-        // 9. BERANDA & RINGKASAN (TERMASUK AKTIVASI NOTIFIKASI 1 KETUK)
+        // 9. BERANDA & RINGKASAN (TERMASUK NOTIFIKASI MUROBBI & KETUA ASRAMA)
         // =========================================================================
         function renderBeranda() {
             const scoped = getScopedSantri();
@@ -1635,7 +1761,12 @@
             const pulang = scoped.filter(s => s.status === 'P').length;
             const persenHadir = totalSantri > 0 ? Math.round((hadir / totalSantri) * 100) : 100;
             const pendingCount = getPendingCount();
-            const berhalangan = scoped.filter(s => (s.status || 'H') !== 'H');
+            const berhalangan = scoped.filter(s => {
+                const isNotH = (s.status || 'H') !== 'H';
+                const matchSearch = !searchQuery || s.nama.toLowerCase().includes(searchQuery) || (s.kamar || '').toLowerCase().includes(searchQuery);
+                return isNotH && matchSearch;
+            });
+            const todayFormatted = formatTanggalHari(todayISO());
             const hariIni = getHariIndonesiaFromDate();
             const jadwalHariIni = getKegiatanForDay(hariIni);
 
@@ -1656,6 +1787,34 @@
                     </button>
                 </div>
             ` : '';
+
+            // Notifikasi Izin Pulang Ditolak & Dihapus Keamanan untuk Murobbi Kamar
+            const unreadMurobbiNotifs = getUnreadMurobbiNotifs();
+            let murobbiAlertHtml = '';
+            if (unreadMurobbiNotifs.length > 0) {
+                murobbiAlertHtml = `
+                    <div class="bg-red-500/15 border border-red-500/40 rounded-2xl p-4 space-y-3">
+                        <div class="flex items-center gap-2 text-red-300 font-bold text-sm">
+                            <i class="ph-fill ph-warning-octagon text-lg"></i>
+                            <span>Pemberitahuan Divisi Keamanan (${unreadMurobbiNotifs.length})</span>
+                        </div>
+                        <div class="space-y-2">
+                            ${unreadMurobbiNotifs.map(n => `
+                                <div class="p-3 rounded-xl bg-asrama-bg border border-red-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div class="space-y-0.5">
+                                        <p class="text-xs font-bold text-white">Izin Pulang Ditolak & Dihapus: ${escHtml(n.santriNama)} (${escHtml(n.kamar)})</p>
+                                        <p class="text-[11px] text-red-200">${escHtml(n.catatanKeamanan || 'Pengajuan izin pulang ditolak dan dihapus oleh Divisi Keamanan.')}</p>
+                                        <p class="text-[11px] text-slate-400">Alasan Izin: ${escHtml(n.alasanIzin || '-')} • Tanggal: ${escHtml(formatTanggalHari(n.tanggalIzin))} • Oleh: ${escHtml(n.dihapusOleh || 'Keamanan')}</p>
+                                    </div>
+                                    <button onclick="markMurobbiNotifRead('${n.id}')" class="px-3.5 py-1.5 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-xs text-slate-200 font-bold cursor-pointer shrink-0 self-start">
+                                        Tandai Dibaca
+                                    </button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
 
             const pendingPindahMurobbi = getPendingPindahForCurrentUser();
             const notifPindahLeaders = getUnreadPindahNotifForLeaders();
@@ -1708,31 +1867,46 @@
             }
 
             const isAdmin = isRecordAdmin(currentUser);
-            const quickActions = isAdmin
-                ? `
+            const isKetuaAsrama = isRecordKetuaAsrama(currentUser);
+            let quickActions = '';
+            if (isAdmin) {
+                quickActions = `
                     <button onclick="navigate('admin_info')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg cursor-pointer"><i class="ph-bold ph-buildings text-base"></i> Info Asrama & Kamar</button>
                     <button onclick="navigate('admin_santri')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer"><i class="ph-bold ph-file-xls text-base text-emerald-400"></i> Data Santri & Import</button>
-                `
-                : `
+                `;
+            } else if (isKetuaAsrama) {
+                quickActions = `
+                    <button onclick="navigate('ketua_asrama_absen')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg cursor-pointer"><i class="ph-bold ph-check-square-offset text-base"></i> Laporan Absen Semua Santri</button>
+                    <button onclick="navigate('admin_izin')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer"><i class="ph-bold ph-file-xls text-base text-sky-400"></i> Monitor Izin Sakit/Pulang</button>
+                `;
+            } else {
+                quickActions = `
                     <button onclick="navigate('murobbi_presensi')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg cursor-pointer"><i class="ph-bold ph-check-square-offset text-base"></i> Absen Kamar (${hariIni})</button>
                     <button onclick="navigate('murobbi_izin')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer"><i class="ph-bold ph-paper-plane-tilt text-base text-sky-400"></i> Ajukan Izin</button>
                 `;
+            }
 
             return `
                 <div class="space-y-5">
                     ${notifBannerHtml}
+                    ${murobbiAlertHtml}
                     ${verifikasiBannerHtml}
 
                     <div class="bg-gradient-to-br from-emerald-950/70 via-asrama-card to-asrama-card border border-emerald-500/30 rounded-3xl p-5 md:p-7 shadow-xl relative overflow-hidden">
                         <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
                             <div class="space-y-1.5">
-                                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                                    <i class="ph-fill ph-sparkle"></i> ${escHtml(currentUser.divisiLabel || 'Pengurus SIAN')}
-                                </span>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                        <i class="ph-fill ph-sparkle"></i> ${isKetuaAsrama ? 'Ketua Asrama Nusantara' : escHtml(currentUser.divisiLabel || 'Pengurus SIAN')}
+                                    </span>
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-asrama-bg border border-asrama-border text-slate-300">
+                                        <i class="ph ph-calendar-blank text-emerald-400"></i> ${escHtml(todayFormatted)}
+                                    </span>
+                                </div>
                                 <h2 class="text-xl md:text-2xl font-extrabold text-white">Assalamu'alaikum, ${escHtml(currentUser.nama)}</h2>
                                 <p class="text-xs text-slate-300">
-                                    Wilayah Tugas: <strong class="text-emerald-300">${escHtml(currentUser.sektor)}</strong>
-                                    ${!isAdmin && !isRecordKetuaLantai(currentUser) ? ` • <strong class="text-white">${escHtml(currentUser.kamar)}</strong>` : ''}
+                                    Wilayah Tugas: <strong class="text-emerald-300">${isKetuaAsrama ? 'Seluruh Sektor Asrama Nusantara (Lt. 1 – Lt. 3)' : escHtml(currentUser.sektor)}</strong>
+                                    ${!isAdmin && !isKetuaAsrama && !isRecordKetuaLantai(currentUser) ? ` • <strong class="text-white">${escHtml(currentUser.kamar)}</strong>` : ''}
                                 </p>
                             </div>
                             <div class="flex flex-wrap gap-2.5">${quickActions}</div>
@@ -1807,12 +1981,12 @@
 
                         <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
                             <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="ph-fill ph-clock-countdown text-emerald-400 text-lg"></i> Jadwal Kegiatan Hari ${hariIni}</h3>
+                                <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="ph-fill ph-clock-countdown text-emerald-400 text-lg"></i> Jadwal Kegiatan (${escHtml(todayFormatted)})</h3>
                                 ${canManageKegiatan() ? `<button onclick="navigate('div_kegiatan')" class="text-[11px] text-emerald-400 hover:underline font-semibold cursor-pointer">Kelola Jadwal</button>` : ''}
                             </div>
                             <div class="space-y-2.5">
                                 ${jadwalHariIni.map(k => `
-                                    <div onclick="${!isAdmin ? `openPresensiForKegiatan('${k.id}')` : ''}" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-asrama-bg border border-asrama-border ${!isAdmin ? 'hover:border-emerald-500/40 cursor-pointer' : ''}">
+                                    <div onclick="${!isAdmin && !isKetuaAsrama ? `openPresensiForKegiatan('${k.id}')` : ''}" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-asrama-bg border border-asrama-border ${!isAdmin && !isKetuaAsrama ? 'hover:border-emerald-500/40 cursor-pointer' : ''}">
                                         <div class="flex items-center gap-3">
                                             <span class="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[11px] font-bold whitespace-nowrap">${escHtml(formatJamKegiatan(k))}</span>
                                             <div>
@@ -1820,7 +1994,7 @@
                                                 <p class="text-[11px] text-slate-400">PJ: ${escHtml(k.pj)}</p>
                                             </div>
                                         </div>
-                                        ${!isAdmin ? `<i class="ph ph-caret-right text-slate-400"></i>` : ''}
+                                        ${!isAdmin && !isKetuaAsrama ? `<i class="ph ph-caret-right text-slate-400"></i>` : ''}
                                     </div>
                                 `).join('')}
                             </div>
@@ -1846,6 +2020,224 @@
         function openPresensiForKegiatan(id) {
             selectedKegiatanId = id;
             navigate('murobbi_presensi');
+        }
+
+        // =========================================================================
+        // 9B. HALAMAN KHUSUS KETUA ASRAMA: LAPORAN ABSEN SEMUA SANTRI & INFO KAMAR
+        // =========================================================================
+        function renderKetuaAsramaAbsen() {
+            const todayFormatted = formatTanggalHari(todayISO());
+            const availableKamars = absenMonitorSektor === 'ALL'
+                ? Array.from(new Set(santriList.map(s => s.kamar).filter(Boolean))).sort()
+                : (kamarBySektor[absenMonitorSektor] || []).map(k => k.nama);
+
+            const filtered = santriList.filter(s => {
+                const okSec = absenMonitorSektor === 'ALL' || s.sektor === absenMonitorSektor;
+                const okKam = absenMonitorKamar === 'ALL' || s.kamar === absenMonitorKamar;
+                const stNow = s.status || 'H';
+                const okSt = absenMonitorStatus === 'ALL' || stNow === absenMonitorStatus;
+                const okSearch = !searchQuery ||
+                    s.nama.toLowerCase().includes(searchQuery) ||
+                    (s.kelas || '').toLowerCase().includes(searchQuery) ||
+                    (s.kamar || '').toLowerCase().includes(searchQuery) ||
+                    (s.sektor || '').toLowerCase().includes(searchQuery);
+                return okSec && okKam && okSt && okSearch;
+            });
+
+            return `
+                <div class="space-y-5">
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white">Laporan Absen Semua Santri Asrama Nusantara</h2>
+                            <p class="text-xs text-slate-300">Pantauan menyeluruh seluruh sektor (${escHtml(todayFormatted)}) • Total terfilter: <strong class="text-emerald-300">${filtered.length} santri</strong>.</p>
+                        </div>
+                        <button onclick="exportLaporanAbsenExcel()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start">
+                            <i class="ph-bold ph-file-xls"></i> Ekspor Laporan Absen (.xlsx)
+                        </button>
+                    </div>
+
+                    <!-- Ringkasan Kehadiran Per Sektor (Klik untuk Filter) -->
+                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                        ${SEKTOR_ASRAMA.map(sec => {
+                            const secSantri = santriList.filter(s => s.sektor === sec);
+                            const secHadir = secSantri.filter(s => (s.status || 'H') === 'H').length;
+                            const secTidakHadir = secSantri.length - secHadir;
+                            const active = absenMonitorSektor === sec;
+                            return `
+                                <button onclick="absenMonitorSektor = '${active ? 'ALL' : sec}'; absenMonitorKamar = 'ALL'; renderCurrentPage();" class="p-3 rounded-2xl border text-left transition-all cursor-pointer ${active ? 'bg-emerald-500/15 border-emerald-500 text-white' : 'bg-asrama-card border-asrama-border text-slate-300 hover:bg-asrama-cardHover'}">
+                                    <p class="text-xs font-bold truncate">${sec.replace('Asrama Nusantara ', 'NS ')}</p>
+                                    <p class="text-base font-extrabold text-white mt-1">${secHadir}<span class="text-xs font-normal text-slate-400">/${secSantri.length}</span></p>
+                                    <p class="text-[10px] ${secTidakHadir > 0 ? 'text-amber-300' : 'text-emerald-400'}">
+                                        ${secTidakHadir > 0 ? `${secTidakHadir} berhalangan` : 'Hadir 100%'}
+                                    </p>
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <!-- Bar Pencarian & Filter -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 bg-asrama-card border border-asrama-border rounded-2xl p-3">
+                        <div class="relative lg:col-span-2">
+                            <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="text" value="${escHtml(searchQuery)}" oninput="handleGlobalSearch(this.value)" placeholder="Cari nama santri, kelas, atau kamar..." class="w-full border border-asrama-border rounded-xl pl-9 pr-3 py-2 text-xs">
+                        </div>
+                        <select onchange="absenMonitorSektor = this.value; absenMonitorKamar = 'ALL'; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${absenMonitorSektor === 'ALL' ? 'selected' : ''}>Semua Sektor (6 Sektor)</option>
+                            ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${absenMonitorSektor === sec ? 'selected' : ''}>${sec.replace('Asrama Nusantara ', 'NS ')}</option>`).join('')}
+                        </select>
+                        <select onchange="absenMonitorKamar = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${absenMonitorKamar === 'ALL' ? 'selected' : ''}>Semua Kamar</option>
+                            ${availableKamars.map(km => `<option value="${escHtml(km)}" ${absenMonitorKamar === km ? 'selected' : ''}>${escHtml(km)}</option>`).join('')}
+                        </select>
+                        <select onchange="absenMonitorStatus = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${absenMonitorStatus === 'ALL' ? 'selected' : ''}>Semua Status Kehadiran</option>
+                            <option value="H" ${absenMonitorStatus === 'H' ? 'selected' : ''}>Hadir (H)</option>
+                            <option value="S" ${absenMonitorStatus === 'S' ? 'selected' : ''}>Sakit (S)</option>
+                            <option value="I" ${absenMonitorStatus === 'I' ? 'selected' : ''}>Izin (I)</option>
+                            <option value="A" ${absenMonitorStatus === 'A' ? 'selected' : ''}>Alpa (A)</option>
+                            <option value="P" ${absenMonitorStatus === 'P' ? 'selected' : ''}>Pulang (P)</option>
+                        </select>
+                    </div>
+
+                    <!-- Tabel Data Absen Semua Santri -->
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b border-asrama-border bg-asrama-bg/70 text-[11px] uppercase text-slate-400">
+                                        <th class="py-3 px-4">No</th>
+                                        <th class="py-3 px-4">Nama Santri</th>
+                                        <th class="py-3 px-4">Kelas</th>
+                                        <th class="py-3 px-4">Sektor Lantai</th>
+                                        <th class="py-3 px-4">Kamar & Murobbi</th>
+                                        <th class="py-3 px-4">Status</th>
+                                        <th class="py-3 px-4">Keterangan</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-asrama-border text-xs">
+                                    ${filtered.length === 0 ? `
+                                        <tr><td colspan="7" class="py-8 text-center text-slate-400">Tidak ada data santri sesuai pencarian/filter.</td></tr>
+                                    ` : filtered.slice(0, 300).map((s, idx) => {
+                                        const kObj = getKamarObj(s.sektor, s.kamar);
+                                        return `
+                                            <tr class="hover:bg-asrama-cardHover/50">
+                                                <td class="py-3 px-4 text-slate-400">${idx + 1}</td>
+                                                <td class="py-3 px-4 font-bold text-white">${escHtml(s.nama)}</td>
+                                                <td class="py-3 px-4 text-slate-300">${escHtml(s.kelas || '-')}</td>
+                                                <td class="py-3 px-4 text-slate-300">${escHtml(s.sektor.replace('Asrama Nusantara ', 'NS '))}</td>
+                                                <td class="py-3 px-4">
+                                                    <span class="font-semibold text-emerald-300">${escHtml(s.kamar)}</span>
+                                                    <span class="block text-[11px] text-slate-400">${escHtml(kObj.murobbi)}</span>
+                                                </td>
+                                                <td class="py-3 px-4">${renderStatusBadge(s.status)}</td>
+                                                <td class="py-3 px-4 text-slate-300">${escHtml(s.catatan || '-')}</td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function exportLaporanAbsenExcel() {
+            const labelMap = { H: 'Hadir', S: 'Sakit', I: 'Izin', A: 'Alpa', P: 'Pulang' };
+            const rows = santriList.map((s, idx) => {
+                const kObj = getKamarObj(s.sektor, s.kamar);
+                const st = s.status || 'H';
+                return {
+                    No: idx + 1,
+                    'Tanggal Laporan': formatTanggalHari(todayISO()),
+                    'Nama Santri': s.nama,
+                    Kelas: s.kelas || '-',
+                    Sektor: s.sektor,
+                    Kamar: s.kamar,
+                    Murobbi: kObj.murobbi,
+                    Status: `${st} (${labelMap[st] || st})`,
+                    Keterangan: s.catatan || '-'
+                };
+            });
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Laporan_Absen_Santri');
+            XLSX.writeFile(wb, `SIAN_Laporan_Absen_Semua_Santri_${todayISO()}.xlsx`);
+            showToast('Laporan absen semua santri berhasil diekspor ke Excel!', 'success');
+        }
+
+        function renderKetuaAsramaInfoKamar() {
+            const kamarList = kamarBySektor[adminInfoSelectedSektor] || [];
+            const activeKamarObj = getKamarObj(adminInfoSelectedSektor, adminInfoSelectedKamar);
+            const penghuni = santriList.filter(s => s.sektor === adminInfoSelectedSektor && s.kamar === adminInfoSelectedKamar);
+
+            return `
+                <div class="space-y-6">
+                    <div>
+                        <h2 class="text-xl font-extrabold text-white">Monitoring Kamar, Murobbi & Penghuni (6 Sektor)</h2>
+                        <p class="text-xs text-slate-300">Pantau pembagian kamar, Murobbi penanggung jawab, dan santri di seluruh lantai Asrama Nusantara.</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                        ${SEKTOR_ASRAMA.map(sec => {
+                            const active = sec === adminInfoSelectedSektor;
+                            const jmlSantri = santriList.filter(s => s.sektor === sec).length;
+                            const jmlKamar = (kamarBySektor[sec] || []).length;
+                            return `
+                                <button onclick="selectAdminSektor('${sec}')" class="p-3 rounded-xl border text-left transition-all cursor-pointer ${active ? 'bg-emerald-500/15 border-emerald-500 text-white' : 'bg-asrama-card border-asrama-border text-slate-300 hover:bg-asrama-cardHover'}">
+                                    <p class="text-xs font-bold truncate">${sec.replace('Asrama Nusantara ', 'NS ')}</p>
+                                    <p class="text-[11px] ${active ? 'text-emerald-300' : 'text-slate-400'}">${jmlKamar} Kamar • ${jmlSantri} Santri</p>
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                        <div class="lg:col-span-5 bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-3">
+                            <h3 class="text-sm font-bold text-white">Daftar Kamar (${adminInfoSelectedSektor.replace('Asrama Nusantara ', 'NS ')})</h3>
+                            <div class="space-y-2 max-h-[520px] overflow-y-auto pr-1">
+                                ${kamarList.map(kObj => {
+                                    const isSel = kObj.nama === adminInfoSelectedKamar;
+                                    const count = santriList.filter(s => s.sektor === adminInfoSelectedSektor && s.kamar === kObj.nama).length;
+                                    return `
+                                        <div onclick="selectAdminKamar('${escHtml(kObj.nama)}')" class="p-3 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition-all ${isSel ? 'bg-emerald-500/15 border-emerald-500' : 'bg-asrama-bg border-asrama-border hover:border-slate-600'}">
+                                            <div class="min-w-0">
+                                                <p class="text-xs font-bold text-white truncate">${escHtml(kObj.nama)}</p>
+                                                <p class="text-[11px] text-amber-300 truncate"><i class="ph-fill ph-user"></i> ${escHtml(kObj.murobbi || 'Belum Ada Murobbi')}</p>
+                                            </div>
+                                            <span class="px-2 py-0.5 rounded-md bg-asrama-card border border-asrama-border text-[11px] text-slate-200 font-semibold shrink-0">${count} anak</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+
+                        <div class="lg:col-span-7 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
+                            <div class="pb-4 border-b border-asrama-border">
+                                <span class="text-[11px] font-semibold text-emerald-400">${escHtml(adminInfoSelectedSektor)}</span>
+                                <h3 class="text-lg font-extrabold text-white">${escHtml(activeKamarObj.nama)}</h3>
+                                <p class="text-xs text-slate-300 mt-0.5">Murobbi Kamar: <strong class="text-white">${escHtml(activeKamarObj.murobbi || 'Belum Ada Murobbi')}</strong></p>
+                            </div>
+                            <div class="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+                                ${penghuni.length === 0 ? `
+                                    <div class="p-8 text-center bg-asrama-bg border border-dashed border-asrama-border rounded-xl text-xs text-slate-400">Belum ada data santri di kamar ini.</div>
+                                ` : penghuni.map((s, i) => `
+                                    <div class="flex items-center justify-between gap-3 p-3 rounded-xl bg-asrama-bg border border-asrama-border">
+                                        <div class="flex items-center gap-3">
+                                            <span class="w-7 h-7 rounded-lg bg-asrama-card border border-asrama-border flex items-center justify-center text-[11px] font-bold text-slate-300">${i + 1}</span>
+                                            <div>
+                                                <p class="text-xs font-bold text-white">${escHtml(s.nama)}</p>
+                                                <p class="text-[11px] text-slate-400">Kelas ${escHtml(s.kelas || '-')}</p>
+                                            </div>
+                                        </div>
+                                        ${renderStatusBadge(s.status)}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         // =========================================================================
@@ -2205,7 +2597,7 @@
         }
 
         // =========================================================================
-        // 11. ADMIN: DATA SANTRI, AKUN GOOGLE PENGURUS (EDIT ROLE), IZIN & PULANG
+        // 11. ADMIN & KETUA ASRAMA: DATA SANTRI, PENGURUS, SEMUA IZIN & PULANG
         // =========================================================================
         function renderAdminSantri() {
             const filtered = santriList.filter(s => {
@@ -2342,7 +2734,7 @@
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
                             <h2 class="text-xl font-extrabold text-white">Manajemen Akun Google Pengurus</h2>
-                            <p class="text-xs text-slate-300">ACC pendaftaran Murobbi baru atau ubah jabatan menjadi Ketua Sektor Lantai / Ketua Divisi Utama.</p>
+                            <p class="text-xs text-slate-300">ACC pendaftaran Murobbi baru atau ubah jabatan menjadi Ketua Asrama Nusantara / Ketua Sektor / Ketua Divisi Utama.</p>
                         </div>
                         <button onclick="openTambahPengurusModal()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start">
                             <i class="ph-bold ph-user-plus"></i> Tambah Pengurus Manual
@@ -2385,6 +2777,7 @@
                                         const isPrimaryAdmin = String(p.email || '').toLowerCase() === PRIMARY_ADMIN_EMAIL;
                                         let roleBadge = `<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-semibold">${escHtml(p.divisiLabel || p.divisi || 'Murobbi')}</span>`;
                                         if (isRecordAdmin(p)) roleBadge = `<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">Administrator Pusat</span>`;
+                                        else if (isRecordKetuaAsrama(p)) roleBadge = `<span class="px-2 py-0.5 rounded bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 font-bold">Ketua Asrama Nusantara</span>`;
                                         else if (isRecordKetuaLantai(p)) roleBadge = `<span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-bold">Ketua Sektor Lantai</span>`;
                                         else if (p.ketuaUtamaDivisi) roleBadge += ` <span class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold">Ketua ${escHtml(p.ketuaUtamaDivisi.toUpperCase())} Utama</span>`;
 
@@ -2395,8 +2788,8 @@
                                                     <p class="text-[11px] text-slate-400">${escHtml(p.email)}</p>
                                                 </td>
                                                 <td class="py-3 px-4">
-                                                    <p class="text-slate-200">${escHtml(p.sektor || '-')}</p>
-                                                    <p class="text-[11px] text-emerald-400">${escHtml(p.kamar || '-')}</p>
+                                                    <p class="text-slate-200">${isRecordKetuaAsrama(p) ? 'Semua Sektor (Lt. 1 – Lt. 3)' : escHtml(p.sektor || '-')}</p>
+                                                    <p class="text-[11px] text-emerald-400">${isRecordKetuaAsrama(p) ? 'Semua Kamar (60 Kamar)' : escHtml(p.kamar || '-')}</p>
                                                 </td>
                                                 <td class="py-3 px-4">${roleBadge}</td>
                                                 <td class="py-3 px-4 text-right space-x-1">
@@ -2446,22 +2839,23 @@
                         <input id="add-pg-nama" type="text" placeholder="Contoh: Burhanuddin" class="w-full border border-asrama-border rounded-xl px-3 py-2">
                     </div>
                     <div>
-                        <label class="block font-semibold mb-1">Sektor Lantai</label>
+                        <label class="block font-semibold mb-1">Jabatan / Role</label>
+                        <select id="add-pg-role" class="w-full border border-asrama-border rounded-xl px-3 py-2">
+                            <option value="murobbi">Murobbi Kamar</option>
+                            <option value="ketua_sektor">Ketua Sektor Lantai</option>
+                            <option value="ketua_asrama">Ketua Asrama Nusantara (Semua Sektor)</option>
+                            <option value="admin">Administrator</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Sektor Lantai (Untuk Murobbi / Ketua Sektor)</label>
                         <select id="add-pg-sektor" onchange="updateKamarDropdown('add-pg-sektor', 'add-pg-kamar')" class="w-full border border-asrama-border rounded-xl px-3 py-2">
                             ${SEKTOR_ASRAMA.map(s => `<option value="${s}">${s}</option>`).join('')}
                         </select>
                     </div>
                     <div>
-                        <label class="block font-semibold mb-1">Kamar Binaan</label>
+                        <label class="block font-semibold mb-1">Kamar Binaan (Untuk Murobbi)</label>
                         <select id="add-pg-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2">${kamOpts}</select>
-                    </div>
-                    <div>
-                        <label class="block font-semibold mb-1">Jabatan / Role</label>
-                        <select id="add-pg-role" class="w-full border border-asrama-border rounded-xl px-3 py-2">
-                            <option value="murobbi">Murobbi Kamar</option>
-                            <option value="ketua_sektor">Ketua Sektor Lantai</option>
-                            <option value="admin">Administrator</option>
-                        </select>
                     </div>
                     <div>
                         <label class="block font-semibold mb-1">Divisi Tugas</label>
@@ -2484,21 +2878,30 @@
         async function savePengurusManual() {
             const email = document.getElementById('add-pg-email').value.trim().toLowerCase();
             const nama = formatNamaUst(document.getElementById('add-pg-nama').value);
-            const sektor = document.getElementById('add-pg-sektor').value;
-            const kamar = document.getElementById('add-pg-kamar').value;
             const role = document.getElementById('add-pg-role').value;
+            const sektor = role === 'ketua_asrama' || role === 'admin' ? 'Semua Sektor' : document.getElementById('add-pg-sektor').value;
+            const kamar = role === 'ketua_asrama' || role === 'admin' ? 'Semua Kamar' : document.getElementById('add-pg-kamar').value;
             const divisi = document.getElementById('add-pg-divisi').value;
             if (!email || !nama) return showToast('Email dan nama wajib diisi!', 'error');
             const divLabelMap = { keamanan: 'Divisi Keamanan', kesehatan: 'Divisi Kesehatan', kebersihan: 'Divisi Kebersihan', kegiatan: 'Divisi Kegiatan' };
+            const divLabel = role === 'ketua_asrama'
+                ? 'Ketua Asrama Nusantara'
+                : role === 'ketua_sektor'
+                    ? 'Ketua Sektor Lantai'
+                    : role === 'admin'
+                        ? 'Administrator Pusat'
+                        : (divLabelMap[divisi] || divisi);
+
             await window.FB.setDoc(window.FB.doc(window.FB.db, 'pengurus', email), {
                 email,
                 nama,
                 sektor,
                 kamar,
                 divisi,
-                divisiLabel: role === 'ketua_sektor' ? 'Ketua Sektor Lantai' : (divLabelMap[divisi] || divisi),
+                divisiLabel: divLabel,
                 role,
                 isAdmin: role === 'admin',
+                isKetuaAsrama: role === 'ketua_asrama',
                 isKetuaLantai: role === 'ketua_sektor',
                 ketuaUtamaDivisi: '',
                 status: 'approved',
@@ -2513,7 +2916,7 @@
             if (!p) return;
             const sec = p.sektor && SEKTOR_ASRAMA.includes(p.sektor) ? p.sektor : SEKTOR_ASRAMA[0];
             const kamOpts = (kamarBySektor[sec] || []).map(k => `<option value="${escHtml(k.nama)}" ${k.nama === p.kamar ? 'selected' : ''}>${escHtml(k.nama)}</option>`).join('');
-            const curRole = isRecordAdmin(p) ? 'admin' : isRecordKetuaLantai(p) ? 'ketua_sektor' : 'murobbi';
+            const curRole = isRecordAdmin(p) ? 'admin' : isRecordKetuaAsrama(p) ? 'ketua_asrama' : isRecordKetuaLantai(p) ? 'ketua_sektor' : 'murobbi';
 
             openModal(
                 `Edit Akun & Jabatan — ${p.nama}`,
@@ -2524,22 +2927,23 @@
                         <input id="ed-pg-nama" type="text" value="${escHtml(p.nama)}" class="w-full border border-asrama-border rounded-xl px-3 py-2">
                     </div>
                     <div>
-                        <label class="block font-semibold mb-1">Sektor Lantai</label>
+                        <label class="block font-semibold mb-1">Jabatan Utama</label>
+                        <select id="ed-pg-role" class="w-full border border-asrama-border rounded-xl px-3 py-2">
+                            <option value="murobbi" ${curRole === 'murobbi' ? 'selected' : ''}>Murobbi Kamar</option>
+                            <option value="ketua_sektor" ${curRole === 'ketua_sektor' ? 'selected' : ''}>Ketua Sektor Lantai</option>
+                            <option value="ketua_asrama" ${curRole === 'ketua_asrama' ? 'selected' : ''}>Ketua Asrama Nusantara (Semua Sektor)</option>
+                            <option value="admin" ${curRole === 'admin' ? 'selected' : ''}>Administrator</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Sektor Lantai (Untuk Murobbi / Ketua Sektor)</label>
                         <select id="ed-pg-sektor" onchange="updateKamarDropdown('ed-pg-sektor', 'ed-pg-kamar')" class="w-full border border-asrama-border rounded-xl px-3 py-2">
                             ${SEKTOR_ASRAMA.map(s => `<option value="${s}" ${s === sec ? 'selected' : ''}>${s}</option>`).join('')}
                         </select>
                     </div>
                     <div>
-                        <label class="block font-semibold mb-1">Kamar Binaan</label>
+                        <label class="block font-semibold mb-1">Kamar Binaan (Untuk Murobbi)</label>
                         <select id="ed-pg-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2">${kamOpts}</select>
-                    </div>
-                    <div>
-                        <label class="block font-semibold mb-1">Jabatan Utama</label>
-                        <select id="ed-pg-role" class="w-full border border-asrama-border rounded-xl px-3 py-2">
-                            <option value="murobbi" ${curRole === 'murobbi' ? 'selected' : ''}>Murobbi Kamar</option>
-                            <option value="ketua_sektor" ${curRole === 'ketua_sektor' ? 'selected' : ''}>Ketua Sektor Lantai</option>
-                            <option value="admin" ${curRole === 'admin' ? 'selected' : ''}>Administrator</option>
-                        </select>
                     </div>
                     <div>
                         <label class="block font-semibold mb-1">Divisi Tugas</label>
@@ -2571,21 +2975,29 @@
 
         async function saveEditPengurus(email) {
             const nama = document.getElementById('ed-pg-nama').value.trim();
-            const sektor = document.getElementById('ed-pg-sektor').value;
-            const kamar = document.getElementById('ed-pg-kamar').value;
             const role = document.getElementById('ed-pg-role').value;
+            const sektor = role === 'ketua_asrama' || role === 'admin' ? 'Semua Sektor' : document.getElementById('ed-pg-sektor').value;
+            const kamar = role === 'ketua_asrama' || role === 'admin' ? 'Semua Kamar' : document.getElementById('ed-pg-kamar').value;
             const divisi = document.getElementById('ed-pg-divisi').value;
             const ketuaUtamaDivisi = document.getElementById('ed-pg-ketua-utama').value;
             const divLabelMap = { keamanan: 'Divisi Keamanan', kesehatan: 'Divisi Kesehatan', kebersihan: 'Divisi Kebersihan', kegiatan: 'Divisi Kegiatan' };
+            const divLabel = role === 'ketua_asrama'
+                ? 'Ketua Asrama Nusantara'
+                : role === 'ketua_sektor'
+                    ? 'Ketua Sektor Lantai'
+                    : role === 'admin'
+                        ? 'Administrator Pusat'
+                        : (divLabelMap[divisi] || divisi);
 
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', email), {
                 nama,
                 sektor,
                 kamar,
                 divisi,
-                divisiLabel: role === 'ketua_sektor' ? 'Ketua Sektor Lantai' : (divLabelMap[divisi] || divisi),
+                divisiLabel: divLabel,
                 role,
                 isAdmin: role === 'admin',
+                isKetuaAsrama: role === 'ketua_asrama',
                 isKetuaLantai: role === 'ketua_sektor',
                 ketuaUtamaDivisi
             });
@@ -2599,15 +3011,27 @@
         }
 
         function renderAdminIzin() {
-            const list = perizinanList.filter(p => adminIzinFilter === 'ALL' || p.jenis === adminIzinFilter);
+            const list = perizinanList.filter(p => {
+                const okJenis = adminIzinFilter === 'ALL' || p.jenis === adminIzinFilter;
+                const okSektor = adminIzinSektorFilter === 'ALL' || p.sektor === adminIzinSektorFilter;
+                const okSearch = !searchQuery ||
+                    (p.santriNama || '').toLowerCase().includes(searchQuery) ||
+                    (p.kamar || '').toLowerCase().includes(searchQuery) ||
+                    (p.kategori || '').toLowerCase().includes(searchQuery);
+                return okJenis && okSektor && okSearch;
+            });
             return `
                 <div class="space-y-5">
-                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                         <div>
-                            <h2 class="text-xl font-extrabold text-white">Rekap Semua Perizinan Santri</h2>
-                            <p class="text-xs text-slate-300">Pantau seluruh izin sakit maupun izin pulang dan ekspor ke Excel (.xlsx).</p>
+                            <h2 class="text-xl font-extrabold text-white">Monitoring & Rekap Semua Perizinan Santri</h2>
+                            <p class="text-xs text-slate-300">Pantau seluruh izin sakit maupun izin pulang di seluruh sektor dan ekspor ke Excel (.xlsx).</p>
                         </div>
                         <div class="flex flex-wrap gap-2">
+                            <select onchange="adminIzinSektorFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                <option value="ALL" ${adminIzinSektorFilter === 'ALL' ? 'selected' : ''}>Semua Sektor</option>
+                                ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${adminIzinSektorFilter === sec ? 'selected' : ''}>${sec.replace('Asrama Nusantara ', 'NS ')}</option>`).join('')}
+                            </select>
                             <select onchange="adminIzinFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
                                 <option value="ALL" ${adminIzinFilter === 'ALL' ? 'selected' : ''}>Semua Jenis Izin</option>
                                 <option value="sakit" ${adminIzinFilter === 'sakit' ? 'selected' : ''}>Khusus Izin Sakit</option>
@@ -2627,12 +3051,14 @@
                                         <th class="py-3 px-4">Santri & Kamar</th>
                                         <th class="py-3 px-4">Jenis & Alasan</th>
                                         <th class="py-3 px-4">Kegiatan / Waktu</th>
-                                        <th class="py-3 px-4">Tanggal</th>
+                                        <th class="py-3 px-4">Hari & Tanggal</th>
                                         <th class="py-3 px-4">Status ACC</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-asrama-border text-xs">
-                                    ${list.map(p => `
+                                    ${list.length === 0 ? `
+                                        <tr><td colspan="5" class="py-8 text-center text-slate-400">Tidak ada data perizinan sesuai filter.</td></tr>
+                                    ` : list.map(p => `
                                         <tr class="hover:bg-asrama-cardHover/40">
                                             <td class="py-3 px-4">
                                                 <p class="font-bold text-white">${escHtml(p.santriNama)}</p>
@@ -2643,7 +3069,7 @@
                                                 <p class="text-slate-200 mt-1">${escHtml(p.kategori)}</p>
                                             </td>
                                             <td class="py-3 px-4 text-slate-300">${escHtml(p.targetKegiatan || p.waktuPulang || '-')}</td>
-                                            <td class="py-3 px-4 text-slate-300">${escHtml(p.tanggal)} ${p.kembali && p.kembali !== p.tanggal ? `s.d. ${escHtml(p.kembali)}` : ''}</td>
+                                            <td class="py-3 px-4 text-slate-300 whitespace-nowrap">${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</td>
                                             <td class="py-3 px-4">${renderApprovalBadge(p.status)}</td>
                                         </tr>
                                     `).join('')}
@@ -2666,8 +3092,8 @@
                 Jenis: p.jenis.toUpperCase(),
                 Alasan: p.kategori,
                 'Kegiatan / Waktu Pulang': p.targetKegiatan || p.waktuPulang || '-',
-                Tanggal: p.tanggal,
-                'Batas Kembali': p.kembali || p.tanggal,
+                'Hari & Tanggal Mulai': formatTanggalHari(p.tanggal),
+                'Hari & Batas Kembali': formatTanggalHari(p.kembali || p.tanggal),
                 'Status ACC': p.status,
                 'Status Kepulangan': p.statusKembali || '-'
             }));
@@ -2679,12 +3105,25 @@
         }
 
         function renderAdminPulang() {
-            const pulangList = perizinanList.filter(p => p.jenis === 'pulang');
+            const pulangList = perizinanList.filter(p => {
+                const okJenis = p.jenis === 'pulang';
+                const okSektor = adminPulangSektorFilter === 'ALL' || p.sektor === adminPulangSektorFilter;
+                const okSearch = !searchQuery ||
+                    (p.santriNama || '').toLowerCase().includes(searchQuery) ||
+                    (p.kamar || '').toLowerCase().includes(searchQuery);
+                return okJenis && okSektor && okSearch;
+            });
             return `
                 <div class="space-y-5">
-                    <div>
-                        <h2 class="text-xl font-extrabold text-white">Monitoring Santri Izin Pulang</h2>
-                        <p class="text-xs text-slate-300">Pantau santri yang masih berada di rumah maupun yang sudah kembali ke asrama.</p>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white">Monitoring Santri Izin Pulang</h2>
+                            <p class="text-xs text-slate-300">Pantau santri yang masih berada di rumah maupun yang sudah kembali ke asrama.</p>
+                        </div>
+                        <select onchange="adminPulangSektorFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs self-start">
+                            <option value="ALL" ${adminPulangSektorFilter === 'ALL' ? 'selected' : ''}>Semua Sektor</option>
+                            ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${adminPulangSektorFilter === sec ? 'selected' : ''}>${sec.replace('Asrama Nusantara ', 'NS ')}</option>`).join('')}
+                        </select>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         ${pulangList.length === 0 ? `<p class="text-xs text-slate-400">Belum ada data izin pulang.</p>` : pulangList.map(p => `
@@ -2699,7 +3138,7 @@
                                 <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-200 space-y-1">
                                     <p><span class="text-slate-400">Alasan:</span> ${escHtml(p.kategori)}</p>
                                     <p><span class="text-slate-400">Waktu Pulang:</span> ${escHtml(p.waktuPulang || '-')}</p>
-                                    <p><span class="text-slate-400">Jadwal:</span> ${escHtml(p.tanggal)} s.d. ${escHtml(p.kembali)}</p>
+                                    <p><span class="text-slate-400">Jadwal:</span> ${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</p>
                                     <p><span class="text-slate-400">Status Kembali:</span> <strong class="text-sky-300">${escHtml(p.statusKembali || 'Di Rumah')}</strong> ${p.waktuKembaliAktual ? `(Pukul ${escHtml(p.waktuKembaliAktual)})` : ''}</p>
                                 </div>
                             </div>
@@ -2720,6 +3159,7 @@
         // =========================================================================
         function renderMurobbiPresensi() {
             const list = getPresensiSantri().filter(s => !searchQuery || s.nama.toLowerCase().includes(searchQuery));
+            const todayFormatted = formatTanggalHari(todayISO());
             const hariIni = getHariIndonesiaFromDate();
             const jadwalHariIni = getKegiatanForDay(hariIni);
             const activeKeg = jadwalHariIni.find(k => k.id === selectedKegiatanId) || jadwalHariIni[0] || kegiatanList[0];
@@ -2739,7 +3179,7 @@
                     <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                         <div>
                             <div class="flex flex-wrap items-center gap-2 mb-1">
-                                <h2 class="text-xl font-extrabold text-white">Presensi Kamar (${hariIni})</h2>
+                                <h2 class="text-xl font-extrabold text-white">Presensi Kamar (${escHtml(todayFormatted)})</h2>
                                 ${kamarSelector}
                             </div>
                             <p class="text-xs text-slate-300">
@@ -2914,7 +3354,7 @@
                         <select id="move-santri-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2">${kamarOpts}</select>
                     </div>
                     <div class="p-3 rounded-xl bg-sky-500/10 border border-sky-500/30 text-[11px] text-sky-200">
-                        Murobbi kamar tujuan akan menerima notifikasi verifikasi untuk memastikan kebenaran perpindahan ini, dan Admin Utama serta Ketua Sektor otomatis mendapatkan pemberitahuan.
+                        Murobbi kamar tujuan akan menerima notifikasi verifikasi untuk memastikan kebenaran perpindahan ini, dan Admin Utama, Ketua Asrama, serta Ketua Sektor otomatis mendapatkan pemberitahuan.
                     </div>
                 </div>
                 `,
@@ -2945,6 +3385,7 @@
                 diajukanOleh: currentUser.nama,
                 status: 'menunggu_verifikasi',
                 adminRead: false,
+                ketuaAsramaRead: false,
                 ketuaRead: false,
                 createdAt: new Date().toISOString()
             });
@@ -2970,6 +3411,7 @@
                 status: newStatus,
                 diverifikasiOleh: currentUser.nama,
                 adminRead: false,
+                ketuaAsramaRead: false,
                 ketuaRead: false
             });
             if (isApproved && pk.santriId) {
@@ -2982,8 +3424,18 @@
         }
 
         async function markPindahNotifRead(pindahId) {
-            const payload = isRecordAdmin(currentUser) ? { adminRead: true } : { ketuaRead: true };
+            const payload = isRecordAdmin(currentUser)
+                ? { adminRead: true }
+                : isRecordKetuaAsrama(currentUser)
+                    ? { ketuaAsramaRead: true }
+                    : { ketuaRead: true };
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pindah_kamar', pindahId), payload);
+        }
+
+        async function markMurobbiNotifRead(notifId) {
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'notifikasi_murobbi', notifId), {
+                readByMurobbi: true
+            });
         }
 
         // =========================================================================
@@ -3009,97 +3461,115 @@
 
         function renderMurobbiIzin() {
             const riwayat = perizinanList.filter(p =>
-                isRecordAdmin(currentUser) ? true :
+                isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) ? true :
                 isRecordKetuaLantai(currentUser) ? p.sektor === currentUser.sektor :
                 (p.sektor === currentUser.sektor && p.kamar === currentUser.kamar)
             );
+            const unreadMurobbiNotifs = getUnreadMurobbiNotifs();
             const defDate = todayISO();
 
             return `
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                    <div class="lg:col-span-5 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
-                        <div>
-                            <h2 class="text-base font-extrabold text-white">Ajukan Izin Santri</h2>
-                            <p class="text-xs text-slate-300">Ketik nama santri untuk mencari langsung, lalu pilih jenis izin.</p>
-                        </div>
-
-                        <div class="space-y-2">
-                            <label class="block text-xs font-semibold text-slate-200">1. Cari & Pilih Santri *</label>
-                            <div class="relative">
-                                <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                                <input type="text" id="izin-search-input" value="${escHtml(izinSearchTerm)}" oninput="filterIzinSantriList(this.value)" placeholder="Ketik nama santri atau kamar..." class="w-full border border-asrama-border rounded-xl pl-9 pr-8 py-2 text-xs">
-                                <button type="button" onclick="clearIzinSantriSearch()" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs cursor-pointer">×</button>
-                            </div>
-                            <div id="izin-selected-card">${renderSelectedIzinSantriCard()}</div>
-                            <div id="izin-santri-results" class="max-h-40 overflow-y-auto space-y-1 border border-asrama-border rounded-xl p-1.5 bg-asrama-bg">
-                                ${buildIzinSantriSearchResultsHtml(izinSearchTerm)}
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-200 mb-1">2. Jenis Perizinan *</label>
-                            <select id="izin-jenis" onchange="toggleIzinJenisFields(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                <option value="sakit">Izin Sakit (Sekolah / Madin Malam / Halaqoh Sore)</option>
-                                <option value="pulang">Izin Pulang (Ke Rumah / Keluar Asrama)</option>
-                            </select>
-                        </div>
-
-                        <div id="izin-sakit-fields" class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
-                            <p class="text-xs font-bold text-amber-300">Pilih Kegiatan yang Ditinggalkan Saat Sakit:</p>
-                            <div class="flex flex-wrap gap-2">
-                                ${['Sekolah', 'Madin Malam', 'Halaqoh Sore'].map((keg, idx) => `
-                                    <label class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-asrama-bg border border-asrama-border text-xs text-white cursor-pointer">
-                                        <input type="checkbox" name="izin-sakit-keg" value="${keg}" ${idx === 0 ? 'checked' : ''} class="accent-emerald-500">
-                                        <span>${keg}</span>
-                                    </label>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <div id="izin-pulang-fields" class="hidden p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-2.5">
-                            <div>
-                                <label class="block text-xs font-bold text-purple-300 mb-1">Waktu Pulang (Di Antara Jam Kegiatan):</label>
-                                <select id="izin-waktu-pulang" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                    ${buildWaktuPulangOptionsHtml(defDate)}
-                                </select>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-200 mb-1">3. Alasan / Keluhan Detail *</label>
-                            <input id="izin-alasan" type="text" placeholder="Contoh: Demam tinggi / Acara walimah keluarga" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-200 mb-1">Mulai Tanggal</label>
-                                <input id="izin-tgl" type="date" value="${defDate}" onchange="refreshIzinWaktuPulangOptions(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                            </div>
-                            <div id="izin-kembali-wrapper" class="hidden">
-                                <label class="block text-xs font-semibold text-slate-200 mb-1">Rencana Kembali</label>
-                                <input id="izin-kembali" type="date" value="${defDate}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                            </div>
-                        </div>
-
-                        <button type="button" onclick="submitPengajuanIzin()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow cursor-pointer">
-                            Kirim Pengajuan Izin
-                        </button>
-                    </div>
-
-                    <div class="lg:col-span-7 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
-                        <h3 class="text-sm font-bold text-white">Riwayat Pengajuan Izin Kamar</h3>
-                        <div class="space-y-2.5 max-h-[560px] overflow-y-auto pr-1">
-                            ${riwayat.length === 0 ? `<p class="text-xs text-slate-400">Belum ada pengajuan izin.</p>` : riwayat.map(p => `
-                                <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div class="space-y-5">
+                    ${unreadMurobbiNotifs.length > 0 ? `
+                        <div class="bg-red-500/15 border border-red-500/40 rounded-2xl p-4 space-y-2.5">
+                            <p class="text-xs font-bold text-red-300 flex items-center gap-1.5"><i class="ph-fill ph-warning-octagon text-base"></i> Pemberitahuan Penolakan & Penghapusan Izin Pulang oleh Keamanan</p>
+                            ${unreadMurobbiNotifs.map(n => `
+                                <div class="p-3 rounded-xl bg-asrama-bg border border-red-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                     <div>
-                                        <p class="text-xs font-bold text-white">${escHtml(p.santriNama)} <span class="text-slate-400 font-normal">(${escHtml(p.kamar)})</span></p>
-                                        <p class="text-[11px] text-slate-200 mt-0.5"><strong class="uppercase ${p.jenis === 'pulang' ? 'text-purple-300' : 'text-amber-300'}">${escHtml(p.jenis)}</strong> — ${escHtml(p.kategori)}</p>
-                                        <p class="text-[11px] text-emerald-300">${escHtml(p.targetKegiatan || p.waktuPulang || '')}</p>
-                                        <p class="text-[11px] text-slate-400">${escHtml(p.tanggal)} ${p.kembali && p.kembali !== p.tanggal ? `s.d. ${escHtml(p.kembali)}` : ''}</p>
+                                        <p class="text-xs font-bold text-white">${escHtml(n.santriNama)} (${escHtml(n.kamar)}) — ${escHtml(formatTanggalHari(n.tanggalIzin))}</p>
+                                        <p class="text-[11px] text-red-200">${escHtml(n.catatanKeamanan)}</p>
                                     </div>
-                                    ${renderApprovalBadge(p.status)}
+                                    <button onclick="markMurobbiNotifRead('${n.id}')" class="px-3 py-1 rounded-lg bg-asrama-card border border-asrama-border text-[11px] text-slate-200 font-bold cursor-pointer self-start">Tandai Dibaca</button>
                                 </div>
                             `).join('')}
+                        </div>
+                    ` : ''}
+
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                        <div class="lg:col-span-5 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
+                            <div>
+                                <h2 class="text-base font-extrabold text-white">Ajukan Izin Santri</h2>
+                                <p class="text-xs text-slate-300">Ketik nama santri untuk mencari langsung, lalu pilih jenis izin.</p>
+                            </div>
+
+                            <div class="space-y-2">
+                                <label class="block text-xs font-semibold text-slate-200">1. Cari & Pilih Santri *</label>
+                                <div class="relative">
+                                    <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                                    <input type="text" id="izin-search-input" value="${escHtml(izinSearchTerm)}" oninput="filterIzinSantriList(this.value)" placeholder="Ketik nama santri atau kamar..." class="w-full border border-asrama-border rounded-xl pl-9 pr-8 py-2 text-xs">
+                                    <button type="button" onclick="clearIzinSantriSearch()" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs cursor-pointer">×</button>
+                                </div>
+                                <div id="izin-selected-card">${renderSelectedIzinSantriCard()}</div>
+                                <div id="izin-santri-results" class="max-h-40 overflow-y-auto space-y-1 border border-asrama-border rounded-xl p-1.5 bg-asrama-bg">
+                                    ${buildIzinSantriSearchResultsHtml(izinSearchTerm)}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-200 mb-1">2. Jenis Perizinan *</label>
+                                <select id="izin-jenis" onchange="toggleIzinJenisFields(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <option value="sakit">Izin Sakit (Sekolah / Madin Malam / Halaqoh Sore)</option>
+                                    <option value="pulang">Izin Pulang (Ke Rumah / Keluar Asrama)</option>
+                                </select>
+                            </div>
+
+                            <div id="izin-sakit-fields" class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                                <p class="text-xs font-bold text-amber-300">Pilih Kegiatan yang Ditinggalkan Saat Sakit:</p>
+                                <div class="flex flex-wrap gap-2">
+                                    ${['Sekolah', 'Madin Malam', 'Halaqoh Sore'].map((keg, idx) => `
+                                        <label class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-asrama-bg border border-asrama-border text-xs text-white cursor-pointer">
+                                            <input type="checkbox" name="izin-sakit-keg" value="${keg}" ${idx === 0 ? 'checked' : ''} class="accent-emerald-500">
+                                            <span>${keg}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <div id="izin-pulang-fields" class="hidden p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-2.5">
+                                <div>
+                                    <label class="block text-xs font-bold text-purple-300 mb-1">Waktu Pulang (Di Antara Jam Kegiatan):</label>
+                                    <select id="izin-waktu-pulang" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                        ${buildWaktuPulangOptionsHtml(defDate)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-200 mb-1">3. Alasan / Keluhan Detail *</label>
+                                <input id="izin-alasan" type="text" placeholder="Contoh: Demam tinggi / Acara walimah keluarga" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Mulai Tanggal</label>
+                                    <input id="izin-tgl" type="date" value="${defDate}" onchange="refreshIzinWaktuPulangOptions(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                </div>
+                                <div id="izin-kembali-wrapper" class="hidden">
+                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Rencana Kembali</label>
+                                    <input id="izin-kembali" type="date" value="${defDate}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                </div>
+                            </div>
+
+                            <button type="button" onclick="submitPengajuanIzin()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow cursor-pointer">
+                                Kirim Pengajuan Izin
+                            </button>
+                        </div>
+
+                        <div class="lg:col-span-7 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
+                            <h3 class="text-sm font-bold text-white">Riwayat Pengajuan Izin Kamar</h3>
+                            <div class="space-y-2.5 max-h-[560px] overflow-y-auto pr-1">
+                                ${riwayat.length === 0 ? `<p class="text-xs text-slate-400">Belum ada pengajuan izin.</p>` : riwayat.map(p => `
+                                    <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                        <div>
+                                            <p class="text-xs font-bold text-white">${escHtml(p.santriNama)} <span class="text-slate-400 font-normal">(${escHtml(p.kamar)})</span></p>
+                                            <p class="text-[11px] text-slate-200 mt-0.5"><strong class="uppercase ${p.jenis === 'pulang' ? 'text-purple-300' : 'text-amber-300'}">${escHtml(p.jenis)}</strong> — ${escHtml(p.kategori)}</p>
+                                            <p class="text-[11px] text-emerald-300">${escHtml(p.targetKegiatan || p.waktuPulang || '')}</p>
+                                            <p class="text-[11px] text-slate-400">${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</p>
+                                        </div>
+                                        ${renderApprovalBadge(p.status)}
+                                    </div>
+                                `).join('')}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3234,7 +3704,7 @@
                 sektor: s.sektor,
                 kamar: s.kamar,
                 title: `SIAN · Pengajuan Izin ${jenis === 'pulang' ? 'Pulang' : 'Sakit'} Baru`,
-                body: `${s.nama} (${s.kamar}) — ${alasan}`
+                body: `${s.nama} (${s.kamar}) — ${alasan} (${formatTanggalHari(tanggal)})`
             });
 
             selectedSantriForIzin = null;
@@ -3248,17 +3718,66 @@
         // =========================================================================
         function getPelanggaranScopedSantri() {
             if (!currentUser) return [];
-            if (isRecordAdmin(currentUser)) return santriList;
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return santriList;
             return santriList.filter(s => s.sektor === currentUser.sektor);
         }
 
         function renderMurobbiPelanggaran() {
             const defDate = todayISO();
             const kegOpts = getKegiatanForDay(getHariIndonesiaFromDate(defDate));
-            const logs = pelanggaranList.filter(pl =>
-                isRecordAdmin(currentUser) ? true : pl.sektor === currentUser.sektor
-            );
+            const isGlobalViewer = isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser);
+            const logs = pelanggaranList.filter(pl => {
+                const okSektor = isGlobalViewer
+                    ? (pelFilterSektor === 'ALL' || pl.sektor === pelFilterSektor)
+                    : pl.sektor === currentUser.sektor;
+                const okSearch = !searchQuery ||
+                    (pl.santriNama || '').toLowerCase().includes(searchQuery) ||
+                    (pl.kamar || '').toLowerCase().includes(searchQuery) ||
+                    (pl.kegiatan || '').toLowerCase().includes(searchQuery);
+                return okSektor && okSearch;
+            });
             const canDelete = isRecordAdmin(currentUser) || isRecordKetuaLantai(currentUser) || hasDivisiAccess('keamanan');
+
+            // Mode Monitoring Khusus Ketua Asrama (Tampilan Penuh Semua Sektor)
+            if (isRecordKetuaAsrama(currentUser)) {
+                return `
+                    <div class="space-y-5">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <h2 class="text-xl font-extrabold text-white">Rekap Telat & Takziran Seluruh Sektor</h2>
+                                <p class="text-xs text-slate-300">Monitoring keterlambatan santri di seluruh lantai Asrama Nusantara.</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <select onchange="pelFilterSektor = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <option value="ALL" ${pelFilterSektor === 'ALL' ? 'selected' : ''}>Semua Sektor</option>
+                                    ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${pelFilterSektor === sec ? 'selected' : ''}>${sec.replace('Asrama Nusantara ', 'NS ')}</option>`).join('')}
+                                </select>
+                                <button type="button" onclick="sendPelanggaranWhatsApp()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                    <i class="ph-bold ph-whatsapp-logo"></i> Kirim Rekap WA
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-3">
+                            ${logs.length === 0 ? `<p class="text-xs text-slate-400">Belum ada catatan keterlambatan pada filter ini.</p>` : logs.map(pl => `
+                                <div class="p-3.5 rounded-xl bg-asrama-bg border ${pl.selesai ? 'border-emerald-500/40 bg-emerald-950/20' : 'border-asrama-border'} flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div class="space-y-0.5">
+                                        <p class="text-xs font-bold text-white flex items-center gap-1.5">
+                                            <span>${pl.selesai ? '✅' : '⬜'} ${escHtml(pl.santriNama)}</span>
+                                            <span class="text-emerald-300 font-normal">(${escHtml((pl.sektor || '').replace('Asrama Nusantara ', 'NS '))} • ${escHtml(pl.kamar)})</span>
+                                        </p>
+                                        <p class="text-[11px] text-amber-300 font-semibold">${escHtml(pl.kegiatan)} • ${escHtml(pl.jenis)} (${pl.istighfar || 100}x Istighfar)</p>
+                                        <p class="text-[11px] text-slate-400">${escHtml(formatTanggalHari(pl.tanggal))} • Dicatat: ${escHtml(pl.dicatatOleh)}</p>
+                                    </div>
+                                    <span class="px-2.5 py-1 rounded-lg text-[11px] font-bold ${pl.selesai ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'} self-start sm:self-center">
+                                        ${pl.selesai ? 'Selesai ✅' : 'Belum Selesai'}
+                                    </span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
 
             return `
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -3324,7 +3843,7 @@
                                             <span class="text-slate-400 font-normal">(${escHtml(pl.kamar)})</span>
                                         </p>
                                         <p class="text-[11px] text-amber-300 font-semibold">${escHtml(pl.kegiatan)} • ${escHtml(pl.jenis)} (${pl.istighfar || 100}x Istighfar)</p>
-                                        <p class="text-[11px] text-slate-400">${escHtml(pl.tanggal)} • Dicatat: ${escHtml(pl.dicatatOleh)}</p>
+                                        <p class="text-[11px] text-slate-400">${escHtml(formatTanggalHari(pl.tanggal))} • Dicatat: ${escHtml(pl.dicatatOleh)}</p>
                                     </div>
                                     <div class="flex items-center gap-1.5 shrink-0">
                                         <button onclick="togglePelanggaranSelesai('${pl.id}', ${!pl.selesai})" class="px-3 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer ${pl.selesai ? 'bg-emerald-600 text-white' : 'bg-asrama-card border border-asrama-border text-emerald-300 hover:bg-asrama-cardHover'}">
@@ -3456,32 +3975,33 @@
         }
 
         function sendPelanggaranWhatsApp() {
-            const logs = pelanggaranList.filter(pl => isRecordAdmin(currentUser) ? true : pl.sektor === currentUser.sektor);
+            const isGlobalViewer = isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser);
+            const logs = pelanggaranList.filter(pl => isGlobalViewer ? true : pl.sektor === currentUser.sektor);
             if (logs.length === 0) return showToast('Belum ada data untuk dikirim ke WhatsApp.', 'info');
             const lines = [
                 `*REKAP TAKZIRAN ISTIGHFAR SIAN*`,
-                `Sektor: ${currentUser.sektor}`,
-                `Tanggal: ${todayISO()}`,
+                `Sektor: ${isGlobalViewer ? 'Semua Sektor Asrama Nusantara' : currentUser.sektor}`,
+                `Hari/Tanggal: ${formatTanggalHari(todayISO())}`,
                 `--------------------------------`,
-                ...logs.map(pl => `${pl.selesai ? '✅' : '⬜'} ${pl.santriNama} (${pl.kamar}) — ${pl.kegiatan} [${pl.jenis}: ${pl.istighfar || 100}x]`)
+                ...logs.map(pl => `${pl.selesai ? '✅' : '⬜'} ${pl.santriNama} (${pl.kamar}) — ${pl.kegiatan} [${pl.jenis}: ${pl.istighfar || 100}x • ${formatTanggalHari(pl.tanggal)}]`)
             ];
             window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
         }
 
         // =========================================================================
-        // 15. DIVISI KEAMANAN (ACC IZIN PULANG, CATAT KEMBALI, LAPTOP & SITAAN)
+        // 15. DIVISI KEAMANAN (ACC, HAPUS + NOTIFIKASI KE MUROBBI, KEMBALI & ASET)
         // =========================================================================
         function renderDivKeamananIzin() {
             const list = perizinanList.filter(p =>
                 p.divisiTujuan === 'keamanan' &&
-                (isRecordAdmin(currentUser) || isKetuaUtamaOf('keamanan') || p.sektor === currentUser.sektor)
+                (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isKetuaUtamaOf('keamanan') || p.sektor === currentUser.sektor)
             );
             return `
                 <div class="space-y-5">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
                             <h2 class="text-xl font-extrabold text-white">Divisi Keamanan — Persetujuan & Kepulangan Santri</h2>
-                            <p class="text-xs text-slate-300">ACC izin pulang, pantau waktu pulang di antara jam kegiatan, serta catat jam kembali santri.</p>
+                            <p class="text-xs text-slate-300">ACC, tolak, atau hapus pengajuan izin pulang (Murobbi kamar otomatis mendapat notifikasi jika ditolak lalu dihapus).</p>
                         </div>
                         <button onclick="exportIzinExcel(list, 'Izin_Pulang_Keamanan')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start">
                             <i class="ph-bold ph-file-xls"></i> Ekspor Excel
@@ -3497,23 +4017,106 @@
                                         ${p.status === 'disetujui' ? `<span class="px-2 py-0.5 rounded-lg text-[10px] font-bold ${p.statusKembali === 'Sudah Kembali' ? 'bg-sky-500/20 text-sky-300' : 'bg-purple-500/20 text-purple-300'}">${escHtml(p.statusKembali || 'Di Rumah')} ${p.waktuKembaliAktual ? `(${escHtml(p.waktuKembaliAktual)})` : ''}</span>` : ''}
                                     </div>
                                     <p class="text-xs text-emerald-400">${escHtml(p.sektor)} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi)})</p>
-                                    <p class="text-xs text-slate-200">Alasan: <strong>${escHtml(p.kategori)}</strong> • ${escHtml(p.tanggal)} s.d. ${escHtml(p.kembali)}</p>
+                                    <p class="text-xs text-slate-200">Alasan: <strong>${escHtml(p.kategori)}</strong> • ${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</p>
                                     <p class="text-[11px] text-purple-300">Waktu Pulang: ${escHtml(p.waktuPulang || '-')}</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2 shrink-0">
                                     ${p.status === 'menunggu' ? `
                                         <button onclick="prosesApprovalIzin('${p.id}', 'disetujui')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Setujui (ACC)</button>
-                                        <button onclick="prosesApprovalIzin('${p.id}', 'ditolak')" class="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
+                                        <button onclick="prosesApprovalIzin('${p.id}', 'ditolak')" class="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer">Tolak</button>
                                     ` : ''}
                                     ${p.status === 'disetujui' && p.statusKembali !== 'Sudah Kembali' ? `
                                         <button onclick="tandaiSantriSudahKembali('${p.id}', '${p.santriId || ''}')" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer">Catat Sudah Kembali</button>
                                     ` : ''}
+                                    <button onclick="openHapusIzinPulangModal('${p.id}')" class="px-3 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/35 text-red-300 text-xs font-bold flex items-center gap-1 cursor-pointer" title="Hapus Pengajuan Izin Pulang">
+                                        <i class="ph ph-trash"></i> Hapus
+                                    </button>
                                 </div>
                             </div>
                         `).join('')}
                     </div>
                 </div>
             `;
+        }
+
+        function openHapusIzinPulangModal(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            openModal(
+                'Hapus Pengajuan Izin Pulang',
+                `
+                <div class="space-y-3 text-xs">
+                    <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/35 text-red-200 space-y-1">
+                        <p class="font-bold">Konfirmasi Penghapusan Izin Pulang:</p>
+                        <p>Santri: <strong class="text-white">${escHtml(p.santriNama)}</strong> (${escHtml(p.kamar)} • ${escHtml(p.sektor.replace('Asrama Nusantara ', 'NS '))})</p>
+                        <p>Jadwal: ${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</p>
+                        <p>Status Saat Ini: <strong>${p.status === 'ditolak' ? 'Ditolak' : p.status === 'disetujui' ? 'Disetujui' : 'Menunggu ACC'}</strong></p>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Catatan Pemberitahuan untuk Murobbi Kamar (${escHtml(p.kamar)}):</label>
+                        <input id="hapus-izin-catatan" type="text" placeholder="Contoh: Pengajuan ditolak dan dihapus oleh Divisi Keamanan." class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
+                    <p class="text-[11px] text-slate-400">Murobbi kamar akan otomatis menerima notifikasi bahwa pengajuan izin pulang ini telah ditolak dan dihapus.</p>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="executeHapusIzinPulang('${p.id}')" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs text-white font-bold cursor-pointer">Ya, Hapus & Kirim Notif ke Murobbi</button>
+                `
+            );
+        }
+
+        async function executeHapusIzinPulang(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            const catatanInput = (document.getElementById('hapus-izin-catatan')?.value || '').trim();
+            const defaultNote = p.status === 'ditolak'
+                ? 'Pengajuan izin pulang santri Anda telah ditolak dan dihapus oleh Divisi Keamanan.'
+                : 'Pengajuan izin pulang santri Anda ditolak dan dihapus oleh Divisi Keamanan.';
+            const catatanFinal = catatanInput || defaultNote;
+
+            showLoading(true, 'Menghapus izin & mengirim notifikasi ke Murobbi...');
+            try {
+                await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'perizinan', izinId));
+
+                if (p.santriId && p.status === 'disetujui') {
+                    await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', p.santriId), {
+                        status: 'H',
+                        catatan: ''
+                    });
+                }
+
+                // Simpan notifikasi persisten untuk Murobbi Kamar
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'notifikasi_murobbi'), {
+                    tipe: 'izin_pulang_dihapus',
+                    santriNama: p.santriNama,
+                    sektor: p.sektor,
+                    kamar: p.kamar,
+                    alasanIzin: p.kategori,
+                    tanggalIzin: p.tanggal,
+                    statusSebelumDihapus: p.status,
+                    catatanKeamanan: catatanFinal,
+                    dihapusOleh: currentUser.nama,
+                    readByMurobbi: false,
+                    createdAt: new Date().toISOString()
+                });
+
+                // Kirim Push FCM ke HP Murobbi Kamar
+                triggerRemotePushNotification({
+                    eventType: 'izin_dihapus',
+                    sektor: p.sektor,
+                    kamar: p.kamar,
+                    title: `SIAN · Izin Pulang Ditolak & Dihapus (${p.kamar})`,
+                    body: `Izin pulang ${p.santriNama} (${formatTanggalHari(p.tanggal)}) ditolak & dihapus oleh ${currentUser.nama}.`
+                });
+
+                closeModal();
+                showToast(`Izin pulang ${p.santriNama} dihapus & notifikasi dikirim ke Murobbi ${p.kamar}.`, 'success');
+            } catch (err) {
+                showToast('Gagal menghapus izin: ' + err.message, 'error');
+            } finally {
+                showLoading(false);
+            }
         }
 
         async function prosesApprovalIzin(izinId, keputusan) {
@@ -3581,7 +4184,7 @@
                                     <div>
                                         <p class="text-xs font-bold text-white">${escHtml(st.santriNama)} <span class="text-slate-400 font-normal">(${escHtml(st.kamar)})</span></p>
                                         <p class="text-[11px] text-purple-300">${escHtml(st.barang)}</p>
-                                        <p class="text-[11px] text-slate-400">Tebusan: <strong class="text-white">${formatRupiah(st.nominalTebusan)}</strong> • ${escHtml(st.tanggal)}</p>
+                                        <p class="text-[11px] text-slate-400">Tebusan: <strong class="text-white">${formatRupiah(st.nominalTebusan)}</strong> • ${escHtml(formatTanggalHari(st.tanggal))}</p>
                                     </div>
                                     ${st.status === 'Disita'
                                         ? `<button onclick="tebusSitaan('${st.id}')" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold cursor-pointer">Tandai Ditebus</button>`
@@ -3665,7 +4268,7 @@
         function renderDivKesehatanIzin() {
             const baseList = perizinanList.filter(p =>
                 p.divisiTujuan === 'kesehatan' &&
-                (isRecordAdmin(currentUser) || isKetuaUtamaOf('kesehatan') || p.sektor === currentUser.sektor)
+                (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isKetuaUtamaOf('kesehatan') || p.sektor === currentUser.sektor)
             );
             const kamarSet = Array.from(new Set(baseList.map(p => p.kamar).filter(Boolean)));
             const filtered = baseList.filter(p => {
@@ -3718,7 +4321,7 @@
                                         ${renderApprovalBadge(p.status)}
                                     </div>
                                     <p class="text-xs text-rose-400">${escHtml(p.sektor)} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi)})</p>
-                                    <p class="text-xs text-slate-200">Keluhan: <strong>${escHtml(p.kategori)}</strong> • Kegiatan: <strong class="text-amber-300">${escHtml(p.targetKegiatan || '-')}</strong> (${escHtml(p.tanggal)})</p>
+                                    <p class="text-xs text-slate-200">Keluhan: <strong>${escHtml(p.kategori)}</strong> • Kegiatan: <strong class="text-amber-300">${escHtml(p.targetKegiatan || '-')}</strong> (${escHtml(formatTanggalHari(p.tanggal))})</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2 shrink-0">
                                     ${p.status === 'menunggu' ? `
@@ -3763,9 +4366,9 @@
             if (list.length === 0) return showToast('Tidak ada data izin sakit ACC pada filter ini.', 'info');
             const lines = [
                 `*REKAP IZIN SAKIT SANTRI (SIAN)*`,
-                `Tanggal: ${kesFilterTanggal || todayISO()}`,
+                `Hari/Tanggal: ${formatTanggalHari(kesFilterTanggal || todayISO())}`,
                 `--------------------------------`,
-                ...list.map((p, i) => `${i + 1}. ${p.santriNama} (${p.kamar}) — ${p.kategori} [${p.targetKegiatan}]`)
+                ...list.map((p, i) => `${i + 1}. ${p.santriNama} (${p.kamar}) — ${p.kategori} [${p.targetKegiatan} • ${formatTanggalHari(p.tanggal)}]`)
             ];
             window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
         }
@@ -3774,6 +4377,10 @@
         // 17. DIVISI KEBERSIHAN & DIVISI KEGIATAN (PER HARI SENIN–AHAD)
         // =========================================================================
         function renderDivKebersihan() {
+            const isGlobalViewer = isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser);
+            const filteredRoan = roanList.filter(r =>
+                !isGlobalViewer || kebFilterSektor === 'ALL' || r.sektor === kebFilterSektor
+            );
             const totalDenda = kasKebersihanList.filter(k => k.tipe === 'denda').reduce((a, b) => a + Number(b.nominal || 0), 0);
             const totalBelanja = kasKebersihanList.filter(k => k.tipe === 'pengeluaran').reduce((a, b) => a + Number(b.nominal || 0), 0);
 
@@ -3785,17 +4392,25 @@
                             <p class="text-xs text-slate-300">Total Denda Masuk: <strong class="text-emerald-400">${formatRupiah(totalDenda)}</strong> • Pengeluaran Kertas Minyak/Kresek: <strong class="text-amber-400">${formatRupiah(totalBelanja)}</strong></p>
                         </div>
                         <div class="flex flex-wrap gap-2">
-                            <button onclick="openTambahRoanModal()" class="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold cursor-pointer">+ Jadwal Roan</button>
-                            <button onclick="openTambahKasKebersihanModal()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">+ Catat Belanja / Denda</button>
+                            ${isGlobalViewer ? `
+                                <select onchange="kebFilterSektor = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <option value="ALL" ${kebFilterSektor === 'ALL' ? 'selected' : ''}>Semua Sektor</option>
+                                    ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${kebFilterSektor === sec ? 'selected' : ''}>${sec.replace('Asrama Nusantara ', 'NS ')}</option>`).join('')}
+                                </select>
+                            ` : ''}
+                            ${!isRecordKetuaAsrama(currentUser) ? `
+                                <button onclick="openTambahRoanModal()" class="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold cursor-pointer">+ Jadwal Roan</button>
+                                <button onclick="openTambahKasKebersihanModal()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">+ Catat Belanja / Denda</button>
+                            ` : ''}
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
                         <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-3">
                             <h3 class="text-sm font-bold text-white">Jadwal Piket Roan Asrama</h3>
-                            ${roanList.length === 0 ? `<p class="text-xs text-slate-400">Belum ada jadwal roan.</p>` : roanList.map(r => `
+                            ${filteredRoan.length === 0 ? `<p class="text-xs text-slate-400">Belum ada jadwal roan.</p>` : filteredRoan.map(r => `
                                 <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border">
-                                    <p class="text-xs font-bold text-teal-300">${escHtml(r.hari)}</p>
+                                    <p class="text-xs font-bold text-teal-300">${escHtml(formatTanggalHari(r.tanggal || r.hari))}</p>
                                     <p class="text-xs font-semibold text-white mt-0.5">${escHtml(r.kamar)} (${escHtml((r.sektor || '').replace('Asrama Nusantara ', 'NS '))})</p>
                                     <p class="text-[11px] text-slate-400">Area Tugas: ${escHtml(r.area)}</p>
                                 </div>
@@ -3808,7 +4423,7 @@
                                 <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border flex items-center justify-between gap-2">
                                     <div>
                                         <p class="text-xs font-bold text-white">${escHtml(k.keterangan)}</p>
-                                        <p class="text-[11px] text-slate-400">${escHtml(k.tanggal)} • ${k.tipe === 'denda' ? 'Denda Tidak Buang Sampah' : 'Pembelian Perlengkapan'}</p>
+                                        <p class="text-[11px] text-slate-400">${escHtml(formatTanggalHari(k.tanggal))} • ${k.tipe === 'denda' ? 'Denda Tidak Buang Sampah' : 'Pembelian Perlengkapan'}</p>
                                     </div>
                                     <span class="text-xs font-extrabold whitespace-nowrap ${k.tipe === 'denda' ? 'text-emerald-400' : 'text-amber-400'}">
                                         ${k.tipe === 'denda' ? '+' : '-'}${formatRupiah(k.nominal)}
@@ -3824,9 +4439,18 @@
         function openTambahRoanModal() {
             openModal('Tentukan Jadwal Roan Baru', `
                 <div class="space-y-3 text-xs">
-                    <input id="roan-hari" type="text" placeholder="Hari & Tanggal (misal: Ahad, 22 Nov 2026)" class="w-full border border-asrama-border rounded-xl px-3 py-2">
-                    <input id="roan-kamar" type="text" placeholder="Kamar bertugas (misal: DEMAK & MADINAH)" class="w-full border border-asrama-border rounded-xl px-3 py-2">
-                    <input id="roan-area" type="text" placeholder="Area kebersihan" class="w-full border border-asrama-border rounded-xl px-3 py-2">
+                    <div>
+                        <label class="block font-semibold mb-1">Tanggal Pelaksanaan Roan *</label>
+                        <input id="roan-tanggal" type="date" value="${todayISO()}" class="w-full border border-asrama-border rounded-xl px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Kamar yang Bertugas *</label>
+                        <input id="roan-kamar" type="text" placeholder="Misal: DEMAK & MADINAH" class="w-full border border-asrama-border rounded-xl px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Area Kebersihan</label>
+                        <input id="roan-area" type="text" placeholder="Misal: Koridor Utara & Tempat Wudhu" class="w-full border border-asrama-border rounded-xl px-3 py-2">
+                    </div>
                 </div>
             `, `
                 <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
@@ -3835,12 +4459,17 @@
         }
 
         async function saveRoan() {
-            const hari = document.getElementById('roan-hari').value.trim();
+            const tanggal = document.getElementById('roan-tanggal').value || todayISO();
             const kamar = document.getElementById('roan-kamar').value.trim();
             const area = document.getElementById('roan-area').value.trim();
-            if (!hari || !kamar) return;
+            if (!tanggal || !kamar) return;
             await window.FB.addDoc(window.FB.collection(window.FB.db, 'kebersihan'), {
-                tipeKebersihan: 'roan', hari, sektor: currentUser.sektor, kamar, area: area || 'Lingkungan Asrama'
+                tipeKebersihan: 'roan',
+                tanggal,
+                hari: formatTanggalHari(tanggal),
+                sektor: currentUser.sektor,
+                kamar,
+                area: area || 'Lingkungan Asrama'
             });
             closeModal();
             showToast('Jadwal roan ditambahkan.', 'success');

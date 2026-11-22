@@ -67,7 +67,11 @@ function isRecipientEligible(userFields, eventPayload) {
     const isAdmin = email === 'admin.sianusantara@gmail.com'
         || extractFirestoreBool(userFields.isAdmin)
         || norm(extractFirestoreString(userFields.role)) === 'admin';
-    const isKetuaLantai = !isAdmin && (
+    const isKetuaAsrama = !isAdmin && (
+        extractFirestoreBool(userFields.isKetuaAsrama)
+        || norm(extractFirestoreString(userFields.role)) === 'ketua_asrama'
+    );
+    const isKetuaLantai = !isAdmin && !isKetuaAsrama && (
         extractFirestoreBool(userFields.isKetuaLantai)
         || norm(extractFirestoreString(userFields.role)) === 'ketua_sektor'
     );
@@ -83,7 +87,7 @@ function isRecipientEligible(userFields, eventPayload) {
     }
 
     if (eventType === 'izin_baru') {
-        if (isAdmin) return true;
+        if (isAdmin || isKetuaAsrama) return true;
         const targetSektor = norm(eventPayload.sektor);
         const tujuan = norm(eventPayload.divisiTujuan);
         if (isKetuaLantai && userSektor === targetSektor) return true;
@@ -96,8 +100,17 @@ function isRecipientEligible(userFields, eventPayload) {
         return false;
     }
 
+    if (eventType === 'izin_dihapus') {
+        const targetSektor = norm(eventPayload.sektor);
+        const targetKamar = norm(eventPayload.kamar);
+        if (!isAdmin && !isKetuaAsrama && !isKetuaLantai && userSektor === targetSektor && userKamar === targetKamar) {
+            return true;
+        }
+        return false;
+    }
+
     if (eventType === 'pindah_kamar') {
-        if (isAdmin) return true;
+        if (isAdmin || isKetuaAsrama) return true;
         const dariSektor = norm(eventPayload.dariSektor);
         const keSektor = norm(eventPayload.keSektor);
         const keKamar = norm(eventPayload.keKamar);
@@ -188,7 +201,6 @@ module.exports = async (req, res) => {
 
         const accessToken = await getGoogleAccessToken(serviceAccount);
 
-        // Mode 1: Tes kirim langsung ke 1 token HP
         if (payload.testToken) {
             const ok = await sendSingleFcmMessage(projectId, accessToken, payload.testToken, title, body, dedupId);
             return res.status(ok ? 200 : 500).json({
@@ -197,7 +209,6 @@ module.exports = async (req, res) => {
             });
         }
 
-        // Mode 2: Ambil daftar pengurus dari Firestore REST API & kirim ke HP yang berhak
         const fsRes = await fetch(
             `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/pengurus?pageSize=200`,
             { headers: { Authorization: `Bearer ${accessToken}` } }
