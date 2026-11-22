@@ -708,7 +708,7 @@
             const j = getRawJenisIzin(p);
             const dt = String(p?.divisiTujuan || '').trim().toLowerCase();
             if (j.includes('pulang')) return false;
-            return j.includes('sakit') || dt === 'kesehatan';
+            return j.includes('sakit') || dt === 'kesehatan' || (!j && !dt);
         }
 
         function isIzinPulangRecord(p) {
@@ -728,13 +728,17 @@
             if (Array.isArray(p?.kegiatanSakitList) && p.kegiatanSakitList.length > 0) {
                 return p.kegiatanSakitList.join(', ');
             }
-            return String(p?.targetKegiatan || p?.kegiatan || 'Sekolah, Halaqoh Sore, Madin');
+            return String(p?.targetKegiatan || p?.kegiatan || p?.alasanKegiatan || 'Sekolah, Halaqoh Sore, Madin');
         }
 
         function isIzinInSektor(p, targetSektor) {
             if (!targetSektor) return false;
             if (isSameSektor(p?.sektor, targetSektor)) return true;
-            const st = santriList.find(s => (p?.santriId && s.id === p.santriId) || (p?.santriNama && s.nama === p.santriNama));
+            const pNameNorm = String(p?.santriNama || '').trim().toLowerCase();
+            const st = santriList.find(s =>
+                (p?.santriId && s.id === p.santriId) ||
+                (pNameNorm && String(s.nama || '').trim().toLowerCase() === pNameNorm)
+            );
             if (st && isSameSektor(st.sektor, targetSektor)) return true;
             return false;
         }
@@ -3644,9 +3648,13 @@
             const allSakit = perizinanList.filter(p => isIzinSakitRecord(p));
             const isKetuaSecOnly = isRecordKetuaLantai(currentUser) && !isKetuaUtamaDivisi('kesehatan');
 
-            const list = allSakit.filter(p => {
+            const sektorSakit = allSakit.filter(p => {
                 if (isKetuaSecOnly && !isIzinInSektor(p, currentUser.sektor)) return false;
                 if (!isKetuaSecOnly && kesFilterSektor !== 'ALL' && !isIzinInSektor(p, kesFilterSektor)) return false;
+                return true;
+            });
+
+            const list = sektorSakit.filter(p => {
                 if (kesFilterKegiatan !== 'ALL') {
                     const kegTxt = getIzinKegiatanText(p).toLowerCase();
                     if (!kegTxt.includes(kesFilterKegiatan.toLowerCase())) return false;
@@ -3658,13 +3666,38 @@
                 return true;
             });
 
+            const hiddenByFilterCount = Math.max(0, sektorSakit.length - list.length);
+
+            // Santri yang ditandai Sakit (S) langsung pada presensi kamar tanpa pengajuan form izin
+            const sakitPresensiTanpaForm = santriList.filter(s => {
+                if (s.status !== 'S') return false;
+                if (isKetuaSecOnly && !isSameSektor(s.sektor, currentUser.sektor)) return false;
+                if (!isKetuaSecOnly && kesFilterSektor !== 'ALL' && !isSameSektor(s.sektor, kesFilterSektor)) return false;
+                const sNameNorm = String(s.nama || '').trim().toLowerCase();
+                const hasForm = sektorSakit.some(p =>
+                    (p.santriId && p.santriId === s.id) ||
+                    (sNameNorm && String(p.santriNama || '').trim().toLowerCase() === sNameNorm)
+                );
+                if (hasForm) return false;
+                const q = (kesSearchTerm || searchQuery).toLowerCase();
+                if (q && !sNameNorm.includes(q) && !(s.kamar || '').toLowerCase().includes(q)) return false;
+                return true;
+            });
+
             return `
                 <div class="space-y-5">
-                    <div>
-                        <h2 class="text-xl font-extrabold text-white">Divisi Kesehatan — ACC & Rekap Izin Sakit</h2>
-                        <p class="text-xs text-slate-300">
-                            Persetujuan izin sakit tidak mengikuti kegiatan Sekolah, Halaqoh Sore, atau Madin (${list.length} data ditampilkan).
-                        </p>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white">Divisi Kesehatan — ACC & Rekap Izin Sakit</h2>
+                            <p class="text-xs text-slate-300">
+                                Persetujuan izin sakit tidak mengikuti kegiatan Sekolah, Halaqoh Sore, atau Madin (${list.length} dari ${sektorSakit.length} pengajuan ditampilkan).
+                            </p>
+                        </div>
+                        ${(kesFilterKegiatan !== 'ALL' || kesFilterStatus !== 'ALL' || kesFilterTanggal || kesSearchTerm) ? `
+                            <button onclick="kesFilterKegiatan='ALL'; kesFilterStatus='ALL'; kesFilterTanggal=''; kesSearchTerm=''; renderCurrentPage();" class="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-300 text-xs font-bold cursor-pointer self-start">
+                                Reset Filter
+                            </button>
+                        ` : ''}
                     </div>
 
                     <div class="bg-asrama-card border border-asrama-border rounded-2xl p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
@@ -3692,6 +3725,15 @@
                         <input type="date" value="${escHtml(kesFilterTanggal)}" onchange="kesFilterTanggal = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
                     </div>
 
+                    ${hiddenByFilterCount > 0 ? `
+                        <div class="p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                            <span class="text-amber-200">Terdapat <strong>${hiddenByFilterCount} pengajuan izin sakit lain</strong> (kegiatan Madin / Halaqoh Sore / tanggal lain) yang tersembunyi oleh filter aktif.</span>
+                            <button onclick="kesFilterKegiatan='ALL'; kesFilterStatus='ALL'; kesFilterTanggal=''; kesSearchTerm=''; renderCurrentPage();" class="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-extrabold cursor-pointer shrink-0">
+                                Tampilkan Semua (${sektorSakit.length})
+                            </button>
+                        </div>
+                    ` : ''}
+
                     <div class="space-y-3">
                         ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada pengajuan izin sakit yang sesuai dengan filter.</div>` : list.map(p => `
                             <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -3713,6 +3755,26 @@
                             </div>
                         `).join('')}
                     </div>
+
+                    ${sakitPresensiTanpaForm.length > 0 ? `
+                        <div class="bg-asrama-card border border-amber-500/35 rounded-2xl p-4 space-y-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-amber-300">Santri Tercatat Sakit (S) di Presensi Kamar Tanpa Form Izin (${sakitPresensiTanpaForm.length})</h3>
+                                <p class="text-[11px] text-slate-400">Santri berikut ditandai sakit langsung di absensi kamar oleh Murobbi.</p>
+                            </div>
+                            <div class="space-y-2">
+                                ${sakitPresensiTanpaForm.map(s => `
+                                    <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border flex items-center justify-between gap-2">
+                                        <div>
+                                            <p class="text-xs font-bold text-white">${escHtml(s.nama)}</p>
+                                            <p class="text-[11px] text-slate-400">${escHtml(shortSektorLabel(s.sektor))} • ${escHtml(s.kamar)} • Keterangan: <strong class="text-amber-300">${escHtml(s.catatan || 'Sakit')}</strong></p>
+                                        </div>
+                                        ${renderStatusBadge('S')}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
             `;
         }
