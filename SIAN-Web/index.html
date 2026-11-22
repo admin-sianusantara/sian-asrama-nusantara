@@ -480,6 +480,7 @@
         // 1. KONFIGURASI SEKTOR, HARI & DAFTAR KAMAR DEFAULT
         // =========================================================================
         const PRIMARY_ADMIN_EMAIL = 'admin.sianusantara@gmail.com';
+        const DEFAULT_BATAS_JAM_KEMBALI = '22:00';
         const SEKTOR_ASRAMA = [
             'Asrama Nusantara Lt. 1 Utara',
             'Asrama Nusantara Lt. 1 Selatan',
@@ -533,7 +534,6 @@
         let pelFilterSektor = 'ALL';
         let kebFilterSektor = 'ALL';
 
-        // Filter khusus Halaman Laporan Absen Semua Santri (Ketua Asrama / Admin)
         let absenMonitorSektor = 'ALL';
         let absenMonitorKamar = 'ALL';
         let absenMonitorStatus = 'ALL';
@@ -543,13 +543,11 @@
         let kesFilterKegiatan = 'ALL';
         let kegFilterHari = 'ALL';
 
-        // State form interaktif tanpa kehilangan fokus
         let selectedPelSantriIds = [];
         let pelSearchTerm = '';
         let izinSearchTerm = '';
         let selectedSantriForIzin = null;
 
-        // Koleksi data dari Firestore
         let pengurusList = [];
         let santriList = [];
         let perizinanList = [];
@@ -571,7 +569,7 @@
         let sianAudioCtx = null;
 
         // =========================================================================
-        // 3. UTILITAS DASAR, FORMAT TANGGAL (DD-MM-YYYY + HARI) & HAK AKSES
+        // 3. UTILITAS DASAR, FORMAT TANGGAL (HARI, DD-MM-YYYY) & HITUNG TELAT
         // =========================================================================
         function escHtml(str) {
             return String(str ?? '')
@@ -630,11 +628,64 @@
             return ddmmyyyy;
         }
 
+        function formatJamBatas(jamStr) {
+            const clean = String(jamStr || DEFAULT_BATAS_JAM_KEMBALI).replace(/\s*WIB\s*/gi, '').trim();
+            return clean || DEFAULT_BATAS_JAM_KEMBALI;
+        }
+
+        function formatBatasKembaliLengkap(p) {
+            const tgl = p?.kembali || p?.tanggal;
+            if (!tgl) return '-';
+            const jam = formatJamBatas(p?.jamKembali);
+            return `${formatTanggalHari(tgl)} (Batas ${jam} WIB)`;
+        }
+
         function formatRentangTanggalHari(tglMulai, tglKembali) {
             if (!tglMulai) return '-';
             const startFormatted = formatTanggalHari(tglMulai);
             if (!tglKembali || tglKembali === tglMulai) return startFormatted;
             return `${startFormatted} s.d. ${formatTanggalHari(tglKembali)}`;
+        }
+
+        // Menghitung selisih hari (positif berarti telat sekian hari dari tanggal batas kembali)
+        function hitungSelisihHari(tglBatas, tglAktual) {
+            if (!tglBatas || !tglAktual) return 0;
+            const m1 = String(tglBatas).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+            const m2 = String(tglAktual).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (!m1 || !m2) return 0;
+            const utc1 = Date.UTC(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3]));
+            const utc2 = Date.UTC(Number(m2[1]), Number(m2[2]) - 1, Number(m2[3]));
+            return Math.round((utc2 - utc1) / 86400000);
+        }
+
+        // Mengecek status keterlambatan kembali (baik yang sudah kembali maupun yang masih di rumah melewati batas hari)
+        function getStatusTelatPulang(p) {
+            if (!p || p.jenis !== 'pulang') return { isTelat: false, telatHari: 0, belumKembaliLewatBatas: false };
+            const tglBatas = p.kembali || p.tanggal;
+            if (!tglBatas) return { isTelat: false, telatHari: 0, belumKembaliLewatBatas: false };
+
+            if (p.statusKembali === 'Sudah Kembali') {
+                const diff = typeof p.telatHari === 'number'
+                    ? p.telatHari
+                    : hitungSelisihHari(tglBatas, p.tglKembaliAktual || todayISO());
+                return {
+                    isTelat: diff > 0,
+                    telatHari: diff > 0 ? diff : 0,
+                    belumKembaliLewatBatas: false
+                };
+            }
+
+            if (p.status === 'disetujui') {
+                const diffToday = hitungSelisihHari(tglBatas, todayISO());
+                if (diffToday > 0) {
+                    return {
+                        isTelat: true,
+                        telatHari: diffToday,
+                        belumKembaliLewatBatas: true
+                    };
+                }
+            }
+            return { isTelat: false, telatHari: 0, belumKembaliLewatBatas: false };
         }
 
         function getKegiatanForDay(hariNama) {
@@ -1642,7 +1693,7 @@
                             ${isRecordKetuaLantai(currentUser) ? 'Pantauan Kamar Sektor' : 'Tugas Murobbi Kamar'}
                         </p>
                         ${navItem('murobbi_presensi', 'ph-check-square-offset', 'Presensi Kamar & Kegiatan', 'text-emerald-400')}
-                        ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Ajukan Izin Sakit / Pulang', 'text-sky-400')}
+                        ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Izin Sakit, Pulang & Kembali', 'text-sky-400')}
                         ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Catat Telat / Alpa (1 Sektor)', 'text-amber-400')}
                     </div>
                 `;
@@ -1651,7 +1702,7 @@
                     html += `
                         <div class="space-y-1 pt-2 border-t border-asrama-border/60">
                             <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-purple-400 mb-1.5">Divisi Keamanan</p>
-                            ${navItem('div_keamanan_izin', 'ph-shield-check', 'ACC & Pantau Izin Pulang', 'text-purple-400')}
+                            ${navItem('div_keamanan_izin', 'ph-shield-check', 'ACC, Hapus & Pantau Izin Pulang', 'text-purple-400')}
                             ${navItem('div_keamanan_aset', 'ph-laptop', 'Laptop, Sitaan & Tebusan', 'text-purple-400')}
                         </div>
                     `;
@@ -1751,7 +1802,7 @@
         }
 
         // =========================================================================
-        // 9. BERANDA & RINGKASAN (TERMASUK NOTIFIKASI MUROBBI & KETUA ASRAMA)
+        // 9. BERANDA & RINGKASAN (TERMASUK NOTIFIKASI MUROBBI & SANTRI PULANG)
         // =========================================================================
         function renderBeranda() {
             const scoped = getScopedSantri();
@@ -1816,6 +1867,46 @@
                 `;
             }
 
+            // Santri kamar yang sedang izin pulang ACC (memudahkan Murobbi klik Sudah Kembali langsung dari Beranda)
+            const activePulangKamar = perizinanList.filter(p =>
+                p.jenis === 'pulang' &&
+                p.status === 'disetujui' &&
+                p.statusKembali !== 'Sudah Kembali' &&
+                !isRecordAdmin(currentUser) &&
+                !isRecordKetuaAsrama(currentUser) &&
+                (isRecordKetuaLantai(currentUser) ? p.sektor === currentUser.sektor : (p.sektor === currentUser.sektor && p.kamar === currentUser.kamar))
+            );
+
+            let pulangAktifBannerHtml = '';
+            if (activePulangKamar.length > 0) {
+                pulangAktifBannerHtml = `
+                    <div class="bg-purple-500/10 border border-purple-500/35 rounded-2xl p-4 space-y-2.5">
+                        <p class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                            <i class="ph-fill ph-house-line text-base"></i> Santri Kamar Sedang Izin Pulang (${activePulangKamar.length}) — Konfirmasi Jika Sudah Kembali:
+                        </p>
+                        <div class="space-y-2">
+                            ${activePulangKamar.map(p => {
+                                const telatInfo = getStatusTelatPulang(p);
+                                return `
+                                    <div class="p-3 rounded-xl border ${telatInfo.isTelat ? 'bg-red-950/35 border-red-500/60' : 'bg-asrama-bg border-asrama-border'} flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                        <div class="space-y-0.5">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <p class="text-xs font-bold text-white">${escHtml(p.santriNama)} (${escHtml(p.kamar)})</p>
+                                                ${telatInfo.isTelat ? `<span class="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-extrabold">⚠️ TELAT KEMBALI ${telatInfo.telatHari} HARI</span>` : ''}
+                                            </div>
+                                            <p class="text-[11px] text-slate-300">Batas Kembali: <strong class="${telatInfo.isTelat ? 'text-red-300' : 'text-amber-300'}">${escHtml(formatBatasKembaliLengkap(p))}</strong></p>
+                                        </div>
+                                        <button onclick="openKonfirmasiSantriKembaliModal('${p.id}')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer shrink-0 self-start">
+                                            Catat Sudah Kembali ke Kamar
+                                        </button>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
             const pendingPindahMurobbi = getPendingPindahForCurrentUser();
             const notifPindahLeaders = getUnreadPindahNotifForLeaders();
 
@@ -1836,7 +1927,7 @@
                                     </div>
                                     <div class="flex items-center gap-2 shrink-0">
                                         <button onclick="verifikasiPindahKamar('${pk.id}', true)" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Ya, Benar & Terima</button>
-                                        <button onclick="verifikasiPindahKamar('${pk.id}', false)" class="px-3 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
+                                        <button onclick="verifikasiPindahKamar('${pk.id}', false)" class="px-3.5 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
                                     </div>
                                 </div>
                             `).join('')}
@@ -1882,7 +1973,7 @@
             } else {
                 quickActions = `
                     <button onclick="navigate('murobbi_presensi')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg cursor-pointer"><i class="ph-bold ph-check-square-offset text-base"></i> Absen Kamar (${hariIni})</button>
-                    <button onclick="navigate('murobbi_izin')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer"><i class="ph-bold ph-paper-plane-tilt text-base text-sky-400"></i> Ajukan Izin</button>
+                    <button onclick="navigate('murobbi_izin')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer"><i class="ph-bold ph-paper-plane-tilt text-base text-sky-400"></i> Ajukan Izin / Kembali</button>
                 `;
             }
 
@@ -1890,6 +1981,7 @@
                 <div class="space-y-5">
                     ${notifBannerHtml}
                     ${murobbiAlertHtml}
+                    ${pulangAktifBannerHtml}
                     ${verifikasiBannerHtml}
 
                     <div class="bg-gradient-to-br from-emerald-950/70 via-asrama-card to-asrama-card border border-emerald-500/30 rounded-3xl p-5 md:p-7 shadow-xl relative overflow-hidden">
@@ -2056,7 +2148,6 @@
                         </button>
                     </div>
 
-                    <!-- Ringkasan Kehadiran Per Sektor (Klik untuk Filter) -->
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
                         ${SEKTOR_ASRAMA.map(sec => {
                             const secSantri = santriList.filter(s => s.sektor === sec);
@@ -2075,7 +2166,6 @@
                         }).join('')}
                     </div>
 
-                    <!-- Bar Pencarian & Filter -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 bg-asrama-card border border-asrama-border rounded-2xl p-3">
                         <div class="relative lg:col-span-2">
                             <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
@@ -2099,7 +2189,6 @@
                         </select>
                     </div>
 
-                    <!-- Tabel Data Absen Semua Santri -->
                     <div class="bg-asrama-card border border-asrama-border rounded-2xl overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full text-left border-collapse">
@@ -3051,28 +3140,38 @@
                                         <th class="py-3 px-4">Santri & Kamar</th>
                                         <th class="py-3 px-4">Jenis & Alasan</th>
                                         <th class="py-3 px-4">Kegiatan / Waktu</th>
-                                        <th class="py-3 px-4">Hari & Tanggal</th>
-                                        <th class="py-3 px-4">Status ACC</th>
+                                        <th class="py-3 px-4">Hari, Tanggal & Batas Kembali</th>
+                                        <th class="py-3 px-4">Status ACC & Kepulangan</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-asrama-border text-xs">
                                     ${list.length === 0 ? `
                                         <tr><td colspan="5" class="py-8 text-center text-slate-400">Tidak ada data perizinan sesuai filter.</td></tr>
-                                    ` : list.map(p => `
-                                        <tr class="hover:bg-asrama-cardHover/40">
-                                            <td class="py-3 px-4">
-                                                <p class="font-bold text-white">${escHtml(p.santriNama)}</p>
-                                                <p class="text-[11px] text-slate-400">${escHtml(p.sektor.replace('Asrama Nusantara ', 'NS '))} • ${escHtml(p.kamar)}</p>
-                                            </td>
-                                            <td class="py-3 px-4">
-                                                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${p.jenis === 'pulang' ? 'bg-purple-500/20 text-purple-300' : 'bg-amber-500/20 text-amber-300'}">${escHtml(p.jenis)}</span>
-                                                <p class="text-slate-200 mt-1">${escHtml(p.kategori)}</p>
-                                            </td>
-                                            <td class="py-3 px-4 text-slate-300">${escHtml(p.targetKegiatan || p.waktuPulang || '-')}</td>
-                                            <td class="py-3 px-4 text-slate-300 whitespace-nowrap">${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</td>
-                                            <td class="py-3 px-4">${renderApprovalBadge(p.status)}</td>
-                                        </tr>
-                                    `).join('')}
+                                    ` : list.map(p => {
+                                        const telatInfo = getStatusTelatPulang(p);
+                                        return `
+                                            <tr class="${telatInfo.isTelat ? 'bg-red-950/30 hover:bg-red-950/40' : 'hover:bg-asrama-cardHover/40'}">
+                                                <td class="py-3 px-4">
+                                                    <p class="font-bold text-white">${escHtml(p.santriNama)}</p>
+                                                    <p class="text-[11px] text-slate-400">${escHtml(p.sektor.replace('Asrama Nusantara ', 'NS '))} • ${escHtml(p.kamar)}</p>
+                                                </td>
+                                                <td class="py-3 px-4">
+                                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${p.jenis === 'pulang' ? 'bg-purple-500/20 text-purple-300' : 'bg-amber-500/20 text-amber-300'}">${escHtml(p.jenis)}</span>
+                                                    <p class="text-slate-200 mt-1">${escHtml(p.kategori)}</p>
+                                                </td>
+                                                <td class="py-3 px-4 text-slate-300">${escHtml(p.targetKegiatan || p.waktuPulang || '-')}</td>
+                                                <td class="py-3 px-4 text-slate-300">
+                                                    <p>${escHtml(formatTanggalHari(p.tanggal))}</p>
+                                                    ${p.jenis === 'pulang' ? `<p class="text-[11px] text-amber-300">Batas Kembali: ${escHtml(formatBatasKembaliLengkap(p))}</p>` : ''}
+                                                </td>
+                                                <td class="py-3 px-4 space-y-1">
+                                                    <div>${renderApprovalBadge(p.status)}</div>
+                                                    ${telatInfo.isTelat ? `<span class="inline-block px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-extrabold">⚠️ TELAT KEMBALI ${telatInfo.telatHari} HARI</span>` : ''}
+                                                    ${p.jenis === 'pulang' && p.statusKembali === 'Sudah Kembali' ? `<p class="text-[10px] text-sky-300">Kembali: ${escHtml(formatTanggalHari(p.tglKembaliAktual || p.kembali))} (${escHtml(p.waktuKembaliAktual || '-')})</p>` : ''}
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
                                 </tbody>
                             </table>
                         </div>
@@ -3082,21 +3181,26 @@
         }
 
         function exportIzinExcel(dataList, label) {
-            const rows = dataList.map((p, idx) => ({
-                No: idx + 1,
-                'Nama Santri': p.santriNama,
-                Kelas: p.santriKelas || '-',
-                Sektor: p.sektor,
-                Kamar: p.kamar,
-                Murobbi: p.murobbi,
-                Jenis: p.jenis.toUpperCase(),
-                Alasan: p.kategori,
-                'Kegiatan / Waktu Pulang': p.targetKegiatan || p.waktuPulang || '-',
-                'Hari & Tanggal Mulai': formatTanggalHari(p.tanggal),
-                'Hari & Batas Kembali': formatTanggalHari(p.kembali || p.tanggal),
-                'Status ACC': p.status,
-                'Status Kepulangan': p.statusKembali || '-'
-            }));
+            const rows = dataList.map((p, idx) => {
+                const telatInfo = getStatusTelatPulang(p);
+                return {
+                    No: idx + 1,
+                    'Nama Santri': p.santriNama,
+                    Kelas: p.santriKelas || '-',
+                    Sektor: p.sektor,
+                    Kamar: p.kamar,
+                    Murobbi: p.murobbi,
+                    Jenis: p.jenis.toUpperCase(),
+                    Alasan: p.kategori,
+                    'Kegiatan / Waktu Pulang': p.targetKegiatan || p.waktuPulang || '-',
+                    'Hari & Tanggal Pulang/Izin': formatTanggalHari(p.tanggal),
+                    'Hari & Batas Kembali': p.jenis === 'pulang' ? formatBatasKembaliLengkap(p) : formatTanggalHari(p.kembali || p.tanggal),
+                    'Status ACC': p.status,
+                    'Status Kepulangan': p.statusKembali || '-',
+                    'Tanggal Kembali Aktual': p.tglKembaliAktual ? `${formatTanggalHari(p.tglKembaliAktual)} (${p.waktuKembaliAktual || '-'} WIB)` : '-',
+                    'Keterangan Ketepatan': telatInfo.isTelat ? `TELAT KEMBALI ${telatInfo.telatHari} HARI` : (p.statusKembali === 'Sudah Kembali' ? 'Tepat Waktu' : '-')
+                };
+            });
             const ws = XLSX.utils.json_to_sheet(rows);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Rekap_Izin');
@@ -3118,7 +3222,7 @@
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
                             <h2 class="text-xl font-extrabold text-white">Monitoring Santri Izin Pulang</h2>
-                            <p class="text-xs text-slate-300">Pantau santri yang masih berada di rumah maupun yang sudah kembali ke asrama.</p>
+                            <p class="text-xs text-slate-300">Pantau santri yang masih berada di rumah, jadwal kembali (batas default 22:00 WIB), dan keterlambatan kembali.</p>
                         </div>
                         <select onchange="adminPulangSektorFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs self-start">
                             <option value="ALL" ${adminPulangSektorFilter === 'ALL' ? 'selected' : ''}>Semua Sektor</option>
@@ -3126,23 +3230,29 @@
                         </select>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        ${pulangList.length === 0 ? `<p class="text-xs text-slate-400">Belum ada data izin pulang.</p>` : pulangList.map(p => `
-                            <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-2.5">
-                                <div class="flex items-start justify-between gap-2">
-                                    <div>
-                                        <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
-                                        <p class="text-[11px] text-emerald-400">${escHtml(p.sektor)} • ${escHtml(p.kamar)}</p>
+                        ${pulangList.length === 0 ? `<p class="text-xs text-slate-400">Belum ada data izin pulang.</p>` : pulangList.map(p => {
+                            const telatInfo = getStatusTelatPulang(p);
+                            return `
+                                <div class="rounded-2xl p-4 space-y-2.5 border ${telatInfo.isTelat ? 'bg-red-950/30 border-red-500/70' : 'bg-asrama-card border-asrama-border'}">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div>
+                                            <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
+                                            <p class="text-[11px] text-emerald-400">${escHtml(p.sektor)} • ${escHtml(p.kamar)}</p>
+                                        </div>
+                                        <div class="flex flex-col items-end gap-1">
+                                            ${renderApprovalBadge(p.status)}
+                                            ${telatInfo.isTelat ? `<span class="px-2.5 py-0.5 rounded-lg bg-red-600 text-white text-[10px] font-extrabold">⚠️ TELAT KEMBALI ${telatInfo.telatHari} HARI</span>` : ''}
+                                        </div>
                                     </div>
-                                    ${renderApprovalBadge(p.status)}
+                                    <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-200 space-y-1">
+                                        <p><span class="text-slate-400">Alasan:</span> ${escHtml(p.kategori)}</p>
+                                        <p><span class="text-slate-400">Tgl Pulang:</span> ${escHtml(formatTanggalHari(p.tanggal))} (${escHtml(p.waktuPulang || '-')})</p>
+                                        <p><span class="text-slate-400">Batas Kembali:</span> <strong class="text-amber-300">${escHtml(formatBatasKembaliLengkap(p))}</strong></p>
+                                        <p><span class="text-slate-400">Status Kembali:</span> <strong class="${telatInfo.isTelat ? 'text-red-300' : 'text-sky-300'}">${escHtml(p.statusKembali || 'Di Rumah')}</strong> ${p.tglKembaliAktual ? `— ${escHtml(formatTanggalHari(p.tglKembaliAktual))} (Pukul ${escHtml(p.waktuKembaliAktual || '-')} WIB)` : ''}</p>
+                                    </div>
                                 </div>
-                                <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-200 space-y-1">
-                                    <p><span class="text-slate-400">Alasan:</span> ${escHtml(p.kategori)}</p>
-                                    <p><span class="text-slate-400">Waktu Pulang:</span> ${escHtml(p.waktuPulang || '-')}</p>
-                                    <p><span class="text-slate-400">Jadwal:</span> ${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</p>
-                                    <p><span class="text-slate-400">Status Kembali:</span> <strong class="text-sky-300">${escHtml(p.statusKembali || 'Di Rumah')}</strong> ${p.waktuKembaliAktual ? `(Pukul ${escHtml(p.waktuKembaliAktual)})` : ''}</p>
-                                </div>
-                            </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
@@ -3439,7 +3549,7 @@
         }
 
         // =========================================================================
-        // 13. AJUKAN IZIN SAKIT (3 KEGIATAN) & IZIN PULANG (PENCARIAN LANGSUNG)
+        // 13. AJUKAN IZIN SAKIT (3 KEGIATAN) & IZIN PULANG (BATAS 22:00 + KONFIRMASI KEMBALI)
         // =========================================================================
         function buildWaktuPulangOptionsHtml(dateStr) {
             const hari = getHariIndonesiaFromDate(dateStr);
@@ -3527,10 +3637,22 @@
 
                             <div id="izin-pulang-fields" class="hidden p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-2.5">
                                 <div>
-                                    <label class="block text-xs font-bold text-purple-300 mb-1">Waktu Pulang (Di Antara Jam Kegiatan):</label>
+                                    <label class="block text-xs font-bold text-purple-300 mb-1">Waktu Berangkat Pulang (Di Antara Jam Kegiatan):</label>
                                     <select id="izin-waktu-pulang" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                                         ${buildWaktuPulangOptionsHtml(defDate)}
                                     </select>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                                    <div>
+                                        <label class="block text-xs font-bold text-purple-200 mb-1">Hari & Tanggal Kembali *</label>
+                                        <input id="izin-kembali" type="date" value="${defDate}" onchange="updateIzinKembaliHariHint(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                        <span id="izin-kembali-hari-hint" class="text-[10px] text-emerald-300 block mt-0.5">${escHtml(formatTanggalHari(defDate))}</span>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-purple-200 mb-1">Batas Jam Kembali (Default 22:00)</label>
+                                        <input id="izin-jam-kembali" type="time" value="${DEFAULT_BATAS_JAM_KEMBALI}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                        <span class="text-[10px] text-slate-400 block mt-0.5">Batas standar asrama: 22:00 WIB</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -3539,15 +3661,9 @@
                                 <input id="izin-alasan" type="text" placeholder="Contoh: Demam tinggi / Acara walimah keluarga" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             </div>
 
-                            <div class="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Mulai Tanggal</label>
-                                    <input id="izin-tgl" type="date" value="${defDate}" onchange="refreshIzinWaktuPulangOptions(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                </div>
-                                <div id="izin-kembali-wrapper" class="hidden">
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Rencana Kembali</label>
-                                    <input id="izin-kembali" type="date" value="${defDate}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-200 mb-1">Tanggal Mulai Izin / Berangkat Pulang</label>
+                                <input id="izin-tgl" type="date" value="${defDate}" onchange="refreshIzinWaktuPulangOptions(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             </div>
 
                             <button type="button" onclick="submitPengajuanIzin()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow cursor-pointer">
@@ -3556,24 +3672,55 @@
                         </div>
 
                         <div class="lg:col-span-7 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
-                            <h3 class="text-sm font-bold text-white">Riwayat Pengajuan Izin Kamar</h3>
-                            <div class="space-y-2.5 max-h-[560px] overflow-y-auto pr-1">
-                                ${riwayat.length === 0 ? `<p class="text-xs text-slate-400">Belum ada pengajuan izin.</p>` : riwayat.map(p => `
-                                    <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                        <div>
-                                            <p class="text-xs font-bold text-white">${escHtml(p.santriNama)} <span class="text-slate-400 font-normal">(${escHtml(p.kamar)})</span></p>
-                                            <p class="text-[11px] text-slate-200 mt-0.5"><strong class="uppercase ${p.jenis === 'pulang' ? 'text-purple-300' : 'text-amber-300'}">${escHtml(p.jenis)}</strong> — ${escHtml(p.kategori)}</p>
-                                            <p class="text-[11px] text-emerald-300">${escHtml(p.targetKegiatan || p.waktuPulang || '')}</p>
-                                            <p class="text-[11px] text-slate-400">${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</p>
+                            <div>
+                                <h3 class="text-sm font-bold text-white">Riwayat Pengajuan Izin & Konfirmasi Kembali</h3>
+                                <p class="text-[11px] text-slate-400">Untuk santri izin pulang yang sudah ACC, klik tombol hijau <strong>Catat Sudah Kembali</strong> saat santri tiba di kamar.</p>
+                            </div>
+                            <div class="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
+                                ${riwayat.length === 0 ? `<p class="text-xs text-slate-400">Belum ada pengajuan izin.</p>` : riwayat.map(p => {
+                                    const telatInfo = getStatusTelatPulang(p);
+                                    const isPulangAcc = p.jenis === 'pulang' && p.status === 'disetujui';
+                                    return `
+                                        <div class="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${telatInfo.isTelat ? 'bg-red-950/35 border-red-500/70' : 'bg-asrama-bg border-asrama-border'}">
+                                            <div class="space-y-1">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <p class="text-xs font-bold text-white">${escHtml(p.santriNama)} <span class="text-slate-400 font-normal">(${escHtml(p.kamar)})</span></p>
+                                                    ${telatInfo.isTelat ? `<span class="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-extrabold">⚠️ TELAT KEMBALI ${telatInfo.telatHari} HARI</span>` : ''}
+                                                </div>
+                                                <p class="text-[11px] text-slate-200"><strong class="uppercase ${p.jenis === 'pulang' ? 'text-purple-300' : 'text-amber-300'}">${escHtml(p.jenis)}</strong> — ${escHtml(p.kategori)}</p>
+                                                ${p.jenis === 'pulang' ? `
+                                                    <p class="text-[11px] text-slate-300">Tgl Pulang: ${escHtml(formatTanggalHari(p.tanggal))}</p>
+                                                    <p class="text-[11px] text-amber-300">Batas Kembali: <strong>${escHtml(formatBatasKembaliLengkap(p))}</strong></p>
+                                                    ${p.statusKembali === 'Sudah Kembali' ? `
+                                                        <p class="text-[11px] ${telatInfo.isTelat ? 'text-red-300 font-bold' : 'text-sky-300'}">
+                                                            Kembali Aktual: ${escHtml(formatTanggalHari(p.tglKembaliAktual || p.kembali))} (${escHtml(p.waktuKembaliAktual || '-')} WIB) ${telatInfo.isTelat ? `— Telat ${telatInfo.telatHari} Hari` : '— Tepat Waktu ✅'}
+                                                        </p>
+                                                    ` : ''}
+                                                ` : `
+                                                    <p class="text-[11px] text-emerald-300">${escHtml(p.targetKegiatan || '')} • ${escHtml(formatTanggalHari(p.tanggal))}</p>
+                                                `}
+                                            </div>
+                                            <div class="flex flex-col items-start sm:items-end gap-2 shrink-0">
+                                                ${renderApprovalBadge(p.status)}
+                                                ${isPulangAcc && p.statusKembali !== 'Sudah Kembali' ? `
+                                                    <button onclick="openKonfirmasiSantriKembaliModal('${p.id}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer">
+                                                        Catat Sudah Kembali
+                                                    </button>
+                                                ` : ''}
+                                            </div>
                                         </div>
-                                        ${renderApprovalBadge(p.status)}
-                                    </div>
-                                `).join('')}
+                                    `;
+                                }).join('')}
                             </div>
                         </div>
                     </div>
                 </div>
             `;
+        }
+
+        function updateIzinKembaliHariHint(dateStr) {
+            const el = document.getElementById('izin-kembali-hari-hint');
+            if (el) el.textContent = formatTanggalHari(dateStr);
         }
 
         function buildIzinSantriSearchResultsHtml(term) {
@@ -3641,7 +3788,6 @@
             const isPulang = jenis === 'pulang';
             document.getElementById('izin-sakit-fields')?.classList.toggle('hidden', isPulang);
             document.getElementById('izin-pulang-fields')?.classList.toggle('hidden', !isPulang);
-            document.getElementById('izin-kembali-wrapper')?.classList.toggle('hidden', !isPulang);
         }
 
         function refreshIzinWaktuPulangOptions(dateStr) {
@@ -3656,7 +3802,8 @@
             const jenis = document.getElementById('izin-jenis').value;
             const alasan = document.getElementById('izin-alasan').value.trim();
             const tanggal = document.getElementById('izin-tgl').value || todayISO();
-            const kembali = jenis === 'pulang' ? (document.getElementById('izin-kembali').value || tanggal) : tanggal;
+            const kembali = jenis === 'pulang' ? (document.getElementById('izin-kembali')?.value || tanggal) : tanggal;
+            const jamKembali = jenis === 'pulang' ? formatJamBatas(document.getElementById('izin-jam-kembali')?.value || DEFAULT_BATAS_JAM_KEMBALI) : '';
 
             if (!alasan) {
                 return showToast('Isi alasan / keluhan detail terlebih dahulu!', 'error');
@@ -3691,6 +3838,7 @@
                 waktuPulang,
                 tanggal,
                 kembali,
+                jamKembali,
                 status: 'menunggu',
                 statusKembali: jenis === 'pulang' ? 'Di Rumah' : '',
                 divisiTujuan,
@@ -3738,7 +3886,6 @@
             });
             const canDelete = isRecordAdmin(currentUser) || isRecordKetuaLantai(currentUser) || hasDivisiAccess('keamanan');
 
-            // Mode Monitoring Khusus Ketua Asrama (Tampilan Penuh Semua Sektor)
             if (isRecordKetuaAsrama(currentUser)) {
                 return `
                     <div class="space-y-5">
@@ -3989,7 +4136,7 @@
         }
 
         // =========================================================================
-        // 15. DIVISI KEAMANAN (ACC, HAPUS + NOTIFIKASI KE MUROBBI, KEMBALI & ASET)
+        // 15. DIVISI KEAMANAN (ACC, HAPUS + NOTIF MUROBBI, UBAH BATAS, KONFIRMASI KEMBALI)
         // =========================================================================
         function renderDivKeamananIzin() {
             const list = perizinanList.filter(p =>
@@ -4000,43 +4147,210 @@
                 <div class="space-y-5">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
-                            <h2 class="text-xl font-extrabold text-white">Divisi Keamanan — Persetujuan & Kepulangan Santri</h2>
-                            <p class="text-xs text-slate-300">ACC, tolak, atau hapus pengajuan izin pulang (Murobbi kamar otomatis mendapat notifikasi jika ditolak lalu dihapus).</p>
+                            <h2 class="text-xl font-extrabold text-white">Divisi Keamanan — ACC Izin Pulang & Kembali</h2>
+                            <p class="text-xs text-slate-300">Batas jam kembali default adalah <strong>22:00 WIB</strong>. Anda dapat menghapus pengajuan izin pulang (Murobbi kamar otomatis mendapat notifikasi).</p>
                         </div>
                         <button onclick="exportIzinExcel(list, 'Izin_Pulang_Keamanan')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start">
                             <i class="ph-bold ph-file-xls"></i> Ekspor Excel
                         </button>
                     </div>
                     <div class="space-y-3">
-                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada data izin pulang.</div>` : list.map(p => `
-                            <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <div class="space-y-1">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
-                                        ${renderApprovalBadge(p.status)}
-                                        ${p.status === 'disetujui' ? `<span class="px-2 py-0.5 rounded-lg text-[10px] font-bold ${p.statusKembali === 'Sudah Kembali' ? 'bg-sky-500/20 text-sky-300' : 'bg-purple-500/20 text-purple-300'}">${escHtml(p.statusKembali || 'Di Rumah')} ${p.waktuKembaliAktual ? `(${escHtml(p.waktuKembaliAktual)})` : ''}</span>` : ''}
+                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada data izin pulang.</div>` : list.map(p => {
+                            const telatInfo = getStatusTelatPulang(p);
+                            return `
+                                <div class="rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border ${telatInfo.isTelat ? 'bg-red-950/35 border-red-500/70' : 'bg-asrama-card border-asrama-border'}">
+                                    <div class="space-y-1">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
+                                            ${renderApprovalBadge(p.status)}
+                                            ${p.status === 'disetujui' ? `<span class="px-2 py-0.5 rounded-lg text-[10px] font-bold ${p.statusKembali === 'Sudah Kembali' ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'}">${escHtml(p.statusKembali || 'Sedang Pulang')}</span>` : ''}
+                                            ${telatInfo.isTelat ? `<span class="px-2.5 py-0.5 rounded-lg bg-red-600 text-white text-[10px] font-extrabold">⚠️ TELAT KEMBALI ${telatInfo.telatHari} HARI</span>` : ''}
+                                        </div>
+                                        <p class="text-xs text-purple-300">${escHtml(p.sektor)} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi)})</p>
+                                        <p class="text-xs text-slate-200">Alasan: <strong>${escHtml(p.kategori)}</strong> • Waktu Pulang: ${escHtml(p.waktuPulang || '-')}</p>
+                                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] pt-0.5">
+                                            <span class="text-slate-300"><i class="ph ph-calendar-blank text-emerald-400"></i> Tgl Pulang: <strong>${escHtml(formatTanggalHari(p.tanggal))}</strong></span>
+                                            <span class="${telatInfo.isTelat ? 'text-red-300 font-bold' : 'text-amber-300'}"><i class="ph ph-clock"></i> Batas Kembali: <strong>${escHtml(formatBatasKembaliLengkap(p))}</strong></span>
+                                        </div>
+                                        ${p.statusKembali === 'Sudah Kembali' ? `
+                                            <p class="text-[11px] ${telatInfo.isTelat ? 'text-red-300 font-bold' : 'text-emerald-300'}">
+                                                Kembali Aktual: ${escHtml(formatTanggalHari(p.tglKembaliAktual || p.kembali))} (Pukul ${escHtml(p.waktuKembaliAktual || '-')} WIB) ${telatInfo.isTelat ? `— Telat ${telatInfo.telatHari} Hari` : '— Tepat Waktu ✅'}
+                                            </p>
+                                        ` : ''}
                                     </div>
-                                    <p class="text-xs text-emerald-400">${escHtml(p.sektor)} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi)})</p>
-                                    <p class="text-xs text-slate-200">Alasan: <strong>${escHtml(p.kategori)}</strong> • ${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</p>
-                                    <p class="text-[11px] text-purple-300">Waktu Pulang: ${escHtml(p.waktuPulang || '-')}</p>
+                                    <div class="flex flex-wrap items-center gap-2 shrink-0">
+                                        ${p.status === 'menunggu' ? `
+                                            <button onclick="prosesApprovalIzin('${p.id}', 'disetujui')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Setujui (ACC)</button>
+                                            <button onclick="prosesApprovalIzin('${p.id}', 'ditolak')" class="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer">Tolak</button>
+                                        ` : ''}
+                                        <button onclick="openUbahBatasKembaliModal('${p.id}')" class="px-3 py-2 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-slate-200 text-xs font-semibold cursor-pointer">
+                                            Ubah Batas Kembali
+                                        </button>
+                                        ${p.status === 'disetujui' && p.statusKembali !== 'Sudah Kembali' ? `
+                                            <button onclick="openKonfirmasiSantriKembaliModal('${p.id}')" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer">Catat Santri Kembali</button>
+                                        ` : ''}
+                                        <button onclick="openHapusIzinPulangModal('${p.id}')" class="px-3 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 text-red-300 text-xs font-bold flex items-center gap-1 cursor-pointer" title="Hapus Pengajuan Izin">
+                                            <i class="ph ph-trash"></i> Hapus Izin
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="flex flex-wrap items-center gap-2 shrink-0">
-                                    ${p.status === 'menunggu' ? `
-                                        <button onclick="prosesApprovalIzin('${p.id}', 'disetujui')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Setujui (ACC)</button>
-                                        <button onclick="prosesApprovalIzin('${p.id}', 'ditolak')" class="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer">Tolak</button>
-                                    ` : ''}
-                                    ${p.status === 'disetujui' && p.statusKembali !== 'Sudah Kembali' ? `
-                                        <button onclick="tandaiSantriSudahKembali('${p.id}', '${p.santriId || ''}')" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer">Catat Sudah Kembali</button>
-                                    ` : ''}
-                                    <button onclick="openHapusIzinPulangModal('${p.id}')" class="px-3 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/35 text-red-300 text-xs font-bold flex items-center gap-1 cursor-pointer" title="Hapus Pengajuan Izin Pulang">
-                                        <i class="ph ph-trash"></i> Hapus
-                                    </button>
-                                </div>
-                            </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
+        }
+
+        function openUbahBatasKembaliModal(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            const curTgl = p.kembali || p.tanggal || todayISO();
+            const curJam = formatJamBatas(p.jamKembali);
+            openModal(
+                `Ubah Batas Kembali — ${p.santriNama}`,
+                `
+                <div class="space-y-3 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Hari & Tanggal Batas Kembali *</label>
+                        <input id="ubah-batas-tgl" type="date" value="${escHtml(curTgl)}" onchange="document.getElementById('ubah-batas-hari-hint').textContent = formatTanggalHari(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        <span id="ubah-batas-hari-hint" class="text-[11px] text-emerald-300 block mt-1">${escHtml(formatTanggalHari(curTgl))}</span>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Jam Batas Kembali (Default 22:00 WIB) *</label>
+                        <input id="ubah-batas-jam" type="time" value="${escHtml(curJam)}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="saveUbahBatasKembali('${p.id}')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold cursor-pointer">Simpan Batas Kembali</button>
+                `
+            );
+        }
+
+        async function saveUbahBatasKembali(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            const tglBaru = document.getElementById('ubah-batas-tgl')?.value || p.kembali;
+            const jamBaru = formatJamBatas(document.getElementById('ubah-batas-jam')?.value || DEFAULT_BATAS_JAM_KEMBALI);
+            const payload = { kembali: tglBaru, jamKembali: jamBaru };
+
+            if (p.statusKembali === 'Sudah Kembali' && p.tglKembaliAktual) {
+                const diff = hitungSelisihHari(tglBaru, p.tglKembaliAktual);
+                payload.telatHari = diff > 0 ? diff : 0;
+                payload.isTelatKembali = diff > 0;
+            }
+
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), payload);
+            closeModal();
+            showToast(`Batas kembali diperbarui menjadi ${formatTanggalHari(tglBaru)} (${jamBaru} WIB).`, 'success');
+        }
+
+        // Modal Konfirmasi Santri Sudah Kembali (Bisa dipakai Murobbi Kamar maupun Divisi Keamanan)
+        function openKonfirmasiSantriKembaliModal(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            const tglBatas = p.kembali || p.tanggal || todayISO();
+            const jamBatas = formatJamBatas(p.jamKembali);
+            const tglNow = todayISO();
+            const jamNow = currentTimeHHMM();
+
+            openModal(
+                'Konfirmasi Santri Sudah Kembali ke Kamar',
+                `
+                <div class="space-y-3 text-xs">
+                    <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-1">
+                        <p class="font-bold text-white text-sm">${escHtml(p.santriNama)} <span class="text-slate-400 font-normal">(${escHtml(p.kamar)})</span></p>
+                        <p class="text-slate-300">Tgl Pulang: ${escHtml(formatTanggalHari(p.tanggal))}</p>
+                        <p class="text-amber-300">Jadwal Batas Kembali: <strong>${escHtml(formatTanggalHari(tglBatas))} (Batas ${escHtml(jamBatas)} WIB)</strong></p>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block font-semibold text-slate-200 mb-1">Tanggal Kembali Aktual *</label>
+                            <input id="kembali-aktual-tgl" type="date" value="${tglNow}" oninput="updatePreviewStatusKembali('${tglBatas}')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <span id="kembali-aktual-hari-hint" class="text-[10px] text-sky-300 block mt-1">${escHtml(formatTanggalHari(tglNow))}</span>
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-200 mb-1">Jam Tiba di Kamar/Asrama *</label>
+                            <input id="kembali-aktual-jam" type="time" value="${jamNow}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        </div>
+                    </div>
+
+                    <div id="kembali-aktual-preview">${buildPreviewStatusKembaliHtml(tglBatas, tglNow)}</div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="executeCatatSantriKembali('${p.id}')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold cursor-pointer">Simpan Status Sudah Kembali</button>
+                `
+            );
+        }
+
+        function buildPreviewStatusKembaliHtml(tglBatas, tglAktual) {
+            const diff = hitungSelisihHari(tglBatas, tglAktual);
+            if (diff > 0) {
+                return `
+                    <div class="p-3 rounded-xl bg-red-500/15 border border-red-500/50 text-red-200 space-y-1">
+                        <p class="font-extrabold text-red-300">⚠️ KETERANGAN MERAH: TELAT KEMBALI ${diff} HARI</p>
+                        <p class="text-[11px]">Hari kembali (${formatTanggalHari(tglAktual)}) melewati batas jadwal (${formatTanggalHari(tglBatas)}) sebanyak <strong>${diff} hari</strong>.</p>
+                    </div>
+                `;
+            }
+            return `
+                <div class="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200">
+                    <p class="font-bold text-emerald-300">✅ Tepat Waktu</p>
+                    <p class="text-[11px]">Santri kembali sesuai atau sebelum hari batas kembali yang ditentukan (${formatTanggalHari(tglBatas)}).</p>
+                </div>
+            `;
+        }
+
+        function updatePreviewStatusKembali(tglBatas) {
+            const tglAktual = document.getElementById('kembali-aktual-tgl')?.value || todayISO();
+            const hint = document.getElementById('kembali-aktual-hari-hint');
+            if (hint) hint.textContent = formatTanggalHari(tglAktual);
+            const prev = document.getElementById('kembali-aktual-preview');
+            if (prev) prev.innerHTML = buildPreviewStatusKembaliHtml(tglBatas, tglAktual);
+        }
+
+        async function executeCatatSantriKembali(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            const tglAktual = document.getElementById('kembali-aktual-tgl')?.value || todayISO();
+            const jamAktual = document.getElementById('kembali-aktual-jam')?.value || currentTimeHHMM();
+            const tglBatas = p.kembali || p.tanggal || tglAktual;
+            const diff = hitungSelisihHari(tglBatas, tglAktual);
+            const telatHari = diff > 0 ? diff : 0;
+
+            showLoading(true, 'Menyimpan status kepulangan santri...');
+            try {
+                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), {
+                    statusKembali: 'Sudah Kembali',
+                    tglKembaliAktual: tglAktual,
+                    waktuKembaliAktual: jamAktual,
+                    telatHari,
+                    isTelatKembali: telatHari > 0,
+                    dicatatKembaliOleh: currentUser.nama
+                });
+
+                if (p.santriId) {
+                    await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', p.santriId), {
+                        status: 'H',
+                        catatan: ''
+                    });
+                }
+
+                closeModal();
+                if (telatHari > 0) {
+                    showToast(`Santri tercatat kembali (${formatTanggalHari(tglAktual)}) dengan status TELAT KEMBALI ${telatHari} HARI!`, 'error');
+                } else {
+                    showToast(`Alhamdulillah, ${p.santriNama} tercatat sudah kembali tepat waktu!`, 'success');
+                }
+            } catch (err) {
+                showToast('Gagal menyimpan status kembali: ' + err.message, 'error');
+            } finally {
+                showLoading(false);
+            }
         }
 
         function openHapusIzinPulangModal(izinId) {
@@ -4049,7 +4363,7 @@
                     <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/35 text-red-200 space-y-1">
                         <p class="font-bold">Konfirmasi Penghapusan Izin Pulang:</p>
                         <p>Santri: <strong class="text-white">${escHtml(p.santriNama)}</strong> (${escHtml(p.kamar)} • ${escHtml(p.sektor.replace('Asrama Nusantara ', 'NS '))})</p>
-                        <p>Jadwal: ${escHtml(formatRentangTanggalHari(p.tanggal, p.kembali))}</p>
+                        <p>Jadwal: ${escHtml(formatTanggalHari(p.tanggal))} — Batas Kembali: ${escHtml(formatBatasKembaliLengkap(p))}</p>
                         <p>Status Saat Ini: <strong>${p.status === 'ditolak' ? 'Ditolak' : p.status === 'disetujui' ? 'Disetujui' : 'Menunggu ACC'}</strong></p>
                     </div>
                     <div>
@@ -4070,10 +4384,7 @@
             const p = perizinanList.find(x => x.id === izinId);
             if (!p) return;
             const catatanInput = (document.getElementById('hapus-izin-catatan')?.value || '').trim();
-            const defaultNote = p.status === 'ditolak'
-                ? 'Pengajuan izin pulang santri Anda telah ditolak dan dihapus oleh Divisi Keamanan.'
-                : 'Pengajuan izin pulang santri Anda ditolak dan dihapus oleh Divisi Keamanan.';
-            const catatanFinal = catatanInput || defaultNote;
+            const catatanFinal = catatanInput || 'Pengajuan izin pulang santri Anda telah ditolak dan dihapus oleh Divisi Keamanan.';
 
             showLoading(true, 'Menghapus izin & mengirim notifikasi ke Murobbi...');
             try {
@@ -4086,7 +4397,6 @@
                     });
                 }
 
-                // Simpan notifikasi persisten untuk Murobbi Kamar
                 await window.FB.addDoc(window.FB.collection(window.FB.db, 'notifikasi_murobbi'), {
                     tipe: 'izin_pulang_dihapus',
                     santriNama: p.santriNama,
@@ -4101,7 +4411,6 @@
                     createdAt: new Date().toISOString()
                 });
 
-                // Kirim Push FCM ke HP Murobbi Kamar
                 triggerRemotePushNotification({
                     eventType: 'izin_dihapus',
                     sektor: p.sektor,
@@ -4122,7 +4431,11 @@
         async function prosesApprovalIzin(izinId, keputusan) {
             const p = perizinanList.find(x => x.id === izinId);
             if (!p) return;
-            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), { status: keputusan });
+            const updatePayload = { status: keputusan };
+            if (p.jenis === 'pulang' && !p.jamKembali) {
+                updatePayload.jamKembali = DEFAULT_BATAS_JAM_KEMBALI;
+            }
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), updatePayload);
             if (keputusan === 'disetujui' && p.santriId) {
                 await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', p.santriId), {
                     status: p.jenis === 'pulang' ? 'P' : 'S',
@@ -4130,21 +4443,6 @@
                 });
             }
             showToast(`Perizinan ${p.santriNama} telah ${keputusan === 'disetujui' ? 'DISETUJUI' : 'DITOLAK'}.`, 'success');
-        }
-
-        async function tandaiSantriSudahKembali(izinId, santriId) {
-            const jamNow = currentTimeHHMM();
-            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), {
-                statusKembali: 'Sudah Kembali',
-                waktuKembaliAktual: jamNow
-            });
-            if (santriId) {
-                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), {
-                    status: 'H',
-                    catatan: ''
-                });
-            }
-            showToast(`Santri tercatat sudah kembali ke asrama pukul ${jamNow} WIB.`, 'success');
         }
 
         function renderDivKeamananAset() {
