@@ -540,6 +540,9 @@
         let kesFilterTanggal = '';
         let kesFilterKamar = 'ALL';
         let kesFilterKegiatan = 'ALL';
+        let kesFilterSektor = 'ALL';
+        let kesFilterStatus = 'ALL';
+        let kesSearchTerm = '';
         let kegFilterHari = 'ALL';
 
         let rubrikList = [];
@@ -606,6 +609,30 @@
 
         function escJs(str) {
             return String(str ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        }
+
+        function normalizeSektorKey(sec) {
+            return String(sec || '')
+                .trim()
+                .toLowerCase()
+                .replace(/^asrama\s+nusantara\s+/i, '')
+                .replace(/^ns\s+/i, '')
+                .replace(/lt\.\s*/gi, 'lt. ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function isSameSektor(secA, secB) {
+            const a = normalizeSektorKey(secA);
+            const b = normalizeSektorKey(secB);
+            return Boolean(a && b && a === b);
+        }
+
+        function toCanonicalSektor(sec) {
+            const key = normalizeSektorKey(sec);
+            if (!key) return SEKTOR_ASRAMA[0];
+            const found = SEKTOR_ASRAMA.find(s => normalizeSektorKey(s) === key);
+            return found || String(sec || '').trim();
         }
 
         function getTodayIso() {
@@ -1072,17 +1099,17 @@
             if (!currentUser) return [];
             if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return santriList;
             if (isRecordKetuaLantai(currentUser)) {
-                return santriList.filter(s => s.sektor === currentUser.sektor);
+                return santriList.filter(s => isSameSektor(s.sektor, currentUser.sektor));
             }
-            return santriList.filter(s => s.sektor === currentUser.sektor && s.kamar === currentUser.kamar);
+            return santriList.filter(s => isSameSektor(s.sektor, currentUser.sektor) && s.kamar === currentUser.kamar);
         }
 
         function getPresensiSantri() {
             if (!currentUser) return [];
             if (isRecordKetuaLantai(currentUser)) {
-                return santriList.filter(s => s.sektor === currentUser.sektor && s.kamar === ketuaSelectedKamar);
+                return santriList.filter(s => isSameSektor(s.sektor, currentUser.sektor) && s.kamar === ketuaSelectedKamar);
             }
-            return santriList.filter(s => s.sektor === currentUser.sektor && s.kamar === currentUser.kamar);
+            return santriList.filter(s => isSameSektor(s.sektor, currentUser.sektor) && s.kamar === currentUser.kamar);
         }
 
         function isIzinPulangKeluarga(p) {
@@ -1107,25 +1134,21 @@
                 return perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangKeluarga(p)).length;
             }
             if (isRecordKetuaLantai(currentUser)) {
-                // Ketua Sektor menerima antrean untuk Izin Pulang Acara Keluarga di sektornya
-                return perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangKeluarga(p) && p.sektor === currentUser.sektor).length;
+                // Ketua Sektor menerima antrean untuk Izin Pulang Acara Keluarga & Izin Sakit di sektornya
+                return perizinanList.filter(p =>
+                    p.status === 'menunggu' &&
+                    (isIzinPulangKeluarga(p) || p.jenis === 'sakit') &&
+                    isSameSektor(p.sektor, currentUser.sektor)
+                ).length;
             }
             let count = 0;
             if (hasDivisiAccess('keamanan')) {
-                count += perizinanList.filter(p =>
-                    p.status === 'menunggu' &&
-                    isIzinPulangSakit(p) &&
-                    (currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor)
-                ).length;
+                count += perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangSakit(p)).length;
             }
             if (hasDivisiAccess('kesehatan')) {
-                count += perizinanList.filter(p =>
-                    p.status === 'menunggu' &&
-                    p.jenis === 'sakit' &&
-                    (currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor)
-                ).length;
+                count += perizinanList.filter(p => p.status === 'menunggu' && p.jenis === 'sakit').length;
             }
-            const unreadNotif = murobbiNotifList.filter(n => !n.dibaca && n.sektor === currentUser.sektor && n.kamar === currentUser.kamar).length;
+            const unreadNotif = murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && n.kamar === currentUser.kamar).length;
             return count + unreadNotif;
         }
 
@@ -1461,17 +1484,15 @@
                                 } else if (p.jenis === 'sakit') {
                                     // Izin sakit tidak masuk notif ke Ketua Asrama/Sektor, hanya ke Divisi Kesehatan
                                     isEligible = !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) &&
-                                        hasDivisiAccess('kesehatan') &&
-                                        (currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor);
+                                        hasDivisiAccess('kesehatan');
                                 } else if (isIzinPulangKeluarga(p)) {
                                     // Izin pulang acara keluarga hanya masuk notif ke Ketua Sektor terkait & Ketua Asrama
                                     isEligible = isRecordKetuaAsrama(currentUser) ||
-                                        (isRecordKetuaLantai(currentUser) && p.sektor === currentUser.sektor);
+                                        (isRecordKetuaLantai(currentUser) && isSameSektor(p.sektor, currentUser.sektor));
                                 } else {
                                     // Izin pulang karena sakit hanya masuk notif ke Divisi Keamanan
                                     isEligible = !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) &&
-                                        hasDivisiAccess('keamanan') &&
-                                        (currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor);
+                                        hasDivisiAccess('keamanan');
                                 }
 
                                 if (isEligible) {
@@ -1505,7 +1526,7 @@
                         if (chg.type === 'added') {
                             const n = chg.doc.data();
                             const key = 'mnotif_' + chg.doc.id;
-                            if (!n.dibaca && n.sektor === currentUser.sektor && n.kamar === currentUser.kamar && !notifiedRecordIds.has(key)) {
+                            if (!n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && n.kamar === currentUser.kamar && !notifiedRecordIds.has(key)) {
                                 notifiedRecordIds.add(key);
                                 triggerSystemNotification(n.judul || 'Pemberitahuan Keamanan', n.pesan || 'Pengajuan izin pulang santri Anda ditolak dan dihapus.');
                             }
@@ -1834,7 +1855,7 @@
             const pendingCount = getPendingCount();
             const berhalangan = scoped.filter(s => s.status !== 'H');
 
-            const notifBelumDibaca = murobbiNotifList.filter(n => !n.dibaca && n.sektor === currentUser.sektor && n.kamar === currentUser.kamar);
+            const notifBelumDibaca = murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && n.kamar === currentUser.kamar);
             const showNotifPromptBanner = ('Notification' in window) && Notification.permission !== 'granted';
 
             let quickActions = '';
@@ -2321,7 +2342,7 @@
         function renderAdminInfoAsrama(readOnly = false) {
             const kamarList = kamarBySektor[adminInfoSelectedSektor] || [];
             const activeKamarObj = getKamarObj(adminInfoSelectedSektor, adminInfoSelectedKamar);
-            const penghuni = santriList.filter(s => s.sektor === adminInfoSelectedSektor && s.kamar === adminInfoSelectedKamar);
+            const penghuni = santriList.filter(s => isSameSektor(s.sektor, adminInfoSelectedSektor) && s.kamar === adminInfoSelectedKamar);
 
             return `
                 <div class="space-y-5">
@@ -2340,7 +2361,7 @@
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
                         ${SEKTOR_ASRAMA.map(sec => {
                             const active = sec === adminInfoSelectedSektor;
-                            const jmlSantri = santriList.filter(s => s.sektor === sec).length;
+                            const jmlSantri = santriList.filter(s => isSameSektor(s.sektor, sec)).length;
                             return `
                                 <button onclick="adminInfoSelectedSektor='${escJs(sec)}'; adminInfoSelectedKamar=kamarBySektor['${escJs(sec)}'][0].nama; renderCurrentPage();" class="p-3 rounded-xl border text-left transition-all cursor-pointer ${active ? 'bg-emerald-500/15 border-emerald-500 text-white' : 'bg-asrama-card border-asrama-border text-slate-300 hover:bg-asrama-cardHover'}">
                                     <p class="text-xs font-bold truncate">${escHtml(sec.replace('Asrama Nusantara ', 'NS '))}</p>
@@ -2356,7 +2377,7 @@
                             <div class="space-y-2 max-h-[500px] overflow-y-auto pr-1">
                                 ${kamarList.map((kObj, idx) => {
                                     const isSel = kObj.nama === adminInfoSelectedKamar;
-                                    const count = santriList.filter(s => s.sektor === adminInfoSelectedSektor && s.kamar === kObj.nama).length;
+                                    const count = santriList.filter(s => isSameSektor(s.sektor, adminInfoSelectedSektor) && s.kamar === kObj.nama).length;
                                     return `
                                         <div onclick="adminInfoSelectedKamar='${escJs(kObj.nama)}'; renderCurrentPage();" class="p-3 rounded-xl border flex items-center justify-between gap-2 cursor-pointer ${isSel ? 'bg-emerald-500/15 border-emerald-500' : 'bg-asrama-bg border-asrama-border'}">
                                             <div class="min-w-0">
@@ -2470,7 +2491,7 @@
 
         function renderAdminSantri() {
             const filtered = santriList.filter(s => {
-                const matchSec = adminFilterSektor === 'ALL' || s.sektor === adminFilterSektor;
+                const matchSec = adminFilterSektor === 'ALL' || isSameSektor(s.sektor, adminFilterSektor);
                 const matchSearch = !searchQuery || (s.nama || '').toLowerCase().includes(searchQuery) || (s.kamar || '').toLowerCase().includes(searchQuery) || (s.kelas || '').toLowerCase().includes(searchQuery);
                 return matchSec && matchSearch;
             });
@@ -2608,7 +2629,7 @@
                 : (kamarBySektor[absenMonitorSektor] || []);
 
             const filtered = santriList.filter(s => {
-                const matchSec = absenMonitorSektor === 'ALL' || s.sektor === absenMonitorSektor;
+                const matchSec = absenMonitorSektor === 'ALL' || isSameSektor(s.sektor, absenMonitorSektor);
                 const matchKam = absenMonitorKamar === 'ALL' || s.kamar === absenMonitorKamar;
                 const matchSt = absenMonitorStatus === 'ALL' || s.status === absenMonitorStatus;
                 const matchQ = !searchQuery || (s.nama || '').toLowerCase().includes(searchQuery) || (s.kamar || '').toLowerCase().includes(searchQuery) || (s.kelas || '').toLowerCase().includes(searchQuery);
@@ -2629,7 +2650,7 @@
 
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
                         ${SEKTOR_ASRAMA.map(sec => {
-                            const listSec = santriList.filter(s => s.sektor === sec);
+                            const listSec = santriList.filter(s => isSameSektor(s.sektor, sec));
                             const h = listSec.filter(s => s.status === 'H').length;
                             const nonH = listSec.length - h;
                             return `
@@ -2731,7 +2752,7 @@
                     || (adminIzinFilter === 'pulang_sakit' && isIzinPulangSakit(p))
                     || (adminIzinFilter === 'pulang_keluarga' && isIzinPulangKeluarga(p))
                     || (adminIzinFilter === 'pulang' && p.jenis === 'pulang');
-                const matchSec = adminIzinSektorFilter === 'ALL' || p.sektor === adminIzinSektorFilter;
+                const matchSec = adminIzinSektorFilter === 'ALL' || isSameSektor(p.sektor, adminIzinSektorFilter);
                 const matchKam = adminIzinKamarFilter === 'ALL' || p.kamar === adminIzinKamarFilter;
                 const matchStatus = adminIzinStatusFilter === 'ALL' || p.status === adminIzinStatusFilter;
                 const matchTgl = !adminIzinTanggalFilter || p.tanggal === adminIzinTanggalFilter;
@@ -2907,7 +2928,7 @@
         }
 
         function renderAdminPulang() {
-            const list = perizinanList.filter(p => p.jenis === 'pulang' && (adminPulangSektorFilter === 'ALL' || p.sektor === adminPulangSektorFilter));
+            const list = perizinanList.filter(p => p.jenis === 'pulang' && (adminPulangSektorFilter === 'ALL' || isSameSektor(p.sektor, adminPulangSektorFilter)));
             return `
                 <div class="space-y-5">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -3279,8 +3300,8 @@
 
             const riwayat = perizinanList.filter(p => {
                 const matchScope = isRecordKetuaLantai(currentUser)
-                    ? p.sektor === currentUser.sektor
-                    : (p.sektor === currentUser.sektor && p.kamar === currentUser.kamar);
+                    ? isSameSektor(p.sektor, currentUser.sektor)
+                    : (isSameSektor(p.sektor, currentUser.sektor) && p.kamar === currentUser.kamar);
                 const matchSearch = !izinRiwayatSearchTerm ||
                     (p.santriNama || '').toLowerCase().includes(izinRiwayatSearchTerm) ||
                     (p.kategori || '').toLowerCase().includes(izinRiwayatSearchTerm);
@@ -3436,6 +3457,7 @@
             const s = santriList.find(x => x.id === santriId);
             if (!s) return showToast('Pilih santri terlebih dahulu!', 'error');
             if (!alasan) return showToast('Isi alasan / keterangan perizinan terlebih dahulu!', 'error');
+            const canonicalSektor = toCanonicalSektor(s.sektor);
 
             if (jenis === 'sakit') {
                 if (!Array.isArray(izinFormKegiatanSakit) || izinFormKegiatanSakit.length === 0) {
@@ -3445,7 +3467,7 @@
                 const docRef = await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
                     santriId: s.id,
                     santriNama: s.nama,
-                    sektor: s.sektor,
+                    sektor: canonicalSektor,
                     kamar: s.kamar,
                     murobbi: currentUser.nama,
                     jenis: 'sakit',
@@ -3462,7 +3484,7 @@
                     eventType: 'izin_baru',
                     dedupId: 'izin_' + docRef.id,
                     jenis: 'sakit',
-                    sektor: s.sektor,
+                    sektor: canonicalSektor,
                     divisiTujuan: 'kesehatan',
                     title: 'SIAN · Pengajuan Izin Sakit Baru',
                     body: `${s.nama} (${s.kamar}) — ${kegJoined} • ${alasan}`
@@ -3480,7 +3502,7 @@
             const docRef = await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
                 santriId: s.id,
                 santriNama: s.nama,
-                sektor: s.sektor,
+                sektor: canonicalSektor,
                 kamar: s.kamar,
                 murobbi: currentUser.nama,
                 jenis: 'pulang',
@@ -3500,7 +3522,7 @@
                 dedupId: 'izin_' + docRef.id,
                 jenis: 'pulang',
                 kategoriPulang: izinFormKategoriPulang,
-                sektor: s.sektor,
+                sektor: canonicalSektor,
                 divisiTujuan,
                 title: isKeluarga ? 'SIAN · Izin Pulang (Acara Keluarga)' : 'SIAN · Izin Pulang (Sakit)',
                 body: `${s.nama} (${s.kamar}) — ${alasan}`
@@ -3617,10 +3639,12 @@
         // 14. DIVISI KEAMANAN, KETUA SEKTOR/ASRAMA (ACC PULANG KELUARGA), KESEHATAN, KEBERSIHAN & KEGIATAN
         // =========================================================================
         function renderDivKeamananIzin() {
-            const list = perizinanList.filter(p =>
-                isIzinPulangSakit(p) &&
-                (isRecordAdmin(currentUser) || currentUser.ketuaUtamaDivisi === 'keamanan' || p.sektor === currentUser.sektor)
-            );
+            const isKetuaSecOnly = isRecordKetuaLantai(currentUser);
+            const list = perizinanList.filter(p => {
+                if (!isIzinPulangSakit(p)) return false;
+                if (isKetuaSecOnly) return isSameSektor(p.sektor, currentUser.sektor);
+                return true;
+            });
             return `
                 <div class="space-y-5">
                     <div>
@@ -3639,7 +3663,7 @@
             const list = perizinanList.filter(p => {
                 if (!isIzinPulangKeluarga(p)) return false;
                 if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return true;
-                if (isRecordKetuaLantai(currentUser)) return p.sektor === currentUser.sektor;
+                if (isRecordKetuaLantai(currentUser)) return isSameSektor(p.sektor, currentUser.sektor);
                 return false;
             });
 
@@ -3814,18 +3838,61 @@
         }
 
         function renderDivKesehatanIzin() {
-            const list = perizinanList.filter(p =>
-                p.jenis === 'sakit' &&
-                (isRecordAdmin(currentUser) || currentUser.ketuaUtamaDivisi === 'kesehatan' || p.sektor === currentUser.sektor)
-            );
+            const isKetuaSecOnly = isRecordKetuaLantai(currentUser);
+            const list = perizinanList.filter(p => {
+                if (p.jenis !== 'sakit') return false;
+                if (isKetuaSecOnly && !isSameSektor(p.sektor, currentUser.sektor)) return false;
+                if (!isKetuaSecOnly && kesFilterSektor !== 'ALL' && !isSameSektor(p.sektor, kesFilterSektor)) return false;
+                if (kesFilterStatus !== 'ALL' && p.status !== kesFilterStatus) return false;
+                if (kesFilterKegiatan !== 'ALL') {
+                    const kegArr = Array.isArray(p.kegiatanSakitList) ? p.kegiatanSakitList : [];
+                    if (!kegArr.includes(kesFilterKegiatan)) return false;
+                }
+                if (kesSearchTerm) {
+                    const q = kesSearchTerm;
+                    const match = (p.santriNama || '').toLowerCase().includes(q)
+                        || (p.kamar || '').toLowerCase().includes(q)
+                        || (p.kategori || '').toLowerCase().includes(q);
+                    if (!match) return false;
+                }
+                return true;
+            });
+
             return `
                 <div class="space-y-5">
                     <div>
                         <h2 class="text-xl font-extrabold text-white">Divisi Kesehatan — ACC & Rekap Izin Sakit</h2>
-                        <p class="text-xs text-slate-300">Persetujuan izin sakit tidak mengikuti kegiatan Sekolah, Halaqoh Sore, atau Madin.</p>
+                        <p class="text-xs text-slate-300">Persetujuan izin sakit tidak mengikuti kegiatan Sekolah, Halaqoh Sore, atau Madin (${isKetuaSecOnly ? escHtml(currentUser.sektor) : 'Semua Sektor Asrama'}).</p>
                     </div>
+
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                        <input type="text" value="${escHtml(kesSearchTerm)}" oninput="kesSearchTerm = this.value.toLowerCase(); renderCurrentPage();" placeholder="Cari nama santri / kamar / keluhan..." class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        ${!isKetuaSecOnly ? `
+                            <select onchange="kesFilterSektor = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                <option value="ALL" ${kesFilterSektor === 'ALL' ? 'selected' : ''}>Semua Sektor (6 Sektor)</option>
+                                ${SEKTOR_ASRAMA.map(sec => `<option value="${escHtml(sec)}" ${kesFilterSektor === sec ? 'selected' : ''}>${escHtml(sec.replace('Asrama Nusantara ', 'NS '))}</option>`).join('')}
+                            </select>
+                        ` : `
+                            <div class="px-3 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-emerald-300 font-semibold flex items-center">
+                                Sektor: ${escHtml((currentUser.sektor || '').replace('Asrama Nusantara ', 'NS '))}
+                            </div>
+                        `}
+                        <select onchange="kesFilterKegiatan = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${kesFilterKegiatan === 'ALL' ? 'selected' : ''}>Semua Kegiatan</option>
+                            <option value="Sekolah" ${kesFilterKegiatan === 'Sekolah' ? 'selected' : ''}>Sekolah</option>
+                            <option value="Halaqoh Sore" ${kesFilterKegiatan === 'Halaqoh Sore' ? 'selected' : ''}>Halaqoh Sore</option>
+                            <option value="Madin" ${kesFilterKegiatan === 'Madin' ? 'selected' : ''}>Madin</option>
+                        </select>
+                        <select onchange="kesFilterStatus = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${kesFilterStatus === 'ALL' ? 'selected' : ''}>Semua Status ACC</option>
+                            <option value="menunggu" ${kesFilterStatus === 'menunggu' ? 'selected' : ''}>Menunggu ACC</option>
+                            <option value="disetujui" ${kesFilterStatus === 'disetujui' ? 'selected' : ''}>Sudah ACC</option>
+                            <option value="ditolak" ${kesFilterStatus === 'ditolak' ? 'selected' : ''}>Ditolak</option>
+                        </select>
+                    </div>
+
                     <div class="space-y-3">
-                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada pengajuan izin sakit.</div>` : list.map(p => {
+                        ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada pengajuan izin sakit yang sesuai dengan filter.</div>` : list.map(p => {
                             const kegText = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0
                                 ? p.kegiatanSakitList.join(', ')
                                 : '-';
@@ -3836,7 +3903,7 @@
                                             <p class="text-sm font-bold text-white">${escHtml(p.santriNama)}</p>
                                             ${renderApprovalBadge(p.status)}
                                         </div>
-                                        <p class="text-xs text-rose-400">${escHtml(p.sektor)} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi || '-')})</p>
+                                        <p class="text-xs text-rose-400">${escHtml(toCanonicalSektor(p.sektor))} • ${escHtml(p.kamar)} (Murobbi: ${escHtml(p.murobbi || '-')})</p>
                                         <p class="text-xs text-emerald-300 font-semibold">Kegiatan Izin: ${escHtml(kegText)}</p>
                                         <p class="text-xs text-slate-200">Keluhan: <strong>${escHtml(p.kategori)}</strong> • Hari/Tanggal: <strong>${formatTanggalHari(p.tanggal)}</strong></p>
                                     </div>

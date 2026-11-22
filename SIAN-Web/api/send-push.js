@@ -44,6 +44,15 @@ function norm(str) {
     return String(str || '').trim().toLowerCase();
 }
 
+function normSektor(str) {
+    return norm(str)
+        .replace(/^asrama\s+nusantara\s+/i, '')
+        .replace(/^ns\s+/i, '')
+        .replace(/lt\.\s*/gi, 'lt. ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function extractFirestoreString(field) {
     return field && typeof field.stringValue === 'string' ? field.stringValue : '';
 }
@@ -75,7 +84,7 @@ function isRecipientEligible(userFields, eventPayload) {
         extractFirestoreBool(userFields.isKetuaLantai)
         || norm(extractFirestoreString(userFields.role)) === 'ketua_sektor'
     );
-    const userSektor = norm(extractFirestoreString(userFields.sektor));
+    const userSektor = normSektor(extractFirestoreString(userFields.sektor));
     const userKamar = norm(extractFirestoreString(userFields.kamar));
     const userDivisi = norm(extractFirestoreString(userFields.divisi));
     const ketuaUtamaDiv = norm(extractFirestoreString(userFields.ketuaUtamaDivisi));
@@ -88,14 +97,14 @@ function isRecipientEligible(userFields, eventPayload) {
 
     if (eventType === 'izin_baru') {
         if (isAdmin) return true;
-        const targetSektor = norm(eventPayload.sektor);
+        const targetSektor = normSektor(eventPayload.sektor);
         const jenis = norm(eventPayload.jenis);
         const kategoriPulang = norm(eventPayload.kategoriPulang);
         const tujuan = norm(eventPayload.divisiTujuan);
 
         // 1. Izin Sakit -> hanya dikirim ke Divisi Kesehatan (tidak ke Ketua Asrama/Sektor)
         if (jenis === 'sakit' || tujuan === 'kesehatan') {
-            return ketuaUtamaDiv === 'kesehatan' || (userDivisi.includes('kesehatan') && userSektor === targetSektor);
+            return ketuaUtamaDiv === 'kesehatan' || userDivisi.includes('kesehatan');
         }
 
         // 2. Izin Pulang Acara Keluarga -> hanya dikirim ke Ketua Sektor terkait & Ketua Asrama
@@ -106,11 +115,11 @@ function isRecipientEligible(userFields, eventPayload) {
         }
 
         // 3. Izin Pulang karena Sakit -> hanya dikirim ke Divisi Keamanan
-        return ketuaUtamaDiv === 'keamanan' || (userDivisi.includes('keamanan') && userSektor === targetSektor);
+        return ketuaUtamaDiv === 'keamanan' || userDivisi.includes('keamanan');
     }
 
     if (eventType === 'izin_dihapus') {
-        const targetSektor = norm(eventPayload.sektor);
+        const targetSektor = normSektor(eventPayload.sektor);
         const targetKamar = norm(eventPayload.kamar);
         if (!isAdmin && !isKetuaAsrama && !isKetuaLantai && userSektor === targetSektor && userKamar === targetKamar) {
             return true;
@@ -120,8 +129,8 @@ function isRecipientEligible(userFields, eventPayload) {
 
     if (eventType === 'pindah_kamar') {
         if (isAdmin || isKetuaAsrama) return true;
-        const dariSektor = norm(eventPayload.dariSektor);
-        const keSektor = norm(eventPayload.keSektor);
+        const dariSektor = normSektor(eventPayload.dariSektor);
+        const keSektor = normSektor(eventPayload.keSektor);
         const keKamar = norm(eventPayload.keKamar);
         if (isKetuaLantai && (userSektor === dariSektor || userSektor === keSektor)) return true;
         if (userSektor === keSektor && userKamar === keKamar) return true;
@@ -134,7 +143,7 @@ function isRecipientEligible(userFields, eventPayload) {
             return eventPayload.penugasanList.some(a => norm(a.pengujiEmail) === email);
         }
         if (eventPayload.cakupan === 'semua_asrama') return true;
-        return userSektor === norm(eventPayload.targetSektor);
+        return userSektor === normSektor(eventPayload.targetSektor);
     }
 
     return false;
