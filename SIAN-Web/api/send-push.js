@@ -48,7 +48,8 @@ function normSektor(str) {
     return norm(str)
         .replace(/^asrama\s+nusantara\s+/i, '')
         .replace(/^ns\s+/i, '')
-        .replace(/lt\.\s*/gi, 'lt. ')
+        .replace(/\blantai\s*/gi, 'lt. ')
+        .replace(/\blt\.?\s*/gi, 'lt. ')
         .replace(/\s+/g, ' ')
         .trim();
 }

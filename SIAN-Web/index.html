@@ -617,7 +617,8 @@
                 .toLowerCase()
                 .replace(/^asrama\s+nusantara\s+/i, '')
                 .replace(/^ns\s+/i, '')
-                .replace(/lt\.\s*/gi, 'lt. ')
+                .replace(/\blantai\s*/gi, 'lt. ')
+                .replace(/\blt\.?\s*/gi, 'lt. ')
                 .replace(/\s+/g, ' ')
                 .trim();
         }
@@ -1112,14 +1113,42 @@
             return santriList.filter(s => isSameSektor(s.sektor, currentUser.sektor) && s.kamar === currentUser.kamar);
         }
 
+        function isIzinSakitRecord(p) {
+            if (!p) return false;
+            const j = String(p.jenis || '').trim().toLowerCase();
+            const div = String(p.divisiTujuan || '').trim().toLowerCase();
+            if (j === 'sakit' || j === 'izin_sakit' || j === 'izin sakit') return true;
+            if (!j && div === 'kesehatan') return true;
+            return false;
+        }
+
+        function isIzinPulangRecord(p) {
+            if (!p) return false;
+            const j = String(p.jenis || '').trim().toLowerCase();
+            const div = String(p.divisiTujuan || '').trim().toLowerCase();
+            if (j === 'pulang' || j === 'izin_pulang' || j === 'izin pulang') return true;
+            if (!j && (div === 'keamanan' || div === 'pimpinan')) return true;
+            return false;
+        }
+
         function isIzinPulangKeluarga(p) {
-            if (!p || p.jenis !== 'pulang') return false;
-            return p.kategoriPulang === 'pulang_keluarga' || p.divisiTujuan === 'pimpinan';
+            if (!isIzinPulangRecord(p)) return false;
+            return p.kategoriPulang === 'pulang_keluarga' || String(p.divisiTujuan || '').trim().toLowerCase() === 'pimpinan';
         }
 
         function isIzinPulangSakit(p) {
-            if (!p || p.jenis !== 'pulang') return false;
-            return p.kategoriPulang === 'pulang_sakit' || (!p.kategoriPulang && p.divisiTujuan !== 'pimpinan');
+            if (!isIzinPulangRecord(p)) return false;
+            return p.kategoriPulang === 'pulang_sakit' || (!p.kategoriPulang && String(p.divisiTujuan || '').trim().toLowerCase() !== 'pimpinan');
+        }
+
+        function isIzinInSektor(p, targetSektor) {
+            if (!p || !targetSektor) return false;
+            if (isSameSektor(p.sektor, targetSektor)) return true;
+            const sObj = santriList.find(s =>
+                (p.santriId && s.id === p.santriId) ||
+                (p.santriNama && String(s.nama || '').trim().toLowerCase() === String(p.santriNama || '').trim().toLowerCase())
+            );
+            return Boolean(sObj && isSameSektor(sObj.sektor, targetSektor));
         }
 
         function getPendingCount() {
@@ -1137,8 +1166,8 @@
                 // Ketua Sektor menerima antrean untuk Izin Pulang Acara Keluarga & Izin Sakit di sektornya
                 return perizinanList.filter(p =>
                     p.status === 'menunggu' &&
-                    (isIzinPulangKeluarga(p) || p.jenis === 'sakit') &&
-                    isSameSektor(p.sektor, currentUser.sektor)
+                    (isIzinPulangKeluarga(p) || isIzinSakitRecord(p)) &&
+                    isIzinInSektor(p, currentUser.sektor)
                 ).length;
             }
             let count = 0;
@@ -1146,7 +1175,7 @@
                 count += perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangSakit(p)).length;
             }
             if (hasDivisiAccess('kesehatan')) {
-                count += perizinanList.filter(p => p.status === 'menunggu' && p.jenis === 'sakit').length;
+                count += perizinanList.filter(p => p.status === 'menunggu' && isIzinSakitRecord(p)).length;
             }
             const unreadNotif = murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && n.kamar === currentUser.kamar).length;
             return count + unreadNotif;
@@ -1481,14 +1510,14 @@
                                 let isEligible = false;
                                 if (isRecordAdmin(currentUser)) {
                                     isEligible = true;
-                                } else if (p.jenis === 'sakit') {
+                                } else if (isIzinSakitRecord(p)) {
                                     // Izin sakit tidak masuk notif ke Ketua Asrama/Sektor, hanya ke Divisi Kesehatan
                                     isEligible = !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) &&
                                         hasDivisiAccess('kesehatan');
                                 } else if (isIzinPulangKeluarga(p)) {
                                     // Izin pulang acara keluarga hanya masuk notif ke Ketua Sektor terkait & Ketua Asrama
                                     isEligible = isRecordKetuaAsrama(currentUser) ||
-                                        (isRecordKetuaLantai(currentUser) && isSameSektor(p.sektor, currentUser.sektor));
+                                        (isRecordKetuaLantai(currentUser) && isIzinInSektor(p, currentUser.sektor));
                                 } else {
                                     // Izin pulang karena sakit hanya masuk notif ke Divisi Keamanan
                                     isEligible = !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) &&
@@ -1497,7 +1526,7 @@
 
                                 if (isEligible) {
                                     notifiedRecordIds.add(key);
-                                    const jenisLabel = p.jenis === 'sakit'
+                                    const jenisLabel = isIzinSakitRecord(p)
                                         ? 'Izin Sakit'
                                         : isIzinPulangKeluarga(p)
                                             ? 'Izin Pulang (Acara Keluarga)'
@@ -2748,16 +2777,19 @@
 
             const list = perizinanList.filter(p => {
                 const matchJenis = adminIzinFilter === 'ALL'
-                    || (adminIzinFilter === 'sakit' && p.jenis === 'sakit')
+                    || (adminIzinFilter === 'sakit' && isIzinSakitRecord(p))
                     || (adminIzinFilter === 'pulang_sakit' && isIzinPulangSakit(p))
                     || (adminIzinFilter === 'pulang_keluarga' && isIzinPulangKeluarga(p))
-                    || (adminIzinFilter === 'pulang' && p.jenis === 'pulang');
-                const matchSec = adminIzinSektorFilter === 'ALL' || isSameSektor(p.sektor, adminIzinSektorFilter);
+                    || (adminIzinFilter === 'pulang' && isIzinPulangRecord(p));
+                const matchSec = adminIzinSektorFilter === 'ALL' || isIzinInSektor(p, adminIzinSektorFilter);
                 const matchKam = adminIzinKamarFilter === 'ALL' || p.kamar === adminIzinKamarFilter;
                 const matchStatus = adminIzinStatusFilter === 'ALL' || p.status === adminIzinStatusFilter;
                 const matchTgl = !adminIzinTanggalFilter || p.tanggal === adminIzinTanggalFilter;
                 const matchKeg = adminIzinKegiatanFilter === 'ALL' || (
-                    p.jenis === 'sakit' && Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.includes(adminIzinKegiatanFilter)
+                    isIzinSakitRecord(p) && (
+                        (Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.includes(adminIzinKegiatanFilter)) ||
+                        String(p.targetKegiatan || '').toLowerCase().includes(adminIzinKegiatanFilter.toLowerCase())
+                    )
                 );
                 const matchQ = !searchQuery
                     || (p.santriNama || '').toLowerCase().includes(searchQuery)
@@ -2766,8 +2798,7 @@
                 return matchJenis && matchSec && matchKam && matchStatus && matchTgl && matchKeg && matchQ;
             });
 
-            const totalSakitAktif = perizinanList.filter(p => p.jenis === 'sakit' && p.status !== 'ditolak').length;
-
+            const totalSakitAktif = perizinanList.filter(p => isIzinSakitRecord(p) && p.status !== 'ditolak').length;
             return `
                 <div class="space-y-5">
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -2858,8 +2889,11 @@
                                         <tr><td colspan="4" class="py-8 text-center text-slate-400">Tidak ada data perizinan yang sesuai dengan filter.</td></tr>
                                     ` : list.map(p => {
                                         const telatInfo = p.sudahKembali ? hitungTelatKembali(p.kembali, p.jamKembali || DEFAULT_BATAS_JAM_KEMBALI, p.tanggalKembaliAktual, p.jamKembaliAktual) : { isTelat: false };
-                                        const kegList = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0 ? p.kegiatanSakitList.join(', ') : '';
-                                        const badgeJenis = p.jenis === 'sakit'
+                                        const kegList = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0
+                                            ? p.kegiatanSakitList.join(', ')
+                                            : (p.targetKegiatan || '');
+                                        const isSakit = isIzinSakitRecord(p);
+                                        const badgeJenis = isSakit
                                             ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300">IZIN SAKIT</span>`
                                             : isIzinPulangKeluarga(p)
                                                 ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-sky-500/20 text-sky-300">PULANG · ACARA KELUARGA</span>`
@@ -2876,7 +2910,7 @@
                                                     <p class="text-slate-200 mt-0.5">${escHtml(p.kategori)}</p>
                                                 </td>
                                                 <td class="py-3 px-4 text-slate-300">
-                                                    ${p.jenis === 'sakit' ? `
+                                                    ${isSakit ? `
                                                         <p class="font-semibold text-white">${formatTanggalHari(p.tanggal)}</p>
                                                     ` : `
                                                         <p>Pulang: ${formatTanggalHari(p.tanggal)}</p>
@@ -2928,7 +2962,7 @@
         }
 
         function renderAdminPulang() {
-            const list = perizinanList.filter(p => p.jenis === 'pulang' && (adminPulangSektorFilter === 'ALL' || isSameSektor(p.sektor, adminPulangSektorFilter)));
+            const list = perizinanList.filter(p => isIzinPulangRecord(p) && (adminPulangSektorFilter === 'ALL' || isIzinInSektor(p, adminPulangSektorFilter)));
             return `
                 <div class="space-y-5">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -3412,12 +3446,12 @@
                         </div>
                         <div class="space-y-3">
                             ${riwayat.length === 0 ? `<p class="text-xs text-slate-400">Belum ada pengajuan izin.</p>` : riwayat.map(p => {
-                                if (p.jenis === 'pulang') {
+                                if (isIzinPulangRecord(p)) {
                                     return renderKartuIzinPulangDetail(p, false, true);
                                 }
                                 const kegText = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0
                                     ? p.kegiatanSakitList.join(', ')
-                                    : '';
+                                    : (p.targetKegiatan || '');
                                 return `
                                     <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                         <div>
@@ -3642,7 +3676,7 @@
             const isKetuaSecOnly = isRecordKetuaLantai(currentUser);
             const list = perizinanList.filter(p => {
                 if (!isIzinPulangSakit(p)) return false;
-                if (isKetuaSecOnly) return isSameSektor(p.sektor, currentUser.sektor);
+                if (isKetuaSecOnly) return isIzinInSektor(p, currentUser.sektor);
                 return true;
             });
             return `
@@ -3663,7 +3697,7 @@
             const list = perizinanList.filter(p => {
                 if (!isIzinPulangKeluarga(p)) return false;
                 if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return true;
-                if (isRecordKetuaLantai(currentUser)) return isSameSektor(p.sektor, currentUser.sektor);
+                if (isRecordKetuaLantai(currentUser)) return isIzinInSektor(p, currentUser.sektor);
                 return false;
             });
 
@@ -3840,13 +3874,14 @@
         function renderDivKesehatanIzin() {
             const isKetuaSecOnly = isRecordKetuaLantai(currentUser);
             const list = perizinanList.filter(p => {
-                if (p.jenis !== 'sakit') return false;
-                if (isKetuaSecOnly && !isSameSektor(p.sektor, currentUser.sektor)) return false;
-                if (!isKetuaSecOnly && kesFilterSektor !== 'ALL' && !isSameSektor(p.sektor, kesFilterSektor)) return false;
+                if (!isIzinSakitRecord(p)) return false;
+                if (isKetuaSecOnly && !isIzinInSektor(p, currentUser.sektor)) return false;
+                if (!isKetuaSecOnly && kesFilterSektor !== 'ALL' && !isIzinInSektor(p, kesFilterSektor)) return false;
                 if (kesFilterStatus !== 'ALL' && p.status !== kesFilterStatus) return false;
                 if (kesFilterKegiatan !== 'ALL') {
                     const kegArr = Array.isArray(p.kegiatanSakitList) ? p.kegiatanSakitList : [];
-                    if (!kegArr.includes(kesFilterKegiatan)) return false;
+                    const legacyTarget = String(p.targetKegiatan || '').toLowerCase();
+                    if (!kegArr.includes(kesFilterKegiatan) && !legacyTarget.includes(kesFilterKegiatan.toLowerCase())) return false;
                 }
                 if (kesSearchTerm) {
                     const q = kesSearchTerm;
@@ -3862,7 +3897,7 @@
                 <div class="space-y-5">
                     <div>
                         <h2 class="text-xl font-extrabold text-white">Divisi Kesehatan — ACC & Rekap Izin Sakit</h2>
-                        <p class="text-xs text-slate-300">Persetujuan izin sakit tidak mengikuti kegiatan Sekolah, Halaqoh Sore, atau Madin (${isKetuaSecOnly ? escHtml(currentUser.sektor) : 'Semua Sektor Asrama'}).</p>
+                        <p class="text-xs text-slate-300">Persetujuan izin sakit tidak mengikuti kegiatan Sekolah, Halaqoh Sore, atau Madin (${isKetuaSecOnly ? escHtml(currentUser.sektor) : 'Semua Sektor Asrama'} • ${list.length} data).</p>
                     </div>
 
                     <div class="bg-asrama-card border border-asrama-border rounded-2xl p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -3895,7 +3930,7 @@
                         ${list.length === 0 ? `<div class="p-6 bg-asrama-card border border-asrama-border rounded-2xl text-xs text-slate-400">Tidak ada pengajuan izin sakit yang sesuai dengan filter.</div>` : list.map(p => {
                             const kegText = Array.isArray(p.kegiatanSakitList) && p.kegiatanSakitList.length > 0
                                 ? p.kegiatanSakitList.join(', ')
-                                : '-';
+                                : (p.targetKegiatan || '-');
                             return `
                                 <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                     <div class="space-y-1">
