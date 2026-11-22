@@ -382,7 +382,7 @@
             measurementId: "G-Z20J923GWW"
         };
 
-        // Web Push VAPID Key dari Firebase Console -> Cloud Messaging -> Web Push certificates
+        // Web Push VAPID Key (Opsional diisi di sini — atau otomatis tersinkron dari Admin via Firestore)
         window.DEFAULT_VAPID_KEY = "MASUKKAN_VAPID_KEY_FIREBASE_ANDA";
 
         let savedLocalConfig = null;
@@ -557,6 +557,7 @@
         let notifiedRecordIds = new Set();
         let deferredPwaPrompt = null;
         let currentFcmToken = '';
+        let cloudVapidKey = '';
         let sianAudioCtx = null;
 
         // =========================================================================
@@ -741,7 +742,7 @@
         }
 
         // =========================================================================
-        // 4. NOTIFIKASI REAL-TIME, SUARA DERING & FCM PUSH (VERCEL /api/send-push)
+        // 4. NOTIFIKASI REAL-TIME, SUARA DERING & FCM PUSH OTOMATIS SEMUA HP
         // =========================================================================
         function unlockSianAudio() {
             try {
@@ -796,11 +797,23 @@
         }
 
         function getActiveVapidKey() {
-            const localVapid = (localStorage.getItem('sian_vapid_key') || '').trim();
-            if (localVapid && !localVapid.includes('MASUKKAN_')) return localVapid;
             const defVapid = (window.DEFAULT_VAPID_KEY || '').trim();
             if (defVapid && !defVapid.includes('MASUKKAN_')) return defVapid;
+            if (cloudVapidKey && !cloudVapidKey.includes('MASUKKAN_')) return cloudVapidKey;
+            const localVapid = (localStorage.getItem('sian_vapid_key') || '').trim();
+            if (localVapid && !localVapid.includes('MASUKKAN_')) return localVapid;
             return '';
+        }
+
+        async function fetchCloudVapidKeyIfNeeded() {
+            if (getActiveVapidKey() || !window.FB?.ready) return getActiveVapidKey();
+            try {
+                const snap = await window.FB.getDoc(window.FB.doc(window.FB.db, 'pengaturan', 'fcm_config'));
+                if (snap.exists() && snap.data()?.vapidKey) {
+                    cloudVapidKey = String(snap.data().vapidKey).trim();
+                }
+            } catch (_) {}
+            return getActiveVapidKey();
         }
 
         async function registerFcmDeviceToken(showFeedback = false) {
@@ -808,9 +821,16 @@
                 if (showFeedback) showToast('Browser ini belum mendukung FCM Web Push.', 'error');
                 return '';
             }
-            const vapidKey = getActiveVapidKey();
+            const vapidKey = await fetchCloudVapidKeyIfNeeded();
             if (!vapidKey) {
-                if (showFeedback) showToast('VAPID Key Firebase belum diisi. Tempelkan VAPID Key terlebih dahulu.', 'error');
+                if (showFeedback) {
+                    showToast(
+                        isRecordAdmin(currentUser)
+                            ? 'VAPID Key belum diisi. Silakan tempelkan VAPID Key 1 kali di menu Install App & Notif.'
+                            : 'Notifikasi Push pusat belum diaktifkan oleh Administrator.',
+                        'error'
+                    );
+                }
                 return '';
             }
             try {
@@ -844,7 +864,7 @@
                         );
                     }
                     if (showFeedback) {
-                        showToast('Perangkat HP ini berhasil terdaftar untuk Notifikasi Push FCM!', 'success');
+                        showToast('Perangkat HP ini berhasil terdaftar untuk Notifikasi Push!', 'success');
                     }
                     return token;
                 }
@@ -853,6 +873,25 @@
                 if (showFeedback) showToast('Gagal daftar FCM: ' + err.message, 'error');
             }
             return '';
+        }
+
+        async function enableNotifOneTap() {
+            unlockSianAudio();
+            if (typeof Notification === 'undefined') {
+                showToast('Notifikasi suara dalam aplikasi aktif!', 'success');
+                return;
+            }
+            const perm = await Notification.requestPermission();
+            if (perm === 'granted') {
+                const token = await registerFcmDeviceToken(false);
+                await triggerSystemNotification(
+                    'SIAN · Notifikasi Aktif!',
+                    token ? 'HP ini otomatis terdaftar menerima notifikasi push SIAN!' : 'Notifikasi panel atas HP aktif!'
+                );
+                renderCurrentPage();
+            } else {
+                showToast('Izin notifikasi belum diizinkan. Aktifkan lewat pengaturan situs Chrome.', 'info');
+            }
         }
 
         function triggerRemotePushNotification(payload) {
@@ -1066,7 +1105,6 @@
                 const snap = await window.FB.getDoc(docRef);
                 let userData = snap.exists() ? snap.data() : null;
 
-                // Pemulihan otomatis Administrator Utama
                 if (email === PRIMARY_ADMIN_EMAIL) {
                     const adminPayload = {
                         email,
@@ -1228,7 +1266,7 @@
             unsubscribeListeners = [];
             initialSyncDone = { perizinan: false, pindah: false, pengurus: false };
 
-            // 1. Pengaturan (Kamar, Pengumuman, Kegiatan)
+            // 1. Pengaturan (Kamar, Pengumuman, Kegiatan, VAPID Key Pusat)
             unsubscribeListeners.push(
                 window.FB.onSnapshot(window.FB.collection(window.FB.db, 'pengaturan'), (snap) => {
                     snap.forEach(d => {
@@ -1245,6 +1283,12 @@
                         }
                         if (Array.isArray(data.kegiatanList) && data.kegiatanList.length > 0) {
                             kegiatanList = data.kegiatanList;
+                        }
+                        if (typeof data.vapidKey === 'string' && data.vapidKey.trim()) {
+                            cloudVapidKey = data.vapidKey.trim();
+                            if (currentUser && typeof Notification !== 'undefined' && Notification.permission === 'granted' && !currentFcmToken) {
+                                registerFcmDeviceToken(false);
+                            }
                         }
                     });
                     reconcileKamarFromSantriAndPengurus();
@@ -1577,7 +1621,7 @@
         }
 
         // =========================================================================
-        // 9. BERANDA & RINGKASAN (TERMASUK NOTIFIKASI VERIFIKASI PINDAH KAMAR)
+        // 9. BERANDA & RINGKASAN (TERMASUK AKTIVASI NOTIFIKASI 1 KETUK)
         // =========================================================================
         function renderBeranda() {
             const scoped = getScopedSantri();
@@ -1590,6 +1634,24 @@
             const berhalangan = scoped.filter(s => (s.status || 'H') !== 'H');
             const hariIni = getHariIndonesiaFromDate();
             const jadwalHariIni = getKegiatanForDay(hariIni);
+
+            const showNotifPromptBanner = typeof Notification !== 'undefined' && Notification.permission === 'default';
+            const notifBannerHtml = showNotifPromptBanner ? `
+                <div class="bg-emerald-500/15 border border-emerald-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-start gap-3">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0 mt-0.5">
+                            <i class="ph-fill ph-bell-ringing text-xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-white">Aktifkan Notifikasi Real-Time di HP Ini</p>
+                            <p class="text-[11px] text-slate-300">Ketuk 1 kali agar pemberitahuan izin santri & verifikasi kamar langsung berdering di layar HP Anda.</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="enableNotifOneTap()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow cursor-pointer shrink-0 self-start sm:self-center">
+                        Aktifkan Sekarang (1 Ketuk)
+                    </button>
+                </div>
+            ` : '';
 
             const pendingPindahMurobbi = getPendingPindahForCurrentUser();
             const notifPindahLeaders = getUnreadPindahNotifForLeaders();
@@ -1654,6 +1716,7 @@
 
             return `
                 <div class="space-y-5">
+                    ${notifBannerHtml}
                     ${verifikasiBannerHtml}
 
                     <div class="bg-gradient-to-br from-emerald-950/70 via-asrama-card to-asrama-card border border-emerald-500/30 rounded-3xl p-5 md:p-7 shadow-xl relative overflow-hidden">
@@ -3957,8 +4020,11 @@
             const notifStatus = notifSupported ? Notification.permission : 'unsupported';
             const activeVapid = getActiveVapidKey();
             const savedToken = currentFcmToken || localStorage.getItem('sian_fcm_token') || '';
+            const isAdmin = currentUser && isRecordAdmin(currentUser);
+            const showVapidBox = isAdmin || !activeVapid;
+
             const statusText = notifStatus === 'granted'
-                ? (savedToken ? 'Aktif & Terdaftar FCM Push ✅' : 'Izin Browser Aktif (Klik Daftarkan FCM)')
+                ? (savedToken ? 'Aktif & Terdaftar Otomatis ✅' : 'Izin Browser Aktif (Klik Daftarkan HP)')
                 : notifStatus === 'denied'
                     ? 'Diblokir Browser (Aktifkan di Pengaturan Situs Chrome)'
                     : notifStatus === 'default'
@@ -3966,57 +4032,63 @@
                         : 'Gunakan Chrome / Safari di HP';
 
             openModal(
-                'Pasang Logo SIAN & Aktifkan Notifikasi Push (FCM)',
+                'Pasang Logo SIAN & Aktifkan Notifikasi HP',
                 `
                 <div class="space-y-4 text-xs">
                     <div class="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/35">
                         <img src="${window.SIAN_LOGO_PREVIEW_URL}" alt="Logo SIAN" class="w-12 h-12 rounded-2xl shadow-lg shrink-0">
                         <div>
                             <p class="font-extrabold text-white text-sm">SIAN · Asrama Nusantara</p>
-                            <p class="text-[11px] text-emerald-300">WebAPK Android + Firebase Cloud Messaging (FCM)</p>
+                            <p class="text-[11px] text-emerald-300">Aplikasi Layar Depan HP & Notifikasi Real-Time</p>
                         </div>
                     </div>
 
                     <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
-                        <p class="font-bold text-white flex items-center gap-1.5"><i class="ph-fill ph-bell-ringing text-amber-400"></i> 1. Notifikasi Push FCM (Tembus Walau App Ditutup)</p>
-                        <p class="text-[11px] text-slate-300">Status saat ini: <strong class="text-emerald-300">${statusText}</strong></p>
+                        <p class="font-bold text-white flex items-center gap-1.5"><i class="ph-fill ph-bell-ringing text-amber-400"></i> 1. Notifikasi Real-Time HP</p>
+                        <p class="text-[11px] text-slate-300">Status HP ini: <strong class="text-emerald-300">${statusText}</strong></p>
 
-                        <div>
-                            <label class="block text-[11px] font-semibold text-slate-300 mb-1">Web Push VAPID Key Firebase:</label>
-                            <div class="flex gap-1.5">
-                                <input id="input-vapid-key" type="text" value="${escHtml(activeVapid)}" placeholder="Tempel VAPID Key dari Firebase Console..." class="w-full border border-asrama-border rounded-xl px-3 py-1.5 text-xs font-mono">
-                                <button type="button" onclick="saveVapidKeyAndRegister()" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shrink-0 cursor-pointer">Simpan</button>
+                        ${showVapidBox ? `
+                            <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1.5">
+                                <label class="block text-[11px] font-semibold text-amber-200">Pengaturan Pusat Admin (Cukup Diisi 1 Kali — Otomatis Aktif di Semua HP):</label>
+                                <div class="flex gap-1.5">
+                                    <input id="input-vapid-key" type="text" value="${escHtml(activeVapid)}" placeholder="Tempel VAPID Key dari Firebase Console..." class="w-full border border-asrama-border rounded-xl px-3 py-1.5 text-xs font-mono">
+                                    <button type="button" onclick="saveVapidKeyAndRegister()" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shrink-0 cursor-pointer">Simpan</button>
+                                </div>
                             </div>
-                        </div>
+                        ` : `
+                            <p class="text-[11px] text-emerald-400/90">Konfigurasi pusat sudah aktif otomatis — Anda tidak perlu memasukkan kode apa pun.</p>
+                        `}
 
                         <div class="flex flex-wrap gap-2 pt-1">
                             <button type="button" onclick="requestRealtimeNotifPermission()" class="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer">
-                                Aktifkan Notif & Daftarkan HP Ini
+                                Aktifkan Notif di HP Ini
                             </button>
-                            <button type="button" onclick="testRemoteFcmPush()" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer">
-                                Tes Kirim Push FCM
+                            ${isAdmin ? `
+                                <button type="button" onclick="testRemoteFcmPush()" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer">
+                                    Tes Kirim Push FCM
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    ${isAdmin ? `
+                        <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border space-y-2">
+                            <p class="font-bold text-white flex items-center gap-1.5"><i class="ph-fill ph-image text-emerald-400"></i> 2. File Icon PNG Logo SIAN (Untuk Repository)</p>
+                            <button type="button" onclick="downloadSianPngIcons()" class="px-3.5 py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-emerald-300 font-bold flex items-center gap-1.5 cursor-pointer">
+                                <i class="ph-bold ph-download-simple"></i> Unduh icon-192.png & icon-512.png
                             </button>
                         </div>
-                        ${savedToken ? `<p class="text-[10px] text-slate-400 truncate">Token HP: <code>${escHtml(savedToken.slice(0, 28))}...</code></p>` : ''}
-                    </div>
+                    ` : ''}
 
                     <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border space-y-2">
-                        <p class="font-bold text-white flex items-center gap-1.5"><i class="ph-fill ph-image text-emerald-400"></i> 2. File Icon PNG Logo SIAN (Untuk Folder SIAN-Web)</p>
-                        <p class="text-[11px] text-slate-300">Unduh 2 file icon PNG ini dan letakkan sejajar dengan <code>index.html</code>, <code>sw.js</code>, dan <code>manifest.json</code>:</p>
-                        <button type="button" onclick="downloadSianPngIcons()" class="px-3.5 py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-emerald-300 font-bold flex items-center gap-1.5 cursor-pointer">
-                            <i class="ph-bold ph-download-simple"></i> Unduh icon-192.png & icon-512.png
-                        </button>
-                    </div>
-
-                    <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border space-y-2">
-                        <p class="font-bold text-white flex items-center gap-1.5"><i class="ph-fill ph-device-mobile text-sky-400"></i> 3. Pasang ke Layar Depan HP</p>
+                        <p class="font-bold text-white flex items-center gap-1.5"><i class="ph-fill ph-device-mobile text-sky-400"></i> Pasang Logo SIAN ke Layar Depan HP</p>
                         ${deferredPwaPrompt ? `
                             <button type="button" onclick="triggerNativePwaInstall()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer">
                                 Install Aplikasi SIAN Sekarang
                             </button>
                         ` : `
                             <div class="text-[11px] text-slate-300 space-y-1">
-                                <p>• <strong>Android (Chrome):</strong> Hapus pintasan SIAN lama di layar depan HP terlebih dahulu, buka link web baru Vercel Anda, lalu ketuk menu titik tiga (<strong>⋮</strong>) → <strong>Instal aplikasi</strong>.</p>
+                                <p>• <strong>Android (Chrome):</strong> Ketuk menu titik tiga (<strong>⋮</strong>) di pojok kanan atas browser → pilih <strong>Instal aplikasi / Tambahkan ke layar utama</strong>.</p>
                                 <p>• <strong>iPhone (Safari):</strong> Ketuk ikon <strong>Bagikan (Share)</strong> → pilih <strong>Tambah ke Layar Utama</strong>.</p>
                             </div>
                         `}
@@ -4034,6 +4106,16 @@
                 return;
             }
             localStorage.setItem('sian_vapid_key', val);
+            cloudVapidKey = val;
+            if (window.FB?.ready && currentUser && isRecordAdmin(currentUser)) {
+                try {
+                    await window.FB.setDoc(
+                        window.FB.doc(window.FB.db, 'pengaturan', 'fcm_config'),
+                        { vapidKey: val, updatedAt: new Date().toISOString() },
+                        { merge: true }
+                    );
+                } catch (_) {}
+            }
             await registerFcmDeviceToken(true);
             openPwaInstallAndNotifModal();
         }
