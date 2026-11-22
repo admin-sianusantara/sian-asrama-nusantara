@@ -119,6 +119,15 @@ function isRecipientEligible(userFields, eventPayload) {
         return false;
     }
 
+    if (eventType === 'rubrik_baru') {
+        if (isAdmin || isKetuaAsrama) return true;
+        if (eventPayload.penugasanMode === 'khusus' && Array.isArray(eventPayload.penugasanList)) {
+            return eventPayload.penugasanList.some(a => norm(a.pengujiEmail) === email);
+        }
+        if (eventPayload.cakupan === 'semua_asrama') return true;
+        return userSektor === norm(eventPayload.targetSektor);
+    }
+
     return false;
 }
 

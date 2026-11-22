@@ -543,6 +543,17 @@
         let kesFilterKegiatan = 'ALL';
         let kegFilterHari = 'ALL';
 
+        let rubrikList = [];
+        let hasilPenilaianList = [];
+        let selectedRubrikId = '';
+        let selectedPenilaianSektor = '';
+        let selectedPenilaianKamar = '';
+        let penilaianSearchTerm = '';
+        let rekapPenilaianSektor = 'ALL';
+        let rekapPenilaianKamar = 'ALL';
+        let rubrikDraftCols = [];
+        let rubrikDraftAssignments = [];
+
         let selectedPelSantriIds = [];
         let pelSearchTerm = '';
         let izinSearchTerm = '';
@@ -1589,6 +1600,24 @@
                     if (currentUser) renderCurrentPage();
                 })
             );
+
+            // 10. Rubrik Penilaian Santri (Dibuat Divisi Kegiatan)
+            unsubscribeListeners.push(
+                window.FB.onSnapshot(window.FB.collection(window.FB.db, 'rubrik_penilaian'), (snap) => {
+                    rubrikList = snap.docs
+                        .map(d => ({ id: d.id, ...d.data() }))
+                        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+                    if (currentUser) renderCurrentPage();
+                })
+            );
+
+            // 11. Hasil Penilaian Santri (Centang / Nilai per Santri)
+            unsubscribeListeners.push(
+                window.FB.onSnapshot(window.FB.collection(window.FB.db, 'hasil_penilaian'), (snap) => {
+                    hasilPenilaianList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    if (currentUser) renderCurrentPage();
+                })
+            );
         }
 
         // =========================================================================
@@ -1669,6 +1698,7 @@
                         ${navItem('ketua_asrama_absen', 'ph-check-square-offset', 'Laporan Absen Semua Santri', 'text-emerald-300')}
                         ${navItem('admin_pengurus', 'ph-user-circle-check', 'Akun Google Pengurus', 'text-teal-400')}
                         ${navItem('div_kegiatan', 'ph-calendar-check', 'Atur & Edit Kegiatan Harian', 'text-amber-400')}
+                        ${navItem('div_penilaian', 'ph-exam', 'Rubrik & Hasil Penilaian', 'text-emerald-400')}
                         ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Rekap Telat & Takziran WA', 'text-rose-400')}
                         ${navItem('admin_izin', 'ph-file-xls', 'Semua Izin & Ekspor Data', 'text-sky-400')}
                         ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
@@ -1679,6 +1709,7 @@
                     <div class="space-y-1">
                         <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">Monitoring Ketua Asrama</p>
                         ${navItem('ketua_asrama_absen', 'ph-check-square-offset', 'Laporan Absen Semua Santri', 'text-emerald-400')}
+                        ${navItem('div_penilaian', 'ph-exam', 'Rekap Penilaian Hafalan / Mengaji', 'text-emerald-300')}
                         ${navItem('admin_izin', 'ph-file-xls', 'Monitor Izin Sakit & Pulang', 'text-sky-400')}
                         ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
                         ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Rekap Telat & Takziran', 'text-amber-400')}
@@ -1693,6 +1724,7 @@
                             ${isRecordKetuaLantai(currentUser) ? 'Pantauan Kamar Sektor' : 'Tugas Murobbi Kamar'}
                         </p>
                         ${navItem('murobbi_presensi', 'ph-check-square-offset', 'Presensi Kamar & Kegiatan', 'text-emerald-400')}
+                        ${navItem('murobbi_penilaian', 'ph-exam', 'Input Penilaian Hafalan / Mengaji', 'text-emerald-300')}
                         ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Izin Sakit, Pulang & Kembali', 'text-sky-400')}
                         ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Catat Telat / Alpa (1 Sektor)', 'text-amber-400')}
                     </div>
@@ -1731,6 +1763,7 @@
                         <div class="space-y-1 pt-2 border-t border-asrama-border/60">
                             <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1.5">Divisi Kegiatan</p>
                             ${navItem('div_kegiatan', 'ph-calendar-check', 'Atur & Edit Kegiatan Harian', 'text-amber-400')}
+                            ${navItem('div_penilaian', 'ph-exam', 'Rubrik & Hasil Penilaian', 'text-emerald-400')}
                         </div>
                     `;
                 }
@@ -1797,6 +1830,8 @@
                 case 'div_kesehatan_izin': container.innerHTML = renderDivKesehatanIzin(); break;
                 case 'div_kebersihan': container.innerHTML = renderDivKebersihan(); break;
                 case 'div_kegiatan': container.innerHTML = renderDivKegiatan(); break;
+                case 'div_penilaian': container.innerHTML = renderDivPenilaian(); break;
+                case 'murobbi_penilaian': container.innerHTML = renderMurobbiPenilaian(); break;
                 default: container.innerHTML = renderBeranda();
             }
         }
@@ -4941,6 +4976,771 @@
             await window.FB.setDoc(window.FB.doc(window.FB.db, 'pengaturan', 'jadwal_kegiatan'), { kegiatanList }, { merge: true });
             renderCurrentPage();
             showToast('Kegiatan dihapus dari jadwal.', 'info');
+        }
+
+        // =========================================================================
+        // 17B. RUBRIK PENILAIAN (DIVISI KEGIATAN) & INPUT PENILAIAN SANTRI (MUROBBI)
+        // =========================================================================
+        function getEligibleRubriksForUser() {
+            if (!currentUser) return [];
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || hasDivisiAccess('kegiatan')) {
+                return rubrikList.filter(r => r.aktif !== false);
+            }
+            const userEmail = String(currentUser.email || '').trim().toLowerCase();
+            return rubrikList.filter(r => {
+                if (r.aktif === false) return false;
+                const isAssignedDirectly = Array.isArray(r.penugasanList) && r.penugasanList.some(t =>
+                    String(t.pengujiEmail || '').trim().toLowerCase() === userEmail
+                );
+                if (isAssignedDirectly) return true;
+                if (r.cakupan === 'semua_asrama') return true;
+                if (r.cakupan === 'satu_sektor' && r.targetSektor === currentUser.sektor) return true;
+                return false;
+            });
+        }
+
+        function renderDivPenilaian() {
+            const canCreate = canManageKegiatan();
+            const activeRubrik = rubrikList.find(r => r.id === selectedRubrikId) || rubrikList[0] || null;
+            if (activeRubrik) selectedRubrikId = activeRubrik.id;
+
+            const availableKamars = rekapPenilaianSektor === 'ALL'
+                ? Array.from(new Set(santriList.map(s => s.kamar).filter(Boolean))).sort()
+                : (kamarBySektor[rekapPenilaianSektor] || []).map(k => k.nama);
+
+            let rekapRowsHtml = '';
+            if (activeRubrik) {
+                const cols = Array.isArray(activeRubrik.kolomList) ? activeRubrik.kolomList : [];
+                const scopedSantri = santriList
+                    .filter(s => {
+                        const okScope = activeRubrik.cakupan === 'semua_asrama' || s.sektor === activeRubrik.targetSektor;
+                        const okSec = rekapPenilaianSektor === 'ALL' || s.sektor === rekapPenilaianSektor;
+                        const okKam = rekapPenilaianKamar === 'ALL' || s.kamar === rekapPenilaianKamar;
+                        const okSearch = !searchQuery ||
+                            s.nama.toLowerCase().includes(searchQuery) ||
+                            (s.kamar || '').toLowerCase().includes(searchQuery);
+                        return okScope && okSec && okKam && okSearch;
+                    })
+                    .sort((a, b) => (a.sektor || '').localeCompare(b.sektor || '') || (a.kamar || '').localeCompare(b.kamar || '') || (a.nama || '').localeCompare(b.nama || ''));
+
+                const hasilBySantri = {};
+                hasilPenilaianList
+                    .filter(h => h.rubrikId === activeRubrik.id)
+                    .forEach(h => { hasilBySantri[h.santriId] = h; });
+
+                rekapRowsHtml = `
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                            <div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h3 class="text-base font-extrabold text-white">Hasil Monitoring: ${escHtml(activeRubrik.judul)}</h3>
+                                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                        ${activeRubrik.cakupan === 'semua_asrama' ? '1 Asrama (6 Sektor)' : escHtml(activeRubrik.targetSektor)}
+                                    </span>
+                                </div>
+                                <p class="text-xs text-slate-300 mt-0.5">${escHtml(activeRubrik.deskripsi || 'Rekap hasil penilaian per santri secara real-time.')}</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="exportHasilPenilaianExcel('${activeRubrik.id}')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                    <i class="ph-bold ph-file-xls"></i> Ekspor Excel (.xlsx)
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <select onchange="rekapPenilaianSektor = this.value; rekapPenilaianKamar = 'ALL'; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                <option value="ALL" ${rekapPenilaianSektor === 'ALL' ? 'selected' : ''}>Semua Sektor dalam Cakupan</option>
+                                ${(activeRubrik.cakupan === 'semua_asrama' ? SEKTOR_ASRAMA : [activeRubrik.targetSektor]).map(sec => `
+                                    <option value="${escHtml(sec)}" ${rekapPenilaianSektor === sec ? 'selected' : ''}>${escHtml(sec.replace('Asrama Nusantara ', 'NS '))}</option>
+                                `).join('')}
+                            </select>
+                            <select onchange="rekapPenilaianKamar = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                <option value="ALL" ${rekapPenilaianKamar === 'ALL' ? 'selected' : ''}>Semua Kamar</option>
+                                ${availableKamars.map(km => `<option value="${escHtml(km)}" ${rekapPenilaianKamar === km ? 'selected' : ''}>${escHtml(km)}</option>`).join('')}
+                            </select>
+                            <div class="text-xs text-slate-300 flex items-center px-3 py-2 rounded-xl bg-asrama-bg border border-asrama-border">
+                                Menampilkan <strong class="text-emerald-300 mx-1">${scopedSantri.length}</strong> santri
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto border border-asrama-border rounded-xl">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b border-asrama-border bg-asrama-bg text-[11px] uppercase text-slate-300">
+                                        <th class="py-2.5 px-3">No</th>
+                                        <th class="py-2.5 px-3 min-w-[180px]">Nama Santri</th>
+                                        <th class="py-2.5 px-3">Kamar</th>
+                                        ${cols.map(c => `<th class="py-2.5 px-3 text-center whitespace-nowrap">${escHtml(c.nama)}</th>`).join('')}
+                                        <th class="py-2.5 px-3">Penguji</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-asrama-border text-xs">
+                                    ${scopedSantri.length === 0 ? `
+                                        <tr><td colspan="${cols.length + 4}" class="py-8 text-center text-slate-400">Belum ada data santri pada filter ini.</td></tr>
+                                    ` : scopedSantri.slice(0, 250).map((s, idx) => {
+                                        const rec = hasilBySantri[s.id];
+                                        const nMap = rec?.nilaiMap || {};
+                                        return `
+                                            <tr class="hover:bg-asrama-cardHover/40">
+                                                <td class="py-2.5 px-3 text-slate-400">${idx + 1}</td>
+                                                <td class="py-2.5 px-3 font-bold text-white">${escHtml(s.nama)} <span class="text-[10px] font-normal text-slate-400">(${escHtml(s.kelas || '-')})</span></td>
+                                                <td class="py-2.5 px-3 text-emerald-300 whitespace-nowrap">${escHtml(s.kamar)} <span class="text-[10px] text-slate-400">(${escHtml((s.sektor || '').replace('Asrama Nusantara ', 'NS '))})</span></td>
+                                                ${cols.map(c => {
+                                                    const val = nMap[c.id];
+                                                    if (c.tipe === 'nilai') {
+                                                        return `<td class="py-2.5 px-3 text-center font-bold ${val !== undefined && val !== '' ? 'text-sky-300' : 'text-slate-500'}">${val !== undefined && val !== '' ? escHtml(val) : '-'}</td>`;
+                                                    }
+                                                    return `<td class="py-2.5 px-3 text-center">${val === true ? '<span class="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-500/20 text-emerald-300 font-extrabold">✓</span>' : '<span class="text-slate-600">-</span>'}</td>`;
+                                                }).join('')}
+                                                <td class="py-2.5 px-3 text-[11px] text-slate-300 whitespace-nowrap">${escHtml(rec?.pengujiNama || '-')}</td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="space-y-5">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white">Rubrik & Lembar Penilaian Santri</h2>
+                            <p class="text-xs text-slate-300">Divisi Kegiatan membuat kriteria penilaian (Centang / Nilai), menentukan cakupan 1 Asrama atau 1 Sektor, dan menugaskan penguji antar kamar.</p>
+                        </div>
+                        ${canCreate ? `
+                            <button onclick="openRubrikFormModal(null)" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg cursor-pointer self-start">
+                                <i class="ph-bold ph-plus-circle text-base"></i> Buat Rubrik Penilaian Baru
+                            </button>
+                        ` : ''}
+                    </div>
+
+                    ${rubrikList.length === 0 ? `
+                        <div class="bg-asrama-card border border-dashed border-asrama-border rounded-2xl p-8 text-center space-y-3">
+                            <p class="text-sm font-bold text-white">Belum Ada Rubrik Penilaian</p>
+                            <p class="text-xs text-slate-400 max-w-md mx-auto">Klik tombol <strong>Buat Rubrik Penilaian Baru</strong> untuk membuat lembar monitoring hafalan (Tawassul, Tahlil, Do'a, Surat Pendek, Wirid) atau penilaian mengaji.</p>
+                        </div>
+                    ` : `
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            ${rubrikList.map(r => {
+                                const isSel = activeRubrik && activeRubrik.id === r.id;
+                                const cols = Array.isArray(r.kolomList) ? r.kolomList : [];
+                                const assignCount = Array.isArray(r.penugasanList) ? r.penugasanList.length : 0;
+                                return `
+                                    <div onclick="selectedRubrikId = '${r.id}'; renderCurrentPage();" class="rounded-2xl p-4 border transition-all cursor-pointer space-y-2.5 ${isSel ? 'bg-emerald-500/15 border-emerald-500' : 'bg-asrama-card border-asrama-border hover:bg-asrama-cardHover'}">
+                                        <div class="flex items-start justify-between gap-2">
+                                            <div class="min-w-0">
+                                                <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold ${r.cakupan === 'semua_asrama' ? 'bg-purple-500/20 text-purple-300' : 'bg-sky-500/20 text-sky-300'}">
+                                                    ${r.cakupan === 'semua_asrama' ? 'Share: 1 Asrama (6 Sektor)' : `Share: ${escHtml((r.targetSektor || '').replace('Asrama Nusantara ', 'NS '))}`}
+                                                </span>
+                                                <h3 class="text-sm font-extrabold text-white mt-1 truncate">${escHtml(r.judul)}</h3>
+                                            </div>
+                                            ${canCreate ? `
+                                                <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation();">
+                                                    <button onclick="openRubrikFormModal('${r.id}')" class="px-2 py-1 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-300 text-[10px] font-bold cursor-pointer">Edit</button>
+                                                    <button onclick="hapusRubrikPenilaian('${r.id}')" class="p-1.5 rounded-lg bg-red-500/15 text-red-300 cursor-pointer" title="Hapus Rubrik"><i class="ph ph-trash"></i></button>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                        <p class="text-[11px] text-slate-300 line-clamp-2">${cols.map(c => `${c.nama} (${c.tipe === 'nilai' ? 'Nilai' : '✓'})`).join(' • ')}</p>
+                                        <div class="pt-2 border-t border-asrama-border/60 flex items-center justify-between text-[11px]">
+                                            <span class="text-amber-300 font-semibold">
+                                                ${r.penugasanMode === 'khusus' ? `${assignCount} Penugasan Penguji` : 'Semua Murobbi di Cakupan'}
+                                            </span>
+                                            <span class="text-emerald-400 font-bold">Lihat Rekap →</span>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        ${rekapRowsHtml}
+                    `}
+                </div>
+            `;
+        }
+
+        function openRubrikFormModal(rubrikId) {
+            const existing = rubrikId ? rubrikList.find(x => x.id === rubrikId) : null;
+            rubrikDraftCols = existing && Array.isArray(existing.kolomList)
+                ? existing.kolomList.map(c => ({ ...c }))
+                : [
+                    { id: 'col_' + Date.now() + '_1', nama: 'TAWASSUL', tipe: 'centang' },
+                    { id: 'col_' + Date.now() + '_2', nama: 'TAHLIL', tipe: 'centang' },
+                    { id: 'col_' + Date.now() + '_3', nama: "DO'A", tipe: 'centang' }
+                ];
+            rubrikDraftAssignments = existing && Array.isArray(existing.penugasanList)
+                ? existing.penugasanList.map(a => ({ ...a }))
+                : [];
+
+            const curCakupan = existing?.cakupan || 'satu_sektor';
+            const curSektor = existing?.targetSektor || (currentUser.sektor && SEKTOR_ASRAMA.includes(currentUser.sektor) ? currentUser.sektor : SEKTOR_ASRAMA[0]);
+            const curMode = existing?.penugasanMode || 'bebas';
+
+            const approvedPengurus = pengurusList
+                .filter(p => p.status === 'approved' && !isRecordAdmin(p))
+                .sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+
+            const defAssignSec = curSektor;
+            const defAssignKamOpts = (kamarBySektor[defAssignSec] || []).map(k => `<option value="${escHtml(k.nama)}">${escHtml(k.nama)}</option>`).join('');
+
+            openModal(
+                existing ? 'Edit Rubrik & Penugasan Penilaian' : 'Buat Rubrik Penilaian Baru',
+                `
+                <div class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Judul Lembar Penilaian *</label>
+                        <input id="rubrik-judul" type="text" value="${escHtml(existing?.judul || '')}" placeholder="Contoh: Lembar Monitoring Hafalan & Wirid" class="w-full border border-asrama-border rounded-xl px-3 py-2">
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Keterangan / Instruksi Penguji (Opsional)</label>
+                        <input id="rubrik-deskripsi" type="text" value="${escHtml(existing?.deskripsi || '')}" placeholder="Contoh: Centang jika santri sudah menyetorkan hafalan dengan lancar" class="w-full border border-asrama-border rounded-xl px-3 py-2">
+                    </div>
+
+                    <!-- BAGIAN 1: KRITERIA / KOLOM PENILAIAN -->
+                    <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
+                        <div class="flex flex-wrap items-center justify-between gap-1.5">
+                            <span class="font-bold text-emerald-300">1. Kriteria / Kolom Penilaian:</span>
+                            <div class="flex flex-wrap gap-1">
+                                <button type="button" onclick="applyRubrikPreset('hafalan')" class="px-2 py-1 rounded bg-emerald-500/15 border border-emerald-500/30 text-[10px] text-emerald-300 font-bold cursor-pointer">Template Hafalan</button>
+                                <button type="button" onclick="applyRubrikPreset('mengaji')" class="px-2 py-1 rounded bg-sky-500/15 border border-sky-500/30 text-[10px] text-sky-300 font-bold cursor-pointer">Template Mengaji (Nilai)</button>
+                            </div>
+                        </div>
+
+                        <div id="rubrik-cols-container" class="space-y-2">${buildRubrikDraftColsHtml()}</div>
+
+                        <button type="button" onclick="addRubrikDraftCol()" class="w-full py-1.5 rounded-lg bg-asrama-card hover:bg-asrama-cardHover border border-dashed border-asrama-border text-emerald-300 font-bold cursor-pointer">
+                            + Tambah Kolom Penilaian
+                        </button>
+                    </div>
+
+                    <!-- BAGIAN 2: CAKUPAN SHARE (1 ASRAMA vs 1 SEKTOR) -->
+                    <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
+                        <span class="block font-bold text-sky-300">2. Bagikan (Share) Rubrik Ini Untuk:</span>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[11px] text-slate-300 mb-1">Cakupan Wilayah</label>
+                                <select id="rubrik-cakupan" onchange="toggleRubrikSektorField(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    <option value="satu_sektor" ${curCakupan === 'satu_sektor' ? 'selected' : ''}>Hanya 1 Sektor Lantai</option>
+                                    <option value="semua_asrama" ${curCakupan === 'semua_asrama' ? 'selected' : ''}>1 Asrama Penuh (Semua 6 Sektor)</option>
+                                </select>
+                            </div>
+                            <div id="rubrik-sektor-box" class="${curCakupan === 'semua_asrama' ? 'hidden' : ''}">
+                                <label class="block text-[11px] text-slate-300 mb-1">Pilih Sektor Target</label>
+                                <select id="rubrik-target-sektor" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                    ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${sec === curSektor ? 'selected' : ''}>${sec.replace('Asrama Nusantara ', 'NS ')}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- BAGIAN 3: PENUGASAN PENGUJI (SILANG KAMAR / BEBAS) -->
+                    <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
+                        <span class="block font-bold text-amber-300">3. Penugasan Penguji (Siapa Menilai Kamar Mana):</span>
+                        <select id="rubrik-penugasan-mode" onchange="toggleRubrikAssignBox(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="bebas" ${curMode === 'bebas' ? 'selected' : ''}>Terbuka untuk Semua Murobbi di Cakupan (Bisa Pilih Kamar)</option>
+                            <option value="khusus" ${curMode === 'khusus' ? 'selected' : ''}>Penugasan Khusus (Misal: Murobbi Samarkand Menilai Kamar Kudus)</option>
+                        </select>
+
+                        <div id="rubrik-assign-box" class="${curMode === 'khusus' ? '' : 'hidden'} space-y-2.5 pt-1">
+                            <div class="grid grid-cols-1 gap-2 p-2.5 rounded-xl bg-asrama-card border border-asrama-border">
+                                <div>
+                                    <label class="block text-[10px] text-slate-300 mb-1">Pilih Penguji (Murobbi / Pengurus):</label>
+                                    <select id="assign-penguji-email" class="w-full border border-asrama-border rounded-lg px-2.5 py-1.5 text-xs">
+                                        ${approvedPengurus.map(p => `<option value="${escHtml(p.email)}">${escHtml(p.nama)} (${escHtml(p.kamar || '-')})</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div class="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                        <label class="block text-[10px] text-slate-300 mb-1">Sektor Kamar Dinilai:</label>
+                                        <select id="assign-target-sektor" onchange="updateKamarDropdown('assign-target-sektor', 'assign-target-kamar')" class="w-full border border-asrama-border rounded-lg px-2 py-1.5 text-xs">
+                                            ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${sec === defAssignSec ? 'selected' : ''}>${sec.replace('Asrama Nusantara ', 'NS ')}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-300 mb-1">Kamar yang Dinilai:</label>
+                                        <select id="assign-target-kamar" class="w-full border border-asrama-border rounded-lg px-2 py-1.5 text-xs">${defAssignKamOpts}</select>
+                                    </div>
+                                </div>
+                                <button type="button" onclick="addRubrikDraftAssignment()" class="w-full py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer">
+                                    + Tambahkan ke Daftar Tugas
+                                </button>
+                            </div>
+
+                            <div id="rubrik-assign-list" class="space-y-1.5">${buildRubrikDraftAssignmentsHtml()}</div>
+                        </div>
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="saveRubrikPenilaian('${rubrikId || ''}')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold cursor-pointer">Simpan & Bagikan Rubrik</button>
+                `
+            );
+        }
+
+        function buildRubrikDraftColsHtml() {
+            return rubrikDraftCols.map((col, idx) => `
+                <div class="flex items-center gap-1.5">
+                    <span class="text-[11px] text-slate-400 w-5">${idx + 1}.</span>
+                    <input type="text" value="${escHtml(col.nama)}" oninput="rubrikDraftCols[${idx}].nama = this.value" placeholder="Nama item penilaian..." class="flex-1 border border-asrama-border rounded-lg px-2.5 py-1.5 text-xs">
+                    <select onchange="rubrikDraftCols[${idx}].tipe = this.value" class="border border-asrama-border rounded-lg px-2 py-1.5 text-xs">
+                        <option value="centang" ${col.tipe === 'centang' ? 'selected' : ''}>Centang (✓)</option>
+                        <option value="nilai" ${col.tipe === 'nilai' ? 'selected' : ''}>Nilai (0-100)</option>
+                    </select>
+                    <button type="button" onclick="removeRubrikDraftCol(${idx})" class="p-1.5 rounded-lg bg-red-500/15 text-red-300 cursor-pointer" title="Hapus Kolom"><i class="ph ph-x"></i></button>
+                </div>
+            `).join('');
+        }
+
+        function refreshRubrikDraftColsUI() {
+            const el = document.getElementById('rubrik-cols-container');
+            if (el) el.innerHTML = buildRubrikDraftColsHtml();
+        }
+
+        function addRubrikDraftCol() {
+            rubrikDraftCols.push({ id: 'col_' + Date.now() + '_' + rubrikDraftCols.length, nama: '', tipe: 'centang' });
+            refreshRubrikDraftColsUI();
+        }
+
+        function removeRubrikDraftCol(idx) {
+            if (rubrikDraftCols.length <= 1) return showToast('Minimal harus ada 1 kriteria penilaian!', 'error');
+            rubrikDraftCols.splice(idx, 1);
+            refreshRubrikDraftColsUI();
+        }
+
+        function applyRubrikPreset(type) {
+            const now = Date.now();
+            if (type === 'hafalan') {
+                const judulEl = document.getElementById('rubrik-judul');
+                if (judulEl && !judulEl.value.trim()) judulEl.value = 'Lembar Monitoring Hafalan & Wirid';
+                rubrikDraftCols = [
+                    { id: `col_${now}_1`, nama: 'TAWASSUL', tipe: 'centang' },
+                    { id: `col_${now}_2`, nama: 'TAHLIL', tipe: 'centang' },
+                    { id: `col_${now}_3`, nama: "DO'A", tipe: 'centang' },
+                    { id: `col_${now}_4`, nama: 'AT TAKASUR - AN NAS', tipe: 'centang' },
+                    { id: `col_${now}_5`, nama: 'WIRID ABAH', tipe: 'centang' },
+                    { id: `col_${now}_6`, nama: "DO'A WIRID ABAH", tipe: 'centang' }
+                ];
+            } else {
+                const judulEl = document.getElementById('rubrik-judul');
+                if (judulEl && !judulEl.value.trim()) judulEl.value = 'Penilaian Kemampuan Mengaji Santri';
+                rubrikDraftCols = [
+                    { id: `col_${now}_1`, nama: 'TAJWID', tipe: 'nilai' },
+                    { id: `col_${now}_2`, nama: 'MAKHARIJUL HURUF', tipe: 'nilai' },
+                    { id: `col_${now}_3`, nama: 'KELANCARAN BACAAN', tipe: 'nilai' },
+                    { id: `col_${now}_4`, nama: 'LULUS TARGET', tipe: 'centang' }
+                ];
+            }
+            refreshRubrikDraftColsUI();
+        }
+
+        function toggleRubrikSektorField(val) {
+            document.getElementById('rubrik-sektor-box')?.classList.toggle('hidden', val === 'semua_asrama');
+        }
+
+        function toggleRubrikAssignBox(val) {
+            document.getElementById('rubrik-assign-box')?.classList.toggle('hidden', val !== 'khusus');
+        }
+
+        function buildRubrikDraftAssignmentsHtml() {
+            if (rubrikDraftAssignments.length === 0) {
+                return `<p class="text-[11px] text-slate-400 text-center py-1">Belum ada pasangan penguji ditambahkan.</p>`;
+            }
+            return rubrikDraftAssignments.map((a, idx) => `
+                <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-asrama-card border border-asrama-border text-[11px]">
+                    <div>
+                        <strong class="text-white">${escHtml(a.pengujiNama)}</strong> <span class="text-slate-400">(${escHtml(a.pengujiKamar || '-')})</span>
+                        <span class="text-emerald-300"> → Menilai <strong>${escHtml(a.targetKamar)}</strong> (${escHtml((a.targetSektor || '').replace('Asrama Nusantara ', 'NS '))})</span>
+                    </div>
+                    <button type="button" onclick="removeRubrikDraftAssignment(${idx})" class="text-red-300 hover:text-red-200 font-bold cursor-pointer">×</button>
+                </div>
+            `).join('');
+        }
+
+        function addRubrikDraftAssignment() {
+            const email = document.getElementById('assign-penguji-email')?.value || '';
+            const targetSektor = document.getElementById('assign-target-sektor')?.value || SEKTOR_ASRAMA[0];
+            const targetKamar = document.getElementById('assign-target-kamar')?.value || '';
+            const pg = pengurusList.find(p => p.email === email);
+            if (!pg || !targetKamar) return;
+
+            const exists = rubrikDraftAssignments.some(a =>
+                a.pengujiEmail === email && a.targetSektor === targetSektor && a.targetKamar === targetKamar
+            );
+            if (exists) return showToast('Penugasan yang sama sudah ada di daftar.', 'info');
+
+            rubrikDraftAssignments.push({
+                pengujiEmail: pg.email,
+                pengujiNama: pg.nama,
+                pengujiKamar: pg.kamar || '-',
+                targetSektor,
+                targetKamar
+            });
+            const listEl = document.getElementById('rubrik-assign-list');
+            if (listEl) listEl.innerHTML = buildRubrikDraftAssignmentsHtml();
+        }
+
+        function removeRubrikDraftAssignment(idx) {
+            rubrikDraftAssignments.splice(idx, 1);
+            const listEl = document.getElementById('rubrik-assign-list');
+            if (listEl) listEl.innerHTML = buildRubrikDraftAssignmentsHtml();
+        }
+
+        async function saveRubrikPenilaian(rubrikId) {
+            const judul = (document.getElementById('rubrik-judul')?.value || '').trim();
+            const deskripsi = (document.getElementById('rubrik-deskripsi')?.value || '').trim();
+            const cakupan = document.getElementById('rubrik-cakupan')?.value || 'satu_sektor';
+            const targetSektor = cakupan === 'semua_asrama' ? 'Semua Sektor' : (document.getElementById('rubrik-target-sektor')?.value || SEKTOR_ASRAMA[0]);
+            const penugasanMode = document.getElementById('rubrik-penugasan-mode')?.value || 'bebas';
+
+            const validCols = rubrikDraftCols
+                .map(c => ({ id: c.id, nama: String(c.nama || '').trim(), tipe: c.tipe === 'nilai' ? 'nilai' : 'centang' }))
+                .filter(c => c.nama);
+
+            if (!judul) return showToast('Judul rubrik penilaian wajib diisi!', 'error');
+            if (validCols.length === 0) return showToast('Isi minimal 1 nama kriteria penilaian!', 'error');
+            if (penugasanMode === 'khusus' && rubrikDraftAssignments.length === 0) {
+                return showToast('Tambahkan minimal 1 pasangan penguji → kamar target, atau ubah mode ke Terbuka!', 'error');
+            }
+
+            const payload = {
+                judul,
+                deskripsi,
+                kolomList: validCols,
+                cakupan,
+                targetSektor,
+                penugasanMode,
+                penugasanList: penugasanMode === 'khusus' ? rubrikDraftAssignments : [],
+                aktif: true,
+                dibuatOleh: currentUser.nama,
+                updatedAt: new Date().toISOString()
+            };
+
+            showLoading(true, 'Menyimpan & membagikan rubrik penilaian...');
+            try {
+                if (rubrikId) {
+                    await window.FB.updateDoc(window.FB.doc(window.FB.db, 'rubrik_penilaian', rubrikId), payload);
+                    selectedRubrikId = rubrikId;
+                } else {
+                    payload.createdAt = new Date().toISOString();
+                    const ref = await window.FB.addDoc(window.FB.collection(window.FB.db, 'rubrik_penilaian'), payload);
+                    selectedRubrikId = ref.id;
+                }
+
+                triggerRemotePushNotification({
+                    eventType: 'rubrik_baru',
+                    cakupan,
+                    targetSektor,
+                    penugasanMode,
+                    penugasanList: payload.penugasanList,
+                    title: 'SIAN · Rubrik Penilaian Baru Dibagikan',
+                    body: `${judul} oleh ${currentUser.nama} (${cakupan === 'semua_asrama' ? 'Semua Sektor' : targetSektor})`
+                });
+
+                closeModal();
+                renderCurrentPage();
+                showToast(`Rubrik "${judul}" berhasil disimpan & dibagikan!`, 'success');
+            } catch (err) {
+                showToast('Gagal menyimpan rubrik: ' + err.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function hapusRubrikPenilaian(rubrikId) {
+            await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'rubrik_penilaian', rubrikId));
+            if (selectedRubrikId === rubrikId) selectedRubrikId = '';
+            showToast('Rubrik penilaian dihapus.', 'info');
+        }
+
+        // Halaman Input Penilaian Santri untuk Murobbi / Penguji
+        function renderMurobbiPenilaian() {
+            const eligibleRubriks = getEligibleRubriksForUser();
+            if (eligibleRubriks.length === 0) {
+                return `
+                    <div class="bg-asrama-card border border-dashed border-asrama-border rounded-2xl p-8 text-center space-y-2">
+                        <i class="ph-fill ph-exam text-3xl text-emerald-400"></i>
+                        <h2 class="text-base font-extrabold text-white">Belum Ada Tugas Penilaian Aktif</h2>
+                        <p class="text-xs text-slate-400 max-w-md mx-auto">Apabila Divisi Kegiatan membagikan rubrik penilaian hafalan atau mengaji untuk kamar/sektor Anda, lembar penilaian akan otomatis muncul di sini.</p>
+                    </div>
+                `;
+            }
+
+            const activeRubrik = eligibleRubriks.find(r => r.id === selectedRubrikId) || eligibleRubriks[0];
+            selectedRubrikId = activeRubrik.id;
+
+            const userEmail = String(currentUser.email || '').trim().toLowerCase();
+            const myAssignments = (activeRubrik.penugasanList || []).filter(a =>
+                String(a.pengujiEmail || '').trim().toLowerCase() === userEmail
+            );
+
+            // Tentukan daftar sektor & kamar yang dapat dipilih oleh penguji ini
+            let allowedPairs = [];
+            if (activeRubrik.penugasanMode === 'khusus' && !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && !hasDivisiAccess('kegiatan')) {
+                allowedPairs = myAssignments.map(a => ({ sektor: a.targetSektor, kamar: a.targetKamar }));
+            } else {
+                const secs = activeRubrik.cakupan === 'semua_asrama' ? SEKTOR_ASRAMA : [activeRubrik.targetSektor];
+                secs.forEach(sec => {
+                    (kamarBySektor[sec] || []).forEach(k => {
+                        allowedPairs.push({ sektor: sec, kamar: k.nama });
+                    });
+                });
+            }
+
+            // Pastikan pilihan sektor & kamar valid
+            if (!allowedPairs.some(p => p.sektor === selectedPenilaianSektor && p.kamar === selectedPenilaianKamar)) {
+                if (myAssignments.length > 0) {
+                    selectedPenilaianSektor = myAssignments[0].targetSektor;
+                    selectedPenilaianKamar = myAssignments[0].targetKamar;
+                } else if (allowedPairs.some(p => p.sektor === currentUser.sektor && p.kamar === currentUser.kamar)) {
+                    selectedPenilaianSektor = currentUser.sektor;
+                    selectedPenilaianKamar = currentUser.kamar;
+                } else if (allowedPairs.length > 0) {
+                    selectedPenilaianSektor = allowedPairs[0].sektor;
+                    selectedPenilaianKamar = allowedPairs[0].kamar;
+                }
+            }
+
+            const allowedSektors = Array.from(new Set(allowedPairs.map(p => p.sektor)));
+            const allowedKamarsInSektor = allowedPairs
+                .filter(p => p.sektor === selectedPenilaianSektor)
+                .map(p => p.kamar);
+
+            const cols = Array.isArray(activeRubrik.kolomList) ? activeRubrik.kolomList : [];
+            const kamarSantri = santriList
+                .filter(s => s.sektor === selectedPenilaianSektor && s.kamar === selectedPenilaianKamar)
+                .filter(s => !penilaianSearchTerm || s.nama.toLowerCase().includes(penilaianSearchTerm.toLowerCase()))
+                .sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+
+            const hasilBySantri = {};
+            hasilPenilaianList
+                .filter(h => h.rubrikId === activeRubrik.id)
+                .forEach(h => { hasilBySantri[h.santriId] = h; });
+
+            return `
+                <div class="space-y-5">
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white">Lembar Monitoring & Penilaian Santri</h2>
+                            <p class="text-xs text-slate-300">Penguji: <strong class="text-emerald-300">${escHtml(currentUser.nama)}</strong> • Setiap centang atau nilai langsung tersimpan otomatis.</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="exportHasilPenilaianExcel('${activeRubrik.id}', '${escHtml(selectedPenilaianSektor)}', '${escHtml(selectedPenilaianKamar)}')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                <i class="ph-bold ph-file-xls"></i> Ekspor Excel Kamar Ini
+                            </button>
+                            <button onclick="sendHasilPenilaianWhatsApp('${activeRubrik.id}', '${escHtml(selectedPenilaianSektor)}', '${escHtml(selectedPenilaianKamar)}')" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                <i class="ph-bold ph-whatsapp-logo"></i> Kirim Rekap WA
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Kontrol Pilih Rubrik, Sektor & Kamar yang Dinilai -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-3.5">
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 mb-1">Pilih Lembar / Rubrik Penilaian:</label>
+                            <select onchange="selectedRubrikId = this.value; renderCurrentPage();" class="w-full border border-emerald-500/40 rounded-xl px-3 py-2 text-xs font-bold">
+                                ${eligibleRubriks.map(r => `<option value="${r.id}" ${r.id === activeRubrik.id ? 'selected' : ''}>${escHtml(r.judul)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 mb-1">Sektor Kamar Dinilai:</label>
+                            <select onchange="selectedPenilaianSektor = this.value; selectedPenilaianKamar = ''; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                ${allowedSektors.map(sec => `<option value="${escHtml(sec)}" ${sec === selectedPenilaianSektor ? 'selected' : ''}>${escHtml(sec.replace('Asrama Nusantara ', 'NS '))}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 mb-1">Kamar Target Dinilai:</label>
+                            <select onchange="selectedPenilaianKamar = this.value; renderCurrentPage();" class="w-full border border-amber-500/40 rounded-xl px-3 py-2 text-xs font-bold">
+                                ${allowedKamarsInSektor.map(km => `<option value="${escHtml(km)}" ${km === selectedPenilaianKamar ? 'selected' : ''}>Kamar ${escHtml(km)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 mb-1">Cari Nama Santri:</label>
+                            <input type="text" value="${escHtml(penilaianSearchTerm)}" oninput="penilaianSearchTerm = this.value; renderCurrentPage();" placeholder="Ketik nama santri..." class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        </div>
+                    </div>
+
+                    ${myAssignments.length > 0 ? `
+                        <div class="p-3 rounded-xl bg-amber-500/15 border border-amber-500/35 text-xs text-amber-200 flex items-center gap-2">
+                            <i class="ph-fill ph-user-check text-base shrink-0"></i>
+                            <span>Anda ditugaskan oleh Divisi Kegiatan untuk menguji: <strong>${myAssignments.map(a => `${escHtml(a.targetKamar)} (${escHtml((a.targetSektor || '').replace('Asrama Nusantara ', 'NS '))})`).join(', ')}</strong></span>
+                        </div>
+                    ` : ''}
+
+                    <!-- Tabel Lembar Penilaian Ala Spreadsheet -->
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl overflow-hidden">
+                        <div class="px-4 py-3 bg-asrama-bg/80 border-b border-asrama-border flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div>
+                                <span class="text-slate-400">Penguji:</span> <strong class="text-white">${escHtml(currentUser.nama)}</strong>
+                                <span class="mx-2 text-slate-600">|</span>
+                                <span class="text-slate-400">Kamar Dinilai:</span> <strong class="text-emerald-300">${escHtml(selectedPenilaianKamar)} (${escHtml((selectedPenilaianSektor || '').replace('Asrama Nusantara ', 'NS '))})</strong>
+                            </div>
+                            <span class="text-[11px] text-slate-400">${escHtml(activeRubrik.deskripsi || '')}</span>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b border-asrama-border bg-asrama-bg text-[11px] uppercase text-slate-300">
+                                        <th class="py-3 px-3 w-10">No</th>
+                                        <th class="py-3 px-3 min-w-[180px]">Nama Santri</th>
+                                        <th class="py-3 px-3 w-20">Kelas</th>
+                                        ${cols.map(c => `<th class="py-3 px-3 text-center whitespace-nowrap">${escHtml(c.nama)}</th>`).join('')}
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-asrama-border text-xs">
+                                    ${kamarSantri.length === 0 ? `
+                                        <tr><td colspan="${cols.length + 3}" class="py-8 text-center text-slate-400">Tidak ada data santri di kamar ini.</td></tr>
+                                    ` : kamarSantri.map((s, idx) => {
+                                        const rec = hasilBySantri[s.id];
+                                        const nMap = rec?.nilaiMap || {};
+                                        return `
+                                            <tr class="hover:bg-asrama-cardHover/40">
+                                                <td class="py-2.5 px-3 text-slate-400 font-semibold">${idx + 1}</td>
+                                                <td class="py-2.5 px-3 font-bold text-white">${escHtml(s.nama)}</td>
+                                                <td class="py-2.5 px-3 text-slate-300">${escHtml(s.kelas || '-')}</td>
+                                                ${cols.map(c => {
+                                                    const val = nMap[c.id];
+                                                    if (c.tipe === 'nilai') {
+                                                        return `
+                                                            <td class="py-2 px-3 text-center">
+                                                                <input type="number" min="0" max="100" value="${val !== undefined && val !== '' ? escHtml(val) : ''}" placeholder="0-100" onchange="updateNilaiAngkaSantri('${activeRubrik.id}', '${s.id}', '${c.id}', this.value)" class="w-20 text-center border border-asrama-border rounded-lg px-2 py-1.5 text-xs font-bold">
+                                                            </td>
+                                                        `;
+                                                    }
+                                                    const checked = val === true;
+                                                    return `
+                                                        <td class="py-2 px-3 text-center">
+                                                            <button type="button" onclick="toggleNilaiCentangSantri('${activeRubrik.id}', '${s.id}', '${c.id}', ${!checked})" class="w-9 h-9 rounded-xl border font-extrabold text-sm inline-flex items-center justify-center transition-all cursor-pointer ${checked ? 'bg-emerald-600 border-emerald-400 text-white shadow' : 'bg-asrama-bg border-asrama-border text-slate-500 hover:border-slate-500'}">
+                                                                ${checked ? '✓' : ''}
+                                                            </button>
+                                                        </td>
+                                                    `;
+                                                }).join('')}
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function toggleNilaiCentangSantri(rubrikId, santriId, colId, newVal) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            const docId = `${rubrikId}_${santriId}`;
+            const existing = hasilPenilaianList.find(h => h.id === docId);
+            const nextMap = { ...(existing?.nilaiMap || {}), [colId]: newVal };
+
+            await window.FB.setDoc(window.FB.doc(window.FB.db, 'hasil_penilaian', docId), {
+                rubrikId,
+                santriId: s.id,
+                santriNama: s.nama,
+                santriKelas: s.kelas || '-',
+                sektor: s.sektor,
+                kamar: s.kamar,
+                pengujiNama: currentUser.nama,
+                pengujiEmail: currentUser.email,
+                nilaiMap: nextMap,
+                updatedAt: new Date().toISOString()
+            }, { merge: true });
+        }
+
+        async function updateNilaiAngkaSantri(rubrikId, santriId, colId, rawVal) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            const docId = `${rubrikId}_${santriId}`;
+            const existing = hasilPenilaianList.find(h => h.id === docId);
+            const cleanVal = rawVal === '' ? '' : Number(rawVal);
+            const nextMap = { ...(existing?.nilaiMap || {}), [colId]: cleanVal };
+
+            await window.FB.setDoc(window.FB.doc(window.FB.db, 'hasil_penilaian', docId), {
+                rubrikId,
+                santriId: s.id,
+                santriNama: s.nama,
+                santriKelas: s.kelas || '-',
+                sektor: s.sektor,
+                kamar: s.kamar,
+                pengujiNama: currentUser.nama,
+                pengujiEmail: currentUser.email,
+                nilaiMap: nextMap,
+                updatedAt: new Date().toISOString()
+            }, { merge: true });
+            showToast(`Nilai ${s.nama} tersimpan.`, 'success');
+        }
+
+        function exportHasilPenilaianExcel(rubrikId, filterSec = '', filterKam = '') {
+            const r = rubrikList.find(x => x.id === rubrikId);
+            if (!r) return;
+            const cols = Array.isArray(r.kolomList) ? r.kolomList : [];
+            const targetSantri = santriList
+                .filter(s => {
+                    if (filterSec && filterKam) return s.sektor === filterSec && s.kamar === filterKam;
+                    return r.cakupan === 'semua_asrama' || s.sektor === r.targetSektor;
+                })
+                .sort((a, b) => (a.kamar || '').localeCompare(b.kamar || '') || (a.nama || '').localeCompare(b.nama || ''));
+
+            const hasilBySantri = {};
+            hasilPenilaianList.filter(h => h.rubrikId === rubrikId).forEach(h => { hasilBySantri[h.santriId] = h; });
+
+            const rows = targetSantri.map((s, idx) => {
+                const rec = hasilBySantri[s.id];
+                const nMap = rec?.nilaiMap || {};
+                const rowObj = {
+                    NO: idx + 1,
+                    NAMA: s.nama,
+                    KELAS: s.kelas || '-',
+                    KAMAR: s.kamar,
+                    SEKTOR: s.sektor
+                };
+                cols.forEach(c => {
+                    const val = nMap[c.id];
+                    rowObj[c.nama] = c.tipe === 'nilai' ? (val !== undefined && val !== '' ? val : '-') : (val === true ? 'v' : '');
+                });
+                rowObj['PENGUJI'] = rec?.pengujiNama || '-';
+                return rowObj;
+            });
+
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Monitoring_Penilaian');
+            XLSX.writeFile(wb, `SIAN_${r.judul.replace(/[^a-zA-Z0-9]/g, '_')}_${todayISO()}.xlsx`);
+            showToast('Lembar monitoring penilaian berhasil diekspor ke Excel!', 'success');
+        }
+
+        function sendHasilPenilaianWhatsApp(rubrikId, filterSec, filterKam) {
+            const r = rubrikList.find(x => x.id === rubrikId);
+            if (!r) return;
+            const cols = Array.isArray(r.kolomList) ? r.kolomList : [];
+            const targetSantri = santriList
+                .filter(s => s.sektor === filterSec && s.kamar === filterKam)
+                .sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+
+            const hasilBySantri = {};
+            hasilPenilaianList.filter(h => h.rubrikId === rubrikId).forEach(h => { hasilBySantri[h.santriId] = h; });
+
+            const lines = [
+                `*${r.judul.toUpperCase()}*`,
+                `Penguji: ${currentUser.nama}`,
+                `Kamar: ${filterKam} (${filterSec.replace('Asrama Nusantara ', 'NS ')})`,
+                `Tanggal: ${formatTanggalHari(todayISO())}`,
+                `--------------------------------`,
+                ...targetSantri.map((s, idx) => {
+                    const nMap = hasilBySantri[s.id]?.nilaiMap || {};
+                    const detail = cols.map(c => {
+                        const v = nMap[c.id];
+                        return c.tipe === 'nilai' ? `${c.nama}: ${v !== undefined && v !== '' ? v : '-'}` : `${c.nama}: ${v === true ? '✅' : '⬜'}`;
+                    }).join(', ');
+                    return `${idx + 1}. *${s.nama}* (${s.kelas || '-'})\n   ${detail}`;
+                })
+            ];
+            window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
         }
 
         // =========================================================================
