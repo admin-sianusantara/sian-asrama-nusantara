@@ -12,14 +12,22 @@
     <link rel="manifest" href="/manifest.json">
     <link id="pwa-favicon" rel="icon" type="image/png" href="/icon-192.png">
     <link id="pwa-apple-icon" rel="apple-touch-icon" href="/icon-192.png">
+    <!-- Preconnect & DNS-Prefetch untuk efisiensi jaringan & hemat bandwidth -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Font Inter -->
+    <!-- Font Inter dengan display=swap -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Phosphor Icons -->
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
     <!-- SheetJS untuk Import & Export Excel (.xlsx) -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -486,6 +494,44 @@
         ];
         const HARI_SEMINGGU = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
+        // Opsi Baku Kegiatan Telat / Alpa Santri
+        const OPSI_KEGIATAN_TELAT = [
+            { nama: 'Tahajud', targetJam: '03:30', rentang: '02:00 - 04:15' },
+            { nama: 'Ngaji Pagi', targetJam: '05:30', rentang: '05:00 - 07:00' },
+            { nama: 'Jamaah Dhuhur', targetJam: '12:00', rentang: '11:30 - 14:00' },
+            { nama: 'Jamaah Ashar', targetJam: '15:15', rentang: '14:45 - 16:30' },
+            { nama: 'Halaqoh Sore', targetJam: '16:45', rentang: '16:30 - 17:45' },
+            { nama: 'Jamaah Maghrib', targetJam: '18:00', rentang: '17:45 - 20:30' }
+        ];
+
+        function getKegiatanTelatOtomatis(jamStr) {
+            const nowTime = jamStr || getCurrentTimeHHMM();
+            const curMinutes = parseTimeToMinutes(nowTime);
+            // Cari kegiatan yang rentang waktunya aktif saat ini
+            for (const item of OPSI_KEGIATAN_TELAT) {
+                const parts = item.rentang.split('-');
+                if (parts.length === 2) {
+                    const startMin = parseTimeToMinutes(parts[0].trim());
+                    const endMin = parseTimeToMinutes(parts[1].trim());
+                    if (curMinutes >= startMin && curMinutes <= endMin) {
+                        return item.nama;
+                    }
+                }
+            }
+            // Jika di luar rentang, pilih yang selisih targetJam paling dekat
+            let bestName = OPSI_KEGIATAN_TELAT[0].nama;
+            let minDiff = 999999;
+            OPSI_KEGIATAN_TELAT.forEach(item => {
+                const itemMin = parseTimeToMinutes(item.targetJam);
+                const diff = Math.abs(curMinutes - itemMin);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestName = item.nama;
+                }
+            });
+            return bestName;
+        }
+
         function createDefaultKamarMap() {
             const map = {};
             SEKTOR_ASRAMA.forEach(sec => {
@@ -606,6 +652,51 @@
         function getCurrentTimeHHMM() {
             const now = new Date();
             return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        }
+
+        function parseTimeToMinutes(timeStr) {
+            if (!timeStr) return 0;
+            const match = String(timeStr).match(/(\d{1,2}):(\d{2})/);
+            if (!match) return 0;
+            return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+        }
+
+        function getKegiatanPresensiOtomatis(listKegiatan, customMinutes) {
+            const list = listKegiatan || kegiatanList || [];
+            if (!list || list.length === 0) return null;
+            const now = new Date();
+            const curMinutes = (typeof customMinutes === 'number') ? customMinutes : (now.getHours() * 60 + now.getMinutes());
+
+            // 1. Cek apakah ada kegiatan yang rentang jam-nya sedang aktif saat ini
+            for (const k of list) {
+                const jam = String(k.jam || '');
+                const parts = jam.split('-');
+                if (parts.length >= 2) {
+                    const startMin = parseTimeToMinutes(parts[0].trim());
+                    const endMin = parseTimeToMinutes(parts[1].trim());
+                    if (startMin <= endMin) {
+                        if (curMinutes >= startMin && curMinutes <= endMin) return k;
+                    } else {
+                        // Lintas tengah malam
+                        if (curMinutes >= startMin || curMinutes <= endMin) return k;
+                    }
+                }
+            }
+
+            // 2. Jika di luar rentang pas, cari kegiatan yang waktu mulainya paling dekat dengan jam sekarang
+            let bestKeg = list[0];
+            let minDiff = 999999;
+            for (const k of list) {
+                const jam = String(k.jam || '');
+                const startMin = parseTimeToMinutes(jam.split('-')[0].trim());
+                let diff = curMinutes - startMin;
+                if (diff < 0) diff += 1440; // hitung selisih putaran 24 jam
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestKeg = k;
+                }
+            }
+            return bestKeg;
         }
 
         function parseIsoDateLocal(isoStr) {
@@ -1399,11 +1490,16 @@
                 renderCurrentPage();
             }));
 
-            // 9. Kegiatan Harian
+            // 9. Kegiatan Harian (Presensi Otomatis Real-Time Mengikuti Jam Sekarang)
             unsubscribeListeners.push(onSnapshot(collection(db, 'kegiatan'), (snap) => {
                 kegiatanList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
                     .sort((a, b) => String(a.jam || '').localeCompare(String(b.jam || '')));
-                if (kegiatanList.length > 0 && !kegiatanList.some(k => k.id === selectedKegiatanId)) {
+                
+                // Otomatis tentukan kegiatan aktif sesuai waktu real-time saat data tiba
+                const autoKeg = getKegiatanPresensiOtomatis(kegiatanList);
+                if (autoKeg) {
+                    selectedKegiatanId = autoKeg.id;
+                } else if (kegiatanList.length > 0 && !kegiatanList.some(k => k.id === selectedKegiatanId)) {
                     selectedKegiatanId = kegiatanList[0].id;
                 }
                 renderCurrentPage();
@@ -2209,10 +2305,7 @@
             const filteredLog = getFilteredPelanggaranLog();
             const today = getTodayIso();
             const nowHHMM = getCurrentTimeHHMM();
-
-            const defaultKegiatan = kegiatanList.length > 0
-                ? kegiatanList.map(k => k.nama)
-                : ['Sholat Subuh Berjamaah', 'Sekolah Formal', 'Halaqoh Sore', 'Madin', 'Sholat Maghrib & Isya', 'Absensi Malam'];
+            const autoKegiatanNama = getKegiatanTelatOtomatis(nowHHMM);
 
             return `
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -2249,17 +2342,20 @@
                                     <div>
                                         <label class="block text-xs font-semibold text-slate-200 mb-1">3. Jam Pencatatan (WIB) *</label>
                                         <div class="flex items-center gap-1">
-                                            <input id="pel-jam" type="time" value="${nowHHMM}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                            <button type="button" onclick="const j=document.getElementById('pel-jam'); if(j) j.value=getCurrentTimeHHMM();" class="px-2 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-[10px] text-emerald-300 font-bold shrink-0 cursor-pointer" title="Set Jam Sekarang">Now</button>
+                                            <input id="pel-jam" type="time" value="${nowHHMM}" onchange="updatePelanggaranKegiatanAuto(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                            <button type="button" onclick="const j=document.getElementById('pel-jam'); if(j) { j.value=getCurrentTimeHHMM(); updatePelanggaranKegiatanAuto(j.value); }" class="px-2 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-[10px] text-emerald-300 font-bold shrink-0 cursor-pointer" title="Set Jam Sekarang">Now</button>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Kegiatan -->
+                                <!-- Kegiatan Baku -->
                                 <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">4. Kegiatan *</label>
+                                    <div class="flex items-center justify-between mb-1">
+                                        <label class="block text-xs font-semibold text-slate-200">4. Kegiatan *</label>
+                                        <span class="text-[10px] text-emerald-400 font-medium">Otomatis Waktu Real-Time</span>
+                                    </div>
                                     <select id="pel-kegiatan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                        ${defaultKegiatan.map(nama => `<option value="${escapeHtml(nama)}">${escapeHtml(nama)}</option>`).join('')}
+                                        ${OPSI_KEGIATAN_TELAT.map(k => `<option value="${escapeHtml(k.nama)}" ${k.nama === autoKegiatanNama ? 'selected' : ''}>${escapeHtml(k.nama)} (${escapeHtml(k.rentang)})</option>`).join('')}
                                     </select>
                                 </div>
 
@@ -2374,6 +2470,15 @@
                     ${j}
                 </button>
             `).join('');
+        }
+
+        function updatePelanggaranKegiatanAuto(jamVal) {
+            const el = document.getElementById('pel-kegiatan');
+            if (!el) return;
+            const autoNama = getKegiatanTelatOtomatis(jamVal);
+            if (autoNama) {
+                el.value = autoNama;
+            }
         }
 
         function renderPelanggaranLogCards(list) {
@@ -2588,8 +2693,11 @@
                                     <p class="text-xs text-slate-300 mt-0.5">Murobbi Kamar: <strong class="text-white">${escapeHtml(activeKamarObj.murobbi)}</strong></p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2 self-start">
+                                    <button onclick="downloadTemplateSantriPerKamarExcel('${adminInfoSelectedSektor}', '${adminInfoSelectedKamar.replace(/'/g, "\\'")}')" class="px-3 py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Unduh template Excel khusus kamar ${escapeHtml(activeKamarObj.nama)}">
+                                        <i class="ph-bold ph-download-simple"></i> Template Kamar
+                                    </button>
                                     <label class="px-3 py-2 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Import file excel santri langsung ke kamar ${escapeHtml(activeKamarObj.nama)}">
-                                        <i class="ph-bold ph-file-arrow-up"></i> Import Kamar Ini
+                                        <i class="ph-bold ph-file-arrow-up"></i> Import Kamar
                                         <input type="file" accept=".xlsx,.xls,.csv" onchange="handleImportSantriPerKamarExcel(event, '${adminInfoSelectedSektor}', '${adminInfoSelectedKamar.replace(/'/g, "\\'")}')" class="hidden">
                                     </label>
                                     <button onclick="openTambahSantriModal('${adminInfoSelectedSektor}', '${adminInfoSelectedKamar.replace(/'/g, "\\'")}')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
@@ -2968,6 +3076,46 @@
             showToast(`Template Santri untuk ${sektor} berhasil diunduh.`, 'success');
         }
 
+        function downloadTemplateSantriPerKamarExcel(targetSektor, targetKamar) {
+            if (typeof XLSX === 'undefined') {
+                showToast('Library Excel belum siap.', 'error');
+                return;
+            }
+            const sektor = toCanonicalSektor(targetSektor) || SEKTOR_ASRAMA[0];
+            const kamar = String(targetKamar || 'Kamar 01').trim();
+            const rows = [
+                {
+                    'No': 1,
+                    'Nama Lengkap Santri': 'Ahmad Fauzan',
+                    'Kelas': 'X-1',
+                    'Sektor Lantai': sektor,
+                    'Kamar': kamar
+                },
+                {
+                    'No': 2,
+                    'Nama Lengkap Santri': 'Muhammad Farhan',
+                    'Kelas': 'X-2',
+                    'Sektor Lantai': sektor,
+                    'Kamar': kamar
+                },
+                {
+                    'No': 3,
+                    'Nama Lengkap Santri': 'Zidny Ilman',
+                    'Kelas': 'XI-MIPA-1',
+                    'Sektor Lantai': sektor,
+                    'Kamar': kamar
+                }
+            ];
+
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, kamar.slice(0, 30));
+
+            const cleanFileName = `SIAN_Template_Santri_${sektor.replace(/[^a-zA-Z0-9]/g, '_')}_${kamar.replace(/[^a-zA-Z0-9]/g, '_')}.xlsx`;
+            XLSX.writeFile(wb, cleanFileName);
+            showToast(`Template Santri kamar ${kamar} berhasil diunduh.`, 'success');
+        }
+
         async function handleImportSantriPerSektorExcel(event, targetSektor) {
             const file = event.target.files[0];
             if (!file || typeof XLSX === 'undefined') return;
@@ -3156,13 +3304,13 @@
                 `
                 <div class="space-y-3">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-200 mb-1">Nama Lengkap Santri ${canEditAll ? '*' : '(Hanya Admin)'}</label>
-                        <input id="edit-santri-nama" type="text" value="${escapeHtml(s.nama)}" ${canEditAll ? '' : 'readonly'} class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs ${canEditAll ? '' : 'bg-asrama-card/80 text-slate-400 cursor-not-allowed'}">
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Nama Lengkap Santri *</label>
+                        <input id="edit-santri-nama" type="text" value="${escapeHtml(s.nama)}" class="w-full border border-emerald-500/50 rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-emerald-400">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-200 mb-1">Kelas Sekolah * <span class="text-emerald-400 font-normal">(Murobbi dapat mengedit)</span></label>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Kelas Sekolah *</label>
                         <input id="edit-santri-kelas" type="text" value="${escapeHtml(s.kelas || '')}" placeholder="Contoh: X-1, XI-IPA-2, XII-3" class="w-full border border-emerald-500/50 rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-emerald-400">
-                        <p class="text-[10px] text-slate-400 mt-1">Ubah tingkat/kelas santri untuk keperluan pendataan dan presensi.</p>
+                        <p class="text-[10px] text-slate-400 mt-1">Ubah nama atau tingkat/kelas santri untuk keperluan pendataan dan presensi.</p>
                     </div>
                     ${canEditAll ? `
                     <div class="grid grid-cols-2 gap-2">
@@ -3194,17 +3342,24 @@
         async function saveEditSantri(santriId) {
             const s = santriList.find(x => x.id === santriId);
             if (!s) return;
+            const nama = (document.getElementById('edit-santri-nama')?.value || '').trim();
             const kelas = (document.getElementById('edit-santri-kelas')?.value || '').trim();
-            const updates = { kelas: kelas || s.kelas || 'X-1' };
+            const updates = { 
+                nama: nama || s.nama,
+                kelas: kelas || s.kelas || 'X-1' 
+            };
 
             if (isRecordAdmin(currentUser)) {
-                const nama = (document.getElementById('edit-santri-nama')?.value || '').trim();
                 const sektor = document.getElementById('edit-santri-sektor')?.value;
                 const kamar = document.getElementById('edit-santri-kamar')?.value;
-                if (nama) updates.nama = nama;
                 if (sektor) updates.sektor = sektor;
                 if (kamar) updates.kamar = kamar;
             }
+
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), updates);
+            closeModal();
+            showToast(`Data santri ${updates.nama} berhasil diperbarui.`, 'success');
+        }
 
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), updates);
             closeModal();
@@ -3601,7 +3756,13 @@
         // =========================================================================
         function renderMurobbiPresensi() {
             const list = getPresensiSantri().filter(s => !globalSearchQuery || String(s.nama || '').toLowerCase().includes(globalSearchQuery));
-            const activeKeg = kegiatanList.find(k => k.id === selectedKegiatanId) || kegiatanList[0] || { nama: 'Absensi Kamar', jam: '21:30 - 22:00' };
+            
+            // Sinkronkan otomatis ke kegiatan yang sedang berlangsung jika belum ada pilihan manual
+            if (!selectedKegiatanId || !kegiatanList.some(k => k.id === selectedKegiatanId)) {
+                const autoKeg = getKegiatanPresensiOtomatis(kegiatanList);
+                if (autoKeg) selectedKegiatanId = autoKeg.id;
+            }
+            const activeKeg = kegiatanList.find(k => k.id === selectedKegiatanId) || getKegiatanPresensiOtomatis(kegiatanList) || kegiatanList[0] || { nama: 'Absensi Kamar', jam: '21:30 - 22:00' };
             const hadirCount = list.filter(s => (s.status || 'H') === 'H').length;
             const tidakHadir = list.length - hadirCount;
 
@@ -3663,13 +3824,16 @@
                                 <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-2.5">
                                     <div class="flex items-center justify-between gap-3">
                                         <div class="min-w-0">
-                                            <div class="flex items-center gap-2">
-                                                <p class="text-sm font-bold text-white truncate">${escapeHtml(s.nama)}</p>
-                                                <button onclick="openEditSantriModal('${s.id}')" class="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300 hover:bg-sky-500/25 font-semibold flex items-center gap-1 cursor-pointer" title="Edit Kelas">
-                                                    <i class="ph-bold ph-pencil-simple"></i> Edit Kelas
+                                            <p class="text-sm font-bold text-white truncate">${escapeHtml(s.nama)}</p>
+                                            <p class="text-[11px] text-slate-400">Kelas <strong class="text-slate-200">${escapeHtml(s.kelas || '-')}</strong> ${s.catatan ? `• <span class="text-sky-300">${escapeHtml(s.catatan)}</span>` : ''}</p>
+                                            <div class="flex items-center gap-1.5 mt-1">
+                                                <button onclick="openEditSantriModal('${s.id}')" class="text-[10px] px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300 hover:bg-sky-500/25 font-semibold flex items-center gap-1 cursor-pointer" title="Edit Nama & Kelas Santri">
+                                                    <i class="ph-bold ph-pencil-simple"></i> Edit Nama
+                                                </button>
+                                                <button onclick="openPindahKamarModal('${s.id}')" class="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 font-semibold flex items-center gap-1 cursor-pointer" title="Ajukan Pindah Kamar">
+                                                    <i class="ph-bold ph-arrows-left-right"></i> Ajukan Pindah
                                                 </button>
                                             </div>
-                                            <p class="text-[11px] text-slate-400">Kelas <strong class="text-slate-200">${escapeHtml(s.kelas || '-')}</strong> ${s.catatan ? `• <span class="text-sky-300">${escapeHtml(s.catatan)}</span>` : ''}</p>
                                         </div>
                                         <div class="flex items-center gap-1 shrink-0">
                                             ${['H','S','I','A','P'].map(st => {
