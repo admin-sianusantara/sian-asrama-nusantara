@@ -3361,11 +3361,6 @@
             showToast(`Data santri ${updates.nama} berhasil diperbarui.`, 'success');
         }
 
-            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), updates);
-            closeModal();
-            showToast(`Data santri ${s.nama} (Kelas ${updates.kelas}) berhasil diperbarui.`, 'success');
-        }
-
         function openHapusSantriModal(santriId) {
             const s = santriList.find(x => x.id === santriId);
             if (!s) return;
