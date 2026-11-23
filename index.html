@@ -494,14 +494,16 @@
         ];
         const HARI_SEMINGGU = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
-        // Opsi Baku Kegiatan Telat / Alpa Santri
+        // Opsi Baku Kegiatan Telat / Alpa Santri (Hanya 8 Kegiatan yang disepakati)
         const OPSI_KEGIATAN_TELAT = [
             { nama: 'Tahajud', targetJam: '03:30', rentang: '02:00 - 04:15' },
-            { nama: 'Ngaji Pagi', targetJam: '05:30', rentang: '05:00 - 07:00' },
-            { nama: 'Jamaah Dhuhur', targetJam: '12:00', rentang: '11:30 - 14:00' },
-            { nama: 'Jamaah Ashar', targetJam: '15:15', rentang: '14:45 - 16:30' },
+            { nama: 'Sholat Jamaah Subuh', targetJam: '04:45', rentang: '04:15 - 05:20' },
+            { nama: 'Halaqoh Ngaji Pagi', targetJam: '05:30', rentang: '05:20 - 06:45' },
+            { nama: 'Sholat Jamaah Dhuhur', targetJam: '12:00', rentang: '11:30 - 13:45' },
+            { nama: 'Sholat Jamaah Ashar', targetJam: '15:15', rentang: '14:45 - 16:30' },
             { nama: 'Halaqoh Sore', targetJam: '16:45', rentang: '16:30 - 17:45' },
-            { nama: 'Jamaah Maghrib', targetJam: '18:00', rentang: '17:45 - 20:30' }
+            { nama: 'Sholat Jamaah Maghrib', targetJam: '18:00', rentang: '17:45 - 19:00' },
+            { nama: 'Sholat Jamaah Isya', targetJam: '19:15', rentang: '19:00 - 21:00' }
         ];
 
         function getKegiatanTelatOtomatis(jamStr) {
@@ -618,8 +620,10 @@
         let laporanAbsenSearchQuery = '';
 
         let pengurusSearchQuery = '';
-        let pelSelectedSantriId = '';
-        let pelSelectedJenis = 'Telat';
+        let pelSelectedSantriIds = [];
+        let pelSearchPickerQuery = '';
+        let pelSelectedKategori = 'Terlambat';
+        let pelIstighfarCount = 100;
         let pelLogSearchQuery = '';
         let pelLogDateFilter = '';
 
@@ -2274,7 +2278,7 @@
             closeModal();
             showToast('Perubahan role pengurus disimpan.', 'success');
         }
-        // CATATAN TELAT / ALPA (PENCARIAN CEPAT 1 SEKTOR + JAM PENCATATAN WIB)
+        // CATATAN TELAT / ALPA (PILIH BANYAK SANTRI, KATEGORI TAKZIRAN ISTIGHFAR, 8 KEGIATAN BAKU & HAK HAPUS KEAMANAN)
         function getPelanggaranSantriPool() {
             if (!currentUser) return [];
             if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return santriList;
@@ -2299,86 +2303,76 @@
             });
         }
 
+        function canDeletePelanggaranRecord() {
+            if (!currentUser) return false;
+            return isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || hasDivisiAccess('keamanan');
+        }
+
         function renderMurobbiPelanggaran() {
             const canInput = !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser);
-            const selectedSantri = pelSelectedSantriId ? santriList.find(s => s.id === pelSelectedSantriId) : null;
             const filteredLog = getFilteredPelanggaranLog();
             const today = getTodayIso();
             const nowHHMM = getCurrentTimeHHMM();
             const autoKegiatanNama = getKegiatanTelatOtomatis(nowHHMM);
+            const canDelete = canDeletePelanggaranRecord();
+            const sektorLabel = currentUser ? formatShortSektor(currentUser.sektor) : 'Sektor Anda';
 
             return `
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
                     ${canInput ? `
                         <div class="lg:col-span-5 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4 self-start">
                             <div>
-                                <h2 class="text-base font-extrabold text-white">Catat Santri Telat / Tidak Ikut Kegiatan</h2>
-                                <p class="text-[11px] text-slate-400 mt-0.5">Cakupan cepat 1 sektor (<strong class="text-emerald-400">${formatShortSektor(currentUser.sektor)}</strong>). Cukup ketik nama santri lalu pilih.</p>
+                                <h2 class="text-base font-extrabold text-white">Catat Telat / Tidak ikut Kegiatan</h2>
+                                <p class="text-[11px] text-slate-400 mt-0.5">Bisa memilih banyak santri sekaligus dalam 1 sektor (<strong class="text-emerald-400">${sektorLabel}</strong>).</p>
                             </div>
 
-                            <div class="space-y-3">
-                                <!-- Cari & Pilih Santri Instan -->
-                                <div class="space-y-2">
-                                    <label class="block text-xs font-semibold text-slate-200">1. Cari & Pilih Nama Santri *</label>
-                                    <div class="relative">
-                                        <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                                        <input id="pel-search-santri" type="text" oninput="filterPelanggaranSantriPicker(this.value)" placeholder="Ketik nama santri atau nama kamar..." class="w-full border border-asrama-border rounded-xl pl-9 pr-3 py-2 text-xs focus:border-emerald-500 focus:outline-none">
-                                    </div>
-                                    <div id="pel-selected-pill">
-                                        ${renderSelectedPelanggaranSantriPill(selectedSantri)}
-                                    </div>
-                                    <div id="pel-santri-results" class="max-h-40 overflow-y-auto space-y-1 pr-1">
-                                        ${renderPelanggaranSantriPickerItems('')}
+                            <div class="space-y-3.5">
+                                <!-- Cari & Centang Santri -->
+                                <div class="space-y-1.5">
+                                    <label class="block text-xs font-semibold text-slate-200">1. Cari & Centang Santri (1 Sektor):</label>
+                                    <input id="pel-search-santri" type="text" value="${escapeHtml(pelSearchPickerQuery)}" oninput="filterPelanggaranSantriPicker(this.value)" placeholder="Ketik nama santri atau kamar..." class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs focus:border-emerald-500 focus:outline-none">
+                                    <p id="pel-selected-summary" class="text-[11px] text-slate-400">
+                                        ${pelSelectedSantriIds.length === 0 ? 'Belum ada santri dipilih. Centang nama santri di bawah.' : `<strong class="text-emerald-400">${pelSelectedSantriIds.length}</strong> santri terpilih.`}
+                                    </p>
+                                    <div id="pel-santri-results" class="max-h-48 overflow-y-auto space-y-1.5 pr-1 border border-asrama-border rounded-xl p-2 bg-asrama-bg/60">
+                                        ${renderPelanggaranSantriPickerItems(pelSearchPickerQuery)}
                                     </div>
                                 </div>
 
-                                <!-- Tanggal & Jam Pencatatan -->
+                                <!-- Tanggal & Kategori Takziran -->
                                 <div class="grid grid-cols-2 gap-2.5">
                                     <div>
-                                        <label class="block text-xs font-semibold text-slate-200 mb-1">2. Tanggal *</label>
-                                        <input id="pel-tanggal" type="date" value="${today}" onchange="const el=document.getElementById('pel-tgl-preview'); if(el) el.textContent=formatTanggalHari(this.value);" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                        <p id="pel-tgl-preview" class="text-[10px] text-emerald-400 mt-0.5">${formatTanggalHari(today)}</p>
+                                        <label class="block text-xs font-semibold text-slate-200 mb-1">Tanggal</label>
+                                        <input id="pel-tanggal" type="date" value="${today}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-semibold text-slate-200 mb-1">3. Jam Pencatatan (WIB) *</label>
-                                        <div class="flex items-center gap-1">
-                                            <input id="pel-jam" type="time" value="${nowHHMM}" onchange="updatePelanggaranKegiatanAuto(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                            <button type="button" onclick="const j=document.getElementById('pel-jam'); if(j) { j.value=getCurrentTimeHHMM(); updatePelanggaranKegiatanAuto(j.value); }" class="px-2 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-[10px] text-emerald-300 font-bold shrink-0 cursor-pointer" title="Set Jam Sekarang">Now</button>
-                                        </div>
+                                        <label class="block text-xs font-semibold text-slate-200 mb-1">2. Kategori Takziran</label>
+                                        <select id="pel-kategori" onchange="handlePelKategoriChange(this.value)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                            <option value="Terlambat" ${pelSelectedKategori === 'Terlambat' ? 'selected' : ''}>Terlambat — 100 Istighfar</option>
+                                            <option value="Tidak Ikut Kegiatan" ${pelSelectedKategori === 'Tidak Ikut Kegiatan' ? 'selected' : ''}>Tidak Ikut Kegiatan — 200 Istighfar</option>
+                                        </select>
                                     </div>
                                 </div>
 
                                 <!-- Kegiatan Baku -->
                                 <div>
                                     <div class="flex items-center justify-between mb-1">
-                                        <label class="block text-xs font-semibold text-slate-200">4. Kegiatan *</label>
-                                        <span class="text-[10px] text-emerald-400 font-medium">Otomatis Waktu Real-Time</span>
+                                        <label class="block text-xs font-semibold text-slate-200">3. Kegiatan</label>
+                                        <span class="text-[10px] text-emerald-400 font-medium">Menyesuaikan Jam Sekarang</span>
                                     </div>
                                     <select id="pel-kegiatan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                        ${OPSI_KEGIATAN_TELAT.map(k => `<option value="${escapeHtml(k.nama)}" ${k.nama === autoKegiatanNama ? 'selected' : ''}>${escapeHtml(k.nama)} (${escapeHtml(k.rentang)})</option>`).join('')}
+                                        ${OPSI_KEGIATAN_TELAT.map(k => `<option value="${escapeHtml(k.nama)}" ${k.nama === autoKegiatanNama ? 'selected' : ''}>${escapeHtml(k.nama)}</option>`).join('')}
                                     </select>
                                 </div>
 
-                                <!-- Jenis Cepat -->
+                                <!-- Catatan Tambahan -->
                                 <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1.5">5. Kategori *</label>
-                                    <div class="grid grid-cols-3 gap-1.5" id="pel-jenis-btns">
-                                        ${['Telat', 'Tidak Ikut / Alpa', 'Lainnya'].map(j => `
-                                            <button type="button" onclick="setPelanggaranJenis('${j}')" class="py-2 px-2 rounded-xl border text-[11px] font-bold transition-all cursor-pointer ${pelSelectedJenis === j ? 'bg-amber-600 border-amber-400 text-white' : 'bg-asrama-bg border-asrama-border text-slate-300 hover:text-white'}">
-                                                ${j}
-                                            </button>
-                                        `).join('')}
-                                    </div>
+                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Catatan Tambahan (Opsional)</label>
+                                    <input id="pel-keterangan" type="text" placeholder="Contoh: Telat 10 menit / Masih di kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                                 </div>
 
-                                <!-- Keterangan / Takziran Opsional -->
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">6. Keterangan / Takziran (Opsional)</label>
-                                    <input id="pel-keterangan" type="text" placeholder="Contoh: Telat 10 menit / Baca Yasin" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                </div>
-
-                                <button onclick="savePelanggaran()" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow cursor-pointer">
-                                    Simpan Catatan Keterlambatan
+                                <button id="pel-btn-save" onclick="savePelanggaranMulti()" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow cursor-pointer transition-colors">
+                                    Simpan Catatan (${pelSelectedSantriIds.length} Santri)
                                 </button>
                             </div>
                         </div>
@@ -2387,8 +2381,8 @@
                     <div class="${canInput ? 'lg:col-span-7' : 'lg:col-span-12'} bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                             <div>
-                                <h3 class="text-sm font-bold text-white">Rekap Keterlambatan & Ketidakhadiran Santri</h3>
-                                <p class="text-[11px] text-slate-400">Menampilkan <strong id="pel-log-count" class="text-white">${filteredLog.length}</strong> catatan.</p>
+                                <h3 class="text-sm font-bold text-white">Daftar Takziran & Keterlambatan Sektor</h3>
+                                <p class="text-[11px] text-slate-400">Centang "Selesai" jika sudah istighfar. Menampilkan <strong id="pel-log-count" class="text-white">${filteredLog.length}</strong> data.</p>
                             </div>
                             <div class="flex flex-wrap gap-1.5">
                                 <button onclick="exportPelanggaranExcel()" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer">
@@ -2401,14 +2395,14 @@
                         </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input type="text" value="${escapeHtml(pelLogSearchQuery)}" oninput="updatePelLogSearch(this.value)" placeholder="Cari santri, kamar, atau kegiatan di log..." class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <input type="text" value="${escapeHtml(pelLogSearchQuery)}" oninput="updatePelLogSearch(this.value)" placeholder="Cari nama santri, kamar, atau kegiatan..." class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <div class="flex items-center gap-1.5">
                                 <input type="date" value="${pelLogDateFilter}" onchange="pelLogDateFilter = this.value; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                                 ${pelLogDateFilter ? `<button onclick="pelLogDateFilter = ''; renderCurrentPage();" class="px-2.5 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-amber-300 cursor-pointer" title="Reset Tanggal">✕</button>` : ''}
                             </div>
                         </div>
 
-                        <div id="pel-log-container" class="space-y-2.5 max-h-[540px] overflow-y-auto pr-1">
+                        <div id="pel-log-container" class="space-y-2.5 max-h-[560px] overflow-y-auto pr-1">
                             ${renderPelanggaranLogCards(filteredLog)}
                         </div>
                     </div>
@@ -2416,97 +2410,115 @@
             `;
         }
 
-        function renderSelectedPelanggaranSantriPill(s) {
-            if (!s) {
-                return `<p class="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/25 rounded-lg px-2.5 py-1.5">Belum ada santri dipilih. Klik salah satu nama di bawah.</p>`;
-            }
-            return `
-                <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-xs">
-                    <span class="font-bold text-emerald-200"><i class="ph-fill ph-check-circle text-emerald-400"></i> ${escapeHtml(s.nama)} <span class="font-normal text-emerald-300">(${escapeHtml(s.kamar)} • Kls ${escapeHtml(s.kelas || '-')})</span></span>
-                    <button type="button" onclick="selectPelanggaranSantri('')" class="text-slate-300 hover:text-white text-xs font-bold cursor-pointer">Ganti</button>
-                </div>
-            `;
+        function handlePelKategoriChange(val) {
+            pelSelectedKategori = val;
+            pelIstighfarCount = val === 'Tidak Ikut Kegiatan' ? 200 : 100;
         }
 
         function renderPelanggaranSantriPickerItems(query) {
             const q = String(query || '').trim().toLowerCase();
             const pool = getPelanggaranSantriPool().filter(s =>
-                !q || String(s.nama || '').toLowerCase().includes(q) || String(s.kamar || '').toLowerCase().includes(q) || String(s.kelas || '').toLowerCase().includes(q)
+                !q || String(s.nama || '').toLowerCase().includes(q) || String(s.kamar || '').toLowerCase().includes(q)
             );
             if (pool.length === 0) {
-                return `<p class="text-[11px] text-slate-400 text-center py-2">Santri tidak ditemukan di sektor Anda.</p>`;
+                return `<p class="text-[11px] text-slate-400 text-center py-3">Tidak ada santri ditemukan.</p>`;
             }
-            return pool.slice(0, 25).map(s => {
-                const isSel = s.id === pelSelectedSantriId;
+            return pool.map(s => {
+                const isChecked = pelSelectedSantriIds.includes(s.id);
                 return `
-                    <button type="button" onclick="selectPelanggaranSantri('${s.id}')" class="w-full text-left px-3 py-2 rounded-xl border text-xs flex items-center justify-between gap-2 transition-colors cursor-pointer ${isSel ? 'bg-emerald-500/20 border-emerald-500 text-white font-bold' : 'bg-asrama-bg border-asrama-border text-slate-200 hover:border-emerald-500/40'}">
-                        <span class="truncate">${escapeHtml(s.nama)}</span>
-                        <span class="text-[10px] px-2 py-0.5 rounded bg-asrama-card border border-asrama-border text-emerald-300 shrink-0">${escapeHtml(s.kamar)}</span>
-                    </button>
+                    <label class="w-full px-3 py-2 rounded-xl border text-xs flex items-center justify-between gap-2 cursor-pointer transition-colors ${isChecked ? 'bg-emerald-500/15 border-emerald-500 text-white font-medium' : 'bg-asrama-bg border-asrama-border text-slate-200 hover:border-slate-600'}">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <input type="checkbox" onchange="togglePelSantriSelect('${s.id}')" ${isChecked ? 'checked' : ''} class="w-4 h-4 rounded text-emerald-500 border-asrama-border focus:ring-0 cursor-pointer">
+                            <span class="truncate">${escapeHtml(s.nama)}</span>
+                        </div>
+                        <span class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-asrama-card border border-asrama-border text-emerald-300 shrink-0">${escapeHtml(s.kamar)}</span>
+                    </label>
                 `;
             }).join('');
         }
 
         function filterPelanggaranSantriPicker(val) {
+            pelSearchPickerQuery = val;
             const box = document.getElementById('pel-santri-results');
             if (box) box.innerHTML = renderPelanggaranSantriPickerItems(val);
         }
 
-        function selectPelanggaranSantri(id) {
-            pelSelectedSantriId = id;
-            const s = id ? santriList.find(x => x.id === id) : null;
-            const pill = document.getElementById('pel-selected-pill');
-            if (pill) pill.innerHTML = renderSelectedPelanggaranSantriPill(s);
-            const searchEl = document.getElementById('pel-search-santri');
-            filterPelanggaranSantriPicker(searchEl ? searchEl.value : '');
-        }
-
-        function setPelanggaranJenis(jenis) {
-            pelSelectedJenis = jenis;
-            const wrap = document.getElementById('pel-jenis-btns');
-            if (!wrap) return;
-            wrap.innerHTML = ['Telat', 'Tidak Ikut / Alpa', 'Lainnya'].map(j => `
-                <button type="button" onclick="setPelanggaranJenis('${j}')" class="py-2 px-2 rounded-xl border text-[11px] font-bold transition-all cursor-pointer ${pelSelectedJenis === j ? 'bg-amber-600 border-amber-400 text-white' : 'bg-asrama-bg border-asrama-border text-slate-300 hover:text-white'}">
-                    ${j}
-                </button>
-            `).join('');
-        }
-
-        function updatePelanggaranKegiatanAuto(jamVal) {
-            const el = document.getElementById('pel-kegiatan');
-            if (!el) return;
-            const autoNama = getKegiatanTelatOtomatis(jamVal);
-            if (autoNama) {
-                el.value = autoNama;
+        function togglePelSantriSelect(id) {
+            if (pelSelectedSantriIds.includes(id)) {
+                pelSelectedSantriIds = pelSelectedSantriIds.filter(x => x !== id);
+            } else {
+                pelSelectedSantriIds.push(id);
             }
+            const summary = document.getElementById('pel-selected-summary');
+            if (summary) {
+                summary.innerHTML = pelSelectedSantriIds.length === 0
+                    ? 'Belum ada santri dipilih. Centang nama santri di bawah.'
+                    : `<strong class="text-emerald-400">${pelSelectedSantriIds.length}</strong> santri terpilih.`;
+            }
+            const btn = document.getElementById('pel-btn-save');
+            if (btn) {
+                btn.textContent = `Simpan Catatan (${pelSelectedSantriIds.length} Santri)`;
+            }
+            const box = document.getElementById('pel-santri-results');
+            if (box) box.innerHTML = renderPelanggaranSantriPickerItems(pelSearchPickerQuery);
         }
 
         function renderPelanggaranLogCards(list) {
             if (list.length === 0) {
-                return `<p class="text-xs text-slate-400 text-center py-6">Belum ada catatan keterlambatan sesuai filter.</p>`;
+                return `<p class="text-xs text-slate-400 text-center py-6">Belum ada catatan keterlambatan atau takziran.</p>`;
             }
+            const canDelete = canDeletePelanggaranRecord();
+
             return list.map(pl => {
-                const jamTxt = pl.jam ? `${escapeHtml(pl.jam)} WIB` : (pl.createdAt ? `${String(pl.createdAt).slice(11, 16)} WIB` : '-');
-                const ketDetail = pl.keterangan ? ` • ${escapeHtml(pl.keterangan)}` : '';
+                const isSelesai = pl.selesai === true;
+                const istighfarTxt = pl.istighfar ? `${pl.istighfar} Istighfar` : (pl.jenis === 'Tidak Ikut Kegiatan' ? '200 Istighfar' : '100 Istighfar');
+                const sektorTxt = pl.sektor ? formatShortSektor(pl.sektor) : '';
+                const locTxt = [pl.kamar, sektorTxt].filter(Boolean).join(' • ');
+                const ketDetail = pl.keterangan ? ` (${escapeHtml(pl.keterangan)})` : '';
+
                 return `
-                    <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex items-start justify-between gap-3">
+                    <div class="p-3.5 rounded-xl bg-asrama-bg border ${isSelesai ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-asrama-border'} flex items-start justify-between gap-3">
                         <div class="space-y-1 min-w-0">
                             <div class="flex flex-wrap items-center gap-1.5">
                                 <p class="text-xs font-bold text-white">${escapeHtml(pl.santriNama)}</p>
-                                <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[10px] font-bold">${escapeHtml(pl.kamar)}</span>
-                                <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">${escapeHtml(pl.jenis || 'Telat')}</span>
+                                ${locTxt ? `<span class="text-slate-400 text-[11px] font-normal">(${escapeHtml(locTxt)})</span>` : ''}
+                                ${isSelesai ? `<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">Selesai</span>` : ''}
                             </div>
-                            <p class="text-[11px] text-slate-200">${escapeHtml(pl.kegiatan)}${ketDetail}</p>
+                            <p class="text-[11px] text-amber-300 font-medium">
+                                ${escapeHtml(pl.kegiatan)} — ${escapeHtml(pl.jenis || 'Terlambat')}${ketDetail}
+                                <span class="text-slate-400 font-normal"> • ${istighfarTxt}</span>
+                            </p>
                             <p class="text-[11px] text-slate-400">
-                                <i class="ph-bold ph-calendar-blank"></i> ${formatTanggalHari(pl.tanggal)} • <i class="ph-bold ph-clock"></i> <strong class="text-sky-300">${jamTxt}</strong> • Dicatat: ${escapeHtml(pl.dicatatOleh || '-')}
+                                ${formatTanggalHari(pl.tanggal)} • Dicatat: ${escapeHtml(pl.dicatatOleh || '-')}
                             </p>
                         </div>
-                        <button onclick="openHapusPelanggaranModal('${pl.id}')" class="p-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/30 text-red-300 shrink-0 cursor-pointer" title="Hapus Catatan">
-                            <i class="ph ph-trash text-sm"></i>
-                        </button>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button onclick="togglePelanggaranSelesai('${pl.id}', ${!isSelesai})" class="px-3 py-1.5 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${isSelesai ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-200 hover:bg-emerald-600/40' : 'bg-asrama-card border-asrama-border text-slate-200 hover:text-white hover:border-slate-500'}">
+                                ${isSelesai ? 'Batal Selesai' : 'Tandai Selesai'}
+                            </button>
+                            ${canDelete ? `
+                                <button onclick="openHapusPelanggaranModal('${pl.id}')" class="p-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/30 text-red-300 cursor-pointer" title="Hapus Catatan (Khusus Keamanan & Admin)">
+                                    <i class="ph ph-trash text-sm"></i>
+                                </button>
+                            ` : ''}
+                        </div>
                     </div>
                 `;
             }).join('');
+        }
+
+        async function togglePelanggaranSelesai(id, newStatus) {
+            try {
+                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pelanggaran', id), {
+                    selesai: newStatus,
+                    selesaiAt: newStatus ? new Date().toISOString() : null,
+                    selesaiOleh: newStatus ? (currentUser?.nama || 'Petugas') : null
+                });
+                showToast(newStatus ? 'Status takziran ditandai selesai.' : 'Status selesai dibatalkan.', 'info');
+            } catch (err) {
+                console.error('Gagal update status selesai:', err);
+                showToast('Gagal mengubah status: ' + err.message, 'error');
+            }
         }
 
         function updatePelLogSearch(val) {
@@ -2518,54 +2530,91 @@
             if (cnt) cnt.textContent = list.length;
         }
 
-        async function savePelanggaran() {
-            const s = santriList.find(x => x.id === pelSelectedSantriId);
-            const tanggal = document.getElementById('pel-tanggal')?.value || getTodayIso();
-            const jam = document.getElementById('pel-jam')?.value || getCurrentTimeHHMM();
-            const keg = document.getElementById('pel-kegiatan')?.value || 'Kegiatan Asrama';
-            const ket = document.getElementById('pel-keterangan')?.value.trim() || '';
-
-            if (!s) {
-                showToast('Cari dan klik nama santri terlebih dahulu!', 'error');
+        async function savePelanggaranMulti() {
+            if (pelSelectedSantriIds.length === 0) {
+                showToast('Centang minimal 1 santri terlebih dahulu!', 'error');
                 return;
             }
-            const jenisFinal = ket ? `${pelSelectedJenis} (${ket})` : pelSelectedJenis;
-            await window.FB.addDoc(window.FB.collection(window.FB.db, 'pelanggaran'), {
-                santriId: s.id,
-                santriNama: s.nama,
-                sektor: toCanonicalSektor(s.sektor),
-                kamar: s.kamar,
-                kegiatan: keg,
-                jenis: pelSelectedJenis,
-                keterangan: ket,
-                detail: jenisFinal,
-                tanggal,
-                jam,
-                dicatatOleh: currentUser.nama,
-                createdAt: new Date().toISOString()
-            });
-            pelSelectedSantriId = '';
-            showToast(`Tercatat: ${s.nama} — ${pelSelectedJenis} pukul ${jam} WIB.`, 'success');
-            renderCurrentPage();
+            const tanggal = document.getElementById('pel-tanggal')?.value || getTodayIso();
+            const keg = document.getElementById('pel-kegiatan')?.value || 'Tahajud';
+            const ket = document.getElementById('pel-keterangan')?.value.trim() || '';
+            const kat = document.getElementById('pel-kategori')?.value || pelSelectedKategori;
+            const istighfar = kat === 'Tidak Ikut Kegiatan' ? 200 : 100;
+            const nowHHMM = getCurrentTimeHHMM();
+
+            const targets = santriList.filter(s => pelSelectedSantriIds.includes(s.id));
+            if (targets.length === 0) {
+                showToast('Santri yang dipilih tidak valid!', 'error');
+                return;
+            }
+
+            try {
+                const promises = targets.map(s => {
+                    return window.FB.addDoc(window.FB.collection(window.FB.db, 'pelanggaran'), {
+                        santriId: s.id,
+                        santriNama: s.nama,
+                        sektor: toCanonicalSektor(s.sektor),
+                        kamar: s.kamar,
+                        kegiatan: keg,
+                        jenis: kat,
+                        istighfar: istighfar,
+                        keterangan: ket,
+                        tanggal,
+                        jam: nowHHMM,
+                        selesai: false,
+                        dicatatOleh: currentUser.nama,
+                        createdAt: new Date().toISOString()
+                    });
+                });
+
+                await Promise.all(promises);
+                pelSelectedSantriIds = [];
+                const searchEl = document.getElementById('pel-search-santri');
+                if (searchEl) searchEl.value = '';
+                pelSearchPickerQuery = '';
+                const ketEl = document.getElementById('pel-keterangan');
+                if (ketEl) ketEl.value = '';
+
+                showToast(`Berhasil menyimpan catatan untuk ${targets.length} santri (${kat} — ${istighfar} Istighfar).`, 'success');
+                renderCurrentPage();
+            } catch (err) {
+                console.error('Gagal menyimpan pelanggaran multi:', err);
+                showToast('Gagal menyimpan: ' + err.message, 'error');
+            }
         }
 
         function openHapusPelanggaranModal(id) {
+            if (!canDeletePelanggaranRecord()) {
+                showToast('Hanya Divisi Keamanan & Admin yang dapat menghapus catatan ini!', 'error');
+                return;
+            }
             const pl = pelanggaranList.find(x => x.id === id);
             if (!pl) return;
             openModal(
                 'Hapus Catatan Keterlambatan',
-                `<p class="text-xs text-slate-200">Hapus catatan <strong>${escapeHtml(pl.santriNama)}</strong> (${escapeHtml(pl.kegiatan)} — ${formatTanggalHari(pl.tanggal)})?</p>`,
+                `<p class="text-xs text-slate-200">Hapus catatan <strong>${escapeHtml(pl.santriNama)}</strong> (${escapeHtml(pl.kegiatan)} — ${escapeHtml(pl.jenis || 'Takziran')})?</p>
+                <p class="text-[11px] text-amber-300/80 mt-1">Tindakan ini hanya dapat dilakukan oleh Divisi Keamanan & Administrator.</p>`,
                 `
                 <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
-                <button onclick="confirmHapusPelanggaran('${id}')" class="px-4 py-2 rounded-xl bg-red-600 text-xs text-white font-bold cursor-pointer">Ya, Hapus</button>
+                <button onclick="confirmHapusPelanggaran('${id}')" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs text-white font-bold cursor-pointer">Ya, Hapus</button>
                 `
             );
         }
 
         async function confirmHapusPelanggaran(id) {
-            await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'pelanggaran', id));
-            closeModal();
-            showToast('Catatan keterlambatan dihapus.', 'info');
+            if (!canDeletePelanggaranRecord()) {
+                showToast('Akses ditolak: Hanya Divisi Keamanan yang boleh menghapus.', 'error');
+                closeModal();
+                return;
+            }
+            try {
+                await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'pelanggaran', id));
+                closeModal();
+                showToast('Catatan keterlambatan berhasil dihapus.', 'info');
+            } catch (err) {
+                console.error('Gagal menghapus pelanggaran:', err);
+                showToast('Gagal menghapus: ' + err.message, 'error');
+            }
         }
 
         function exportPelanggaranExcel() {
@@ -2584,6 +2633,8 @@
                 Kamar: pl.kamar,
                 Kegiatan: pl.kegiatan,
                 Kategori: pl.jenis || '-',
+                Istighfar: pl.istighfar ? `${pl.istighfar}x` : '-',
+                Status: pl.selesai ? 'Selesai' : 'Belum Selesai',
                 Keterangan: pl.keterangan || '-',
                 'Dicatat Oleh': pl.dicatatOleh || '-'
             }));
@@ -2601,9 +2652,10 @@
             teks += `Total Catatan: ${list.length}\n`;
             teks += `------------------------------------\n`;
             list.forEach((pl, idx) => {
-                const jamTxt = pl.jam ? `${pl.jam} WIB` : '-';
+                const statusTxt = pl.selesai ? '[SELESAI]' : '[BELUM]';
+                const istighfarTxt = pl.istighfar ? `(${pl.istighfar} Istighfar)` : '';
                 teks += `${idx + 1}. *${pl.santriNama}* (${pl.kamar}) — ${pl.kegiatan}\n`;
-                teks += `   • ${pl.jenis}${pl.keterangan ? ` (${pl.keterangan})` : ''} • Jam: ${jamTxt}\n`;
+                teks += `   • ${pl.jenis || 'Terlambat'} ${istighfarTxt} ${pl.keterangan ? `- ${pl.keterangan}` : ''} ${statusTxt}\n`;
             });
             navigator.clipboard?.writeText(teks);
             showToast('Rekap WA keterlambatan berhasil disalin!', 'success');
@@ -4258,83 +4310,7 @@
             }
         }
 
-        // CATATAN TELAT / ALPA
-        function renderMurobbiPelanggaran() {
-            const scopedSantri = getScopedSantri();
-            const canInput = !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser);
-            const filteredLog = pelanggaranList.filter(pl => {
-                if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return true;
-                if (isRecordKetuaLantai(currentUser)) return isSameSektor(pl.sektor, currentUser.sektor);
-                return isSameSektor(pl.sektor, currentUser.sektor) && pl.kamar === currentUser.kamar;
-            });
-
-            return `
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                    ${canInput ? `
-                        <div class="lg:col-span-5 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
-                            <h2 class="text-base font-extrabold text-white">Catat Santri Telat / Tidak Ikut Kegiatan</h2>
-                            <div class="space-y-3">
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Nama Santri</label>
-                                    <select id="pel-santri" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                        ${scopedSantri.map(s => `<option value="${s.id}">${escapeHtml(s.nama)} (${escapeHtml(s.kamar)})</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Kegiatan</label>
-                                    <select id="pel-kegiatan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                        ${kegiatanList.map(k => `<option value="${escapeHtml(k.nama)}">${escapeHtml(k.nama)}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Keterangan</label>
-                                    <input id="pel-jenis" type="text" placeholder="Contoh: Telat 10 menit / Tidak ikut tanpa izin" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                </div>
-                                <button onclick="savePelanggaran()" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold cursor-pointer">
-                                    Simpan Catatan
-                                </button>
-                            </div>
-                        </div>
-                    ` : ''}
-
-                    <div class="${canInput ? 'lg:col-span-7' : 'lg:col-span-12'} bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-3">
-                        <h3 class="text-sm font-bold text-white">Rekap Keterlambatan & Ketidakhadiran Santri</h3>
-                        ${filteredLog.length === 0 ? `<p class="text-xs text-slate-400">Belum ada catatan keterlambatan.</p>` : filteredLog.map(pl => `
-                            <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex items-center justify-between gap-2">
-                                <div>
-                                    <p class="text-xs font-bold text-white">${escapeHtml(pl.santriNama)} <span class="text-slate-400 font-normal">(${formatShortSektor(pl.sektor)} • ${escapeHtml(pl.kamar)})</span></p>
-                                    <p class="text-[11px] text-amber-300">${escapeHtml(pl.kegiatan)} — ${escapeHtml(pl.jenis)}</p>
-                                    <p class="text-[11px] text-slate-400">${formatTanggalHari(pl.tanggal)} • Dicatat oleh ${escapeHtml(pl.dicatatOleh || '-')}</p>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        }
-
-        async function savePelanggaran() {
-            const sid = document.getElementById('pel-santri').value;
-            const keg = document.getElementById('pel-kegiatan').value;
-            const jenis = document.getElementById('pel-jenis').value.trim();
-            const s = santriList.find(x => x.id === sid);
-            if (!s || !jenis) {
-                showToast('Lengkapi keterangan keterlambatan!', 'error');
-                return;
-            }
-            await window.FB.addDoc(window.FB.collection(window.FB.db, 'pelanggaran'), {
-                santriId: s.id,
-                santriNama: s.nama,
-                sektor: toCanonicalSektor(s.sektor),
-                kamar: s.kamar,
-                kegiatan: keg,
-                jenis,
-                tanggal: getTodayIso(),
-                dicatatOleh: currentUser.nama,
-                createdAt: new Date().toISOString()
-            });
-            showToast('Catatan keterlambatan disimpan.', 'success');
-        }
+        // (Duplikat lama renderMurobbiPelanggaran dibersihkan agar mengarah ke modul utama)
 
         // =========================================================================
         // 12. DIVISI KEAMANAN (ACC PULANG SAKIT, UBAH BATAS, HAPUS + NOTIF MUROBBI)
