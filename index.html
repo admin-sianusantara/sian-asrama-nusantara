@@ -2525,9 +2525,18 @@
                             <h2 class="text-xl font-extrabold text-white">Info Kamar, Murobbi & Penghuni</h2>
                             <p class="text-xs text-slate-300">Kelola nama kamar per sektor lantai, nama Murobbi penanggung jawab, dan isi santri.</p>
                         </div>
-                        <button onclick="openEditPengumumanModal()" class="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center gap-2 cursor-pointer">
-                            <i class="ph-bold ph-megaphone"></i> Ubah Pengumuman Global
-                        </button>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button onclick="downloadTemplateSantriPerSektorExcel('${adminInfoSelectedSektor}')" class="px-3 py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Download template santri khusus sektor ini">
+                                <i class="ph-bold ph-download-simple"></i> Template Sektor
+                            </button>
+                            <label class="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Import file excel santri ke sektor ini">
+                                <i class="ph-bold ph-file-xls"></i> Import ke Sektor Ini
+                                <input type="file" accept=".xlsx,.xls,.csv" onchange="handleImportSantriPerSektorExcel(event, '${adminInfoSelectedSektor}')" class="hidden">
+                            </label>
+                            <button onclick="openEditPengumumanModal()" class="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                <i class="ph-bold ph-megaphone"></i> Pengumuman Global
+                            </button>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -2578,9 +2587,15 @@
                                     <h3 class="text-lg font-extrabold text-white">${escapeHtml(activeKamarObj.nama)}</h3>
                                     <p class="text-xs text-slate-300 mt-0.5">Murobbi Kamar: <strong class="text-white">${escapeHtml(activeKamarObj.murobbi)}</strong></p>
                                 </div>
-                                <button onclick="openTambahSantriModal('${adminInfoSelectedSektor}', '${adminInfoSelectedKamar.replace(/'/g, "\\'")}')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start">
-                                    <i class="ph-bold ph-plus"></i> Tambah Santri
-                                </button>
+                                <div class="flex flex-wrap items-center gap-2 self-start">
+                                    <label class="px-3 py-2 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Import file excel santri langsung ke kamar ${escapeHtml(activeKamarObj.nama)}">
+                                        <i class="ph-bold ph-file-arrow-up"></i> Import Kamar Ini
+                                        <input type="file" accept=".xlsx,.xls,.csv" onchange="handleImportSantriPerKamarExcel(event, '${adminInfoSelectedSektor}', '${adminInfoSelectedKamar.replace(/'/g, "\\'")}')" class="hidden">
+                                    </label>
+                                    <button onclick="openTambahSantriModal('${adminInfoSelectedSektor}', '${adminInfoSelectedKamar.replace(/'/g, "\\'")}')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                        <i class="ph-bold ph-plus"></i> Tambah Santri
+                                    </button>
+                                </div>
                             </div>
 
                             <div class="space-y-2.5 max-h-[440px] overflow-y-auto pr-1">
@@ -2897,6 +2912,165 @@
             XLSX.utils.book_append_sheet(wb, ws, 'Template Santri');
             XLSX.writeFile(wb, 'SIAN_Template_Import_Santri.xlsx');
             showToast('Template Excel Santri berhasil diunduh.', 'success');
+        }
+
+        function downloadTemplateSantriPerSektorExcel(targetSektor) {
+            if (typeof XLSX === 'undefined') {
+                showToast('Library Excel belum siap.', 'error');
+                return;
+            }
+            const sektor = toCanonicalSektor(targetSektor) || SEKTOR_ASRAMA[0];
+            const listKamar = kamarBySektor[sektor] || [];
+            const kamarSample1 = listKamar[0]?.nama || 'DAMASKUS';
+            const kamarSample2 = listKamar[1]?.nama || kamarSample1;
+
+            const rows = [
+                {
+                    'No': 1,
+                    'Nama Lengkap Santri': 'Ahmad Fauzan',
+                    'Kelas': 'X-1',
+                    'Sektor Lantai': sektor,
+                    'Kamar': kamarSample1
+                },
+                {
+                    'No': 2,
+                    'Nama Lengkap Santri': 'Muhammad Farhan',
+                    'Kelas': 'X-2',
+                    'Sektor Lantai': sektor,
+                    'Kamar': kamarSample1
+                },
+                {
+                    'No': 3,
+                    'Nama Lengkap Santri': 'Zidny Ilman',
+                    'Kelas': 'XI-MIPA-1',
+                    'Sektor Lantai': sektor,
+                    'Kamar': kamarSample2
+                }
+            ];
+
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Santri Sektor');
+
+            // Tambahkan sheet daftar kamar sebagai referensi
+            if (listKamar.length > 0) {
+                const refKamar = listKamar.map((k, idx) => ({
+                    'No': idx + 1,
+                    'Nama Kamar': k.nama,
+                    'Murobbi': k.murobbi || '-'
+                }));
+                const wsRef = XLSX.utils.json_to_sheet(refKamar);
+                XLSX.utils.book_append_sheet(wb, wsRef, 'Daftar Kamar Valid');
+            }
+
+            const cleanFileName = `SIAN_Template_Santri_${sektor.replace(/[^a-zA-Z0-9]/g, '_')}.xlsx`;
+            XLSX.writeFile(wb, cleanFileName);
+            showToast(`Template Santri untuk ${sektor} berhasil diunduh.`, 'success');
+        }
+
+        async function handleImportSantriPerSektorExcel(event, targetSektor) {
+            const file = event.target.files[0];
+            if (!file || typeof XLSX === 'undefined') return;
+            const sektorDefault = toCanonicalSektor(targetSektor) || SEKTOR_ASRAMA[0];
+            showLoading(`Membaca & mengimpor data santri ke sektor ${sektorDefault}...`);
+            try {
+                const buf = await file.arrayBuffer();
+                const wb = XLSX.read(buf);
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet);
+                if (!rows || rows.length === 0) {
+                    hideLoading();
+                    showToast('File Excel kosong atau format tidak sesuai.', 'error');
+                    if (event.target) event.target.value = '';
+                    return;
+                }
+
+                const batch = window.FB.writeBatch(window.FB.db);
+                let count = 0;
+                rows.forEach(r => {
+                    const nama = String(r['Nama Lengkap Santri'] || r['Nama Santri'] || r.Nama || r.nama || '').trim();
+                    const kelas = String(r.Kelas || r.kelas || 'X-1').trim();
+                    // Prioritaskan sektor target dari parameter jika di file tidak ada atau cocokkan
+                    const rowSektor = r['Sektor Lantai'] || r.Sektor || r.sektor;
+                    const sektor = rowSektor ? toCanonicalSektor(rowSektor) : sektorDefault;
+                    const kamar = String(r.Kamar || r.kamar || 'Kamar 01').trim();
+
+                    if (nama) {
+                        const ref = window.FB.doc(window.FB.collection(window.FB.db, 'santri'));
+                        batch.set(ref, { 
+                            nama, 
+                            kelas, 
+                            sektor, 
+                            kamar, 
+                            status: 'H', 
+                            catatan: '' 
+                        });
+                        count++;
+                    }
+                });
+
+                await batch.commit();
+                hideLoading();
+                showToast(`Berhasil mengimpor ${count} santri ke sektor ${sektorDefault}.`, 'success');
+                renderCurrentPage();
+            } catch (err) {
+                hideLoading();
+                showToast('Gagal mengimpor Excel Sektor: ' + err.message, 'error');
+            }
+            if (event.target) event.target.value = '';
+        }
+
+        async function handleImportSantriPerKamarExcel(event, targetSektor, targetKamar) {
+            const file = event.target.files[0];
+            if (!file || typeof XLSX === 'undefined') return;
+            const sektor = toCanonicalSektor(targetSektor) || SEKTOR_ASRAMA[0];
+            const kamar = String(targetKamar || '').trim();
+            if (!kamar) {
+                showToast('Kamar target tidak valid.', 'error');
+                return;
+            }
+
+            showLoading(`Mengimpor santri ke kamar ${kamar}...`);
+            try {
+                const buf = await file.arrayBuffer();
+                const wb = XLSX.read(buf);
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet);
+                if (!rows || rows.length === 0) {
+                    hideLoading();
+                    showToast('File Excel kosong atau format tidak sesuai.', 'error');
+                    if (event.target) event.target.value = '';
+                    return;
+                }
+
+                const batch = window.FB.writeBatch(window.FB.db);
+                let count = 0;
+                rows.forEach(r => {
+                    const nama = String(r['Nama Lengkap Santri'] || r['Nama Santri'] || r.Nama || r.nama || '').trim();
+                    const kelas = String(r.Kelas || r.kelas || 'X-1').trim();
+                    if (nama) {
+                        const ref = window.FB.doc(window.FB.collection(window.FB.db, 'santri'));
+                        batch.set(ref, { 
+                            nama, 
+                            kelas, 
+                            sektor, 
+                            kamar, 
+                            status: 'H', 
+                            catatan: '' 
+                        });
+                        count++;
+                    }
+                });
+
+                await batch.commit();
+                hideLoading();
+                showToast(`Berhasil mengimpor ${count} santri langsung ke ${kamar}.`, 'success');
+                renderCurrentPage();
+            } catch (err) {
+                hideLoading();
+                showToast('Gagal mengimpor Excel Kamar: ' + err.message, 'error');
+            }
+            if (event.target) event.target.value = '';
         }
 
         async function handleImportSantriExcel(event) {
