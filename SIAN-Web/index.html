@@ -882,7 +882,7 @@
 
                 const discoveredMap = new Map();
                 pengurusList.forEach(p => {
-                    if (isPengurusApproved(p) && !isRecordAdmin(p) && !isRecordKetuaAsrama(p) && !isRecordKetuaLantai(p) && isSameSektor(p.sektor, sec)) {
+                    if (isPengurusApproved(p) && !isRecordAdmin(p) && !isRecordKetuaAsrama(p) && isSameSektor(p.sektor, sec)) {
                         const kName = String(p.kamar || '').trim();
                         if (kName && kName.toLowerCase() !== 'semua kamar') {
                             discoveredMap.set(kName, p.nama || 'Belum Ada Murobbi');
@@ -1180,7 +1180,11 @@
             if (!u) return '-';
             if (isRecordAdmin(u)) return 'Administrator Pusat';
             if (isRecordKetuaAsrama(u)) return 'Ketua Asrama Nusantara';
-            if (isRecordKetuaLantai(u)) return `Ketua Sektor (${formatShortSektor(u.sektor)})`;
+            const isKetua = isRecordKetuaLantai(u);
+            const kmr = (u.kamar && u.kamar !== 'Semua Kamar') ? u.kamar : '';
+            if (isKetua) {
+                return kmr ? `Ketua Sektor & Murobbi (${kmr})` : `Ketua Sektor (${formatShortSektor(u.sektor)})`;
+            }
             const divMap = {
                 keamanan: 'Divisi Keamanan',
                 kesehatan: 'Divisi Kesehatan',
@@ -1203,7 +1207,7 @@
                 : isRecordKetuaAsrama(currentUser)
                     ? 'Ketua Asrama • Seluruh 6 Sektor'
                     : isRecordKetuaLantai(currentUser)
-                        ? `${formatShortSektor(currentUser.sektor)} • Ketua Sektor`
+                        ? `${formatShortSektor(currentUser.sektor)} • Ketua Sektor${currentUser.kamar && currentUser.kamar !== 'Semua Kamar' ? ` • ${currentUser.kamar}` : ''}`
                         : `${formatShortSektor(currentUser.sektor)} • ${currentUser.kamar}`;
 
             document.getElementById('mobile-role-subtitle').textContent = roleLabel;
@@ -1214,7 +1218,7 @@
                 : isRecordKetuaAsrama(currentUser)
                     ? `<span class="text-emerald-400 font-semibold">${roleLabel}</span> • Semua Sektor`
                     : isRecordKetuaLantai(currentUser)
-                        ? `<span class="text-emerald-400 font-semibold">${roleLabel}</span>`
+                        ? `${currentUser.kamar && currentUser.kamar !== 'Semua Kamar' ? `${currentUser.kamar} • ` : ''}<span class="text-emerald-400 font-semibold">${roleLabel}</span>`
                         : `${currentUser.kamar} • <span class="text-emerald-400 font-semibold">${roleLabel}</span>`;
 
             updatePendingBadge();
@@ -1464,8 +1468,11 @@
                 if (isRecordKetuaLantai(currentUser)) {
                     html += `
                         <div class="space-y-1">
-                            <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1.5">Pantauan & ACC Ketua Sektor</p>
+                            <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1.5">Wewenang Ketua Sektor</p>
                             ${navItem('pimpinan_acc_pulang', 'ph-seal-check', 'ACC Izin Pulang (Keluarga)', 'text-amber-400')}
+                        </div>
+                        <div class="space-y-1 pt-2 border-t border-asrama-border/60">
+                            <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">Tugas Murobbi Kamar ${currentUser.kamar && currentUser.kamar !== 'Semua Kamar' ? `(${escapeHtml(currentUser.kamar)})` : ''}</p>
                             ${navItem('murobbi_presensi', 'ph-check-square-offset', 'Presensi Kamar & Kegiatan', 'text-emerald-400')}
                             ${navItem('murobbi_penilaian', 'ph-exam', 'Input & Pantau Penilaian', 'text-emerald-400')}
                             ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Izin Sakit, Pulang & Kembali', 'text-sky-400')}
@@ -1623,8 +1630,8 @@
             const berhalangan = scoped.filter(s => (s.status || 'H') !== 'H');
             const todayFormatted = formatTanggalHari(getTodayIso());
 
-            const unreadNotifs = (!isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser))
-                ? murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && n.kamar === currentUser.kamar)
+            const unreadNotifs = (!isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser))
+                ? murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && (isRecordKetuaLantai(currentUser) || n.kamar === currentUser.kamar))
                 : [];
 
             let quickActions = '';
@@ -1692,7 +1699,7 @@
                                 <h2 class="text-xl md:text-2xl font-extrabold text-white">Assalamu'alaikum, ${escapeHtml(currentUser.nama)}</h2>
                                 <p class="text-xs text-slate-300">
                                     Wilayah: <strong class="text-emerald-300">${isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) ? 'Seluruh Sektor Asrama Nusantara (Lt. 1 – Lt. 3)' : escapeHtml(toCanonicalSektor(currentUser.sektor))}</strong>
-                                    ${(!isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser)) ? ` • <strong class="text-white">${escapeHtml(currentUser.kamar)}</strong>` : ''}
+                                    ${(!isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && currentUser.kamar && currentUser.kamar !== 'Semua Kamar') ? ` • Kamar Binaan: <strong class="text-white">${escapeHtml(currentUser.kamar)}</strong>` : ''}
                                 </p>
                             </div>
                             <div class="flex flex-wrap gap-2.5">${quickActions}</div>
@@ -1863,9 +1870,18 @@
                             <h2 class="text-xl font-extrabold text-white">ACC & Kelola Akun Pengurus</h2>
                             <p class="text-xs text-slate-300">Total <strong class="text-emerald-400">${allApproved.length} akun pengurus aktif</strong> terdaftar. Setujui Murobbi baru atau tetapkan jabatan <strong>Ketua Asrama Nusantara</strong> & <strong>Ketua Sektor</strong>.</p>
                         </div>
-                        <button onclick="openTambahPengurusModal()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start">
-                            <i class="ph-bold ph-user-plus"></i> + Tambah / Tetapkan Jabatan
-                        </button>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button onclick="downloadTemplatePengurusExcel()" class="px-3.5 py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Unduh format template pengurus Excel">
+                                <i class="ph-bold ph-download-simple"></i> Download Template
+                            </button>
+                            <label class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                <i class="ph-bold ph-file-xls"></i> Import Excel Murobbi (.xlsx)
+                                <input type="file" accept=".xlsx,.xls,.csv" onchange="handleImportPengurusExcel(event)" class="hidden">
+                            </label>
+                            <button onclick="openTambahPengurusModal()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer self-start">
+                                <i class="ph-bold ph-user-plus"></i> + Tambah / Tetapkan Jabatan
+                            </button>
+                        </div>
                     </div>
 
                     ${pending.length > 0 ? `
@@ -1991,7 +2007,7 @@
             const p = pengurusList.find(x => x.id === id);
             if (!p) return;
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), { status });
-            if (status === 'approved' && !isRecordKetuaAsrama(p) && !isRecordKetuaLantai(p) && p.kamar) {
+            if (status === 'approved' && !isRecordKetuaAsrama(p) && p.kamar && p.kamar !== 'Semua Kamar') {
                 const canon = toCanonicalSektor(p.sektor);
                 if (kamarBySektor[canon]) {
                     const idx = kamarBySektor[canon].findIndex(k => k.nama === p.kamar);
@@ -2020,12 +2036,13 @@
                         <input id="add-p-nama" type="text" placeholder="Ust. Ahmad Fauzi" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jabatan / Role *</label>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jabatan Utama / Tambahan *</label>
                         <select id="add-p-role" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="murobbi">Murobbi Kamar</option>
-                            <option value="ketua_sektor">Ketua Sektor (1 Lantai)</option>
+                            <option value="ketua_sektor">Murobbi Kamar + Ketua Sektor (1 Lantai)</option>
                             <option value="ketua_asrama">Ketua Asrama Nusantara (Keseluruhan 6 Sektor)</option>
                         </select>
+                        <p class="text-[10px] text-emerald-300/80 mt-1">Ketua Sektor tetap memegang kamar binaan sebagai Murobbi kamar.</p>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
@@ -2035,7 +2052,7 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-200 mb-1">Kamar</label>
+                            <label class="block text-xs font-semibold text-slate-200 mb-1">Kamar Binaan Murobbi</label>
                             <select id="add-p-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">${kamarOpts}</select>
                         </div>
                     </div>
@@ -2078,7 +2095,7 @@
                 isKetuaAsrama: role === 'ketua_asrama',
                 isKetuaLantai: role === 'ketua_sektor',
                 sektor: role === 'ketua_asrama' ? 'Semua Sektor' : sektor,
-                kamar: role === 'murobbi' ? kamar : 'Semua Kamar',
+                kamar: role === 'ketua_asrama' ? 'Semua Kamar' : kamar,
                 divisi,
                 status: 'approved',
                 createdAt: new Date().toISOString()
@@ -2102,12 +2119,13 @@
                         <input id="edit-p-nama" type="text" value="${escapeHtml(p.nama)}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jabatan / Role</label>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jabatan Utama / Tambahan</label>
                         <select id="edit-p-role" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="murobbi" ${curRole === 'murobbi' ? 'selected' : ''}>Murobbi Kamar</option>
-                            <option value="ketua_sektor" ${curRole === 'ketua_sektor' ? 'selected' : ''}>Ketua Sektor (1 Lantai)</option>
+                            <option value="ketua_sektor" ${curRole === 'ketua_sektor' ? 'selected' : ''}>Murobbi Kamar + Ketua Sektor (1 Lantai)</option>
                             <option value="ketua_asrama" ${curRole === 'ketua_asrama' ? 'selected' : ''}>Ketua Asrama Nusantara (Keseluruhan 6 Sektor)</option>
                         </select>
+                        <p class="text-[10px] text-emerald-300/80 mt-1">Ketua Sektor tetap memegang kamar binaan sebagai Murobbi kamar.</p>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
@@ -2117,7 +2135,7 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-200 mb-1">Kamar</label>
+                            <label class="block text-xs font-semibold text-slate-200 mb-1">Kamar Binaan Murobbi</label>
                             <select id="edit-p-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">${kamarOpts}</select>
                         </div>
                     </div>
@@ -2153,7 +2171,7 @@
                 isKetuaAsrama: role === 'ketua_asrama',
                 isKetuaLantai: role === 'ketua_sektor',
                 sektor: role === 'ketua_asrama' ? 'Semua Sektor' : sektor,
-                kamar: role === 'murobbi' ? kamar : 'Semua Kamar',
+                kamar: role === 'ketua_asrama' ? 'Semua Kamar' : kamar,
                 divisi,
                 status: 'approved'
             });
@@ -2581,6 +2599,7 @@
                                         </div>
                                         <div class="flex items-center gap-2">
                                             ${renderStatusBadge(s.status)}
+                                            <button onclick="openEditSantriModal('${s.id}')" class="px-2 py-1 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-300 text-[11px] font-semibold cursor-pointer" title="Edit Data/Kelas">Edit</button>
                                             <button onclick="openPindahKamarModal('${s.id}')" class="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-semibold cursor-pointer">Pindah</button>
                                         </div>
                                     </div>
@@ -2683,6 +2702,9 @@
                             <p class="text-xs text-slate-300">Total ${santriList.length} santri terdaftar (${filtered.length} ditampilkan).</p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
+                            <button onclick="downloadTemplateSantriExcel()" class="px-3.5 py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Unduh format template santri Excel">
+                                <i class="ph-bold ph-download-simple"></i> Download Template
+                            </button>
                             <label class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                                 <i class="ph-bold ph-file-xls"></i> Import Excel (.xlsx)
                                 <input type="file" accept=".xlsx,.xls,.csv" onchange="handleImportSantriExcel(event)" class="hidden">
@@ -2730,8 +2752,10 @@
                                                     <span class="block text-[11px] text-slate-400">${escapeHtml(kObj.murobbi)}</span>
                                                 </td>
                                                 <td class="py-3 px-4">${renderStatusBadge(s.status)}</td>
-                                                <td class="py-3 px-4 text-right">
+                                                <td class="py-3 px-4 text-right space-x-1">
+                                                    <button onclick="openEditSantriModal('${s.id}')" class="px-2.5 py-1 rounded-lg bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[11px] font-semibold cursor-pointer">Edit</button>
                                                     <button onclick="openPindahKamarModal('${s.id}')" class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[11px] font-semibold cursor-pointer">Pindah</button>
+                                                    ${isRecordAdmin(currentUser) ? `<button onclick="openHapusSantriModal('${s.id}')" class="px-2 py-1 rounded-lg bg-red-500/15 text-red-300 border border-red-500/30 text-[11px] font-semibold cursor-pointer">Hapus</button>` : ''}
                                                 </td>
                                             </tr>
                                         `;
@@ -2742,6 +2766,137 @@
                     </div>
                 </div>
             `;
+        }
+
+        function downloadTemplatePengurusExcel() {
+            if (typeof XLSX === 'undefined') {
+                showToast('Library Excel belum siap.', 'error');
+                return;
+            }
+            const rows = [
+                {
+                    'Email Google': 'murobbi.fauzi@gmail.com',
+                    'Nama Lengkap': 'Ust. Ahmad Fauzi',
+                    'Role / Jabatan': 'Murobbi Kamar',
+                    'Sektor Lantai': 'NS Lt. 1 Selatan',
+                    'Kamar': 'Kamar 01',
+                    'Divisi Tugas': 'keamanan'
+                },
+                {
+                    'Email Google': 'ketua.sektor1@gmail.com',
+                    'Nama Lengkap': 'Ust. M. Ridwan',
+                    'Role / Jabatan': 'Ketua Sektor',
+                    'Sektor Lantai': 'NS Lt. 1 Selatan',
+                    'Kamar': 'Kamar 02',
+                    'Divisi Tugas': 'keamanan'
+                },
+                {
+                    'Email Google': 'pimpinan.asrama@gmail.com',
+                    'Nama Lengkap': 'Ust. Hasan Basri',
+                    'Role / Jabatan': 'Ketua Asrama',
+                    'Sektor Lantai': 'Semua Sektor',
+                    'Kamar': 'Semua Kamar',
+                    'Divisi Tugas': 'semua'
+                }
+            ];
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Template Pengurus');
+            XLSX.writeFile(wb, 'SIAN_Template_Import_Pengurus_Murobbi.xlsx');
+            showToast('Template Excel Pengurus/Murobbi berhasil diunduh.', 'success');
+        }
+
+        async function handleImportPengurusExcel(event) {
+            const file = event.target.files[0];
+            if (!file || typeof XLSX === 'undefined') return;
+            showLoading('Membaca & mengimpor akun Murobbi/Pengurus...');
+            try {
+                const buf = await file.arrayBuffer();
+                const wb = XLSX.read(buf);
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet);
+                const batch = window.FB.writeBatch(window.FB.db);
+                let count = 0;
+
+                rows.forEach(r => {
+                    const email = String(r['Email Google'] || r.Email || r.email || '').trim().toLowerCase();
+                    const nama = String(r['Nama Lengkap'] || r.Nama || r.nama || '').trim();
+                    const rawRole = String(r['Role / Jabatan'] || r.Role || r.role || r.Jabatan || r.jabatan || 'murobbi').trim().toLowerCase();
+                    const rawSec = String(r['Sektor Lantai'] || r.Sektor || r.sektor || SEKTOR_ASRAMA[0]).trim();
+                    const kamar = String(r.Kamar || r.kamar || 'Kamar 01').trim();
+                    const rawDiv = String(r['Divisi Tugas'] || r.Divisi || r.divisi || 'keamanan').trim().toLowerCase();
+
+                    if (email && nama) {
+                        const isKetuaAsr = rawRole.includes('asrama') || rawRole === 'ketua_asrama';
+                        const isKetuaSec = rawRole.includes('sektor') || rawRole.includes('lantai') || rawRole === 'ketua_sektor';
+                        const role = isKetuaAsr ? 'ketua_asrama' : (isKetuaSec ? 'ketua_sektor' : 'murobbi');
+                        const sektor = isKetuaAsr ? 'Semua Sektor' : toCanonicalSektor(rawSec);
+                        const kmr = isKetuaAsr ? 'Semua Kamar' : kamar;
+                        let divisi = 'keamanan';
+                        if (rawDiv.includes('sehat')) divisi = 'kesehatan';
+                        else if (rawDiv.includes('bersih')) divisi = 'kebersihan';
+                        else if (rawDiv.includes('giat')) divisi = 'kegiatan';
+                        else if (rawDiv.includes('semua') || isKetuaAsr) divisi = 'semua';
+
+                        const docId = email.replace(/[^a-z0-9]/g, '_');
+                        const ref = window.FB.doc(window.FB.db, 'pengurus', docId);
+                        batch.set(ref, {
+                            email,
+                            nama,
+                            role,
+                            isAdmin: false,
+                            isKetuaAsrama: role === 'ketua_asrama',
+                            isKetuaLantai: role === 'ketua_sektor',
+                            sektor,
+                            kamar: kmr,
+                            divisi,
+                            status: 'approved',
+                            createdAt: new Date().toISOString()
+                        }, { merge: true });
+                        count++;
+                    }
+                });
+
+                await batch.commit();
+                hideLoading();
+                showToast(`Berhasil mengimpor ${count} akun Murobbi/Pengurus.`, 'success');
+            } catch (err) {
+                hideLoading();
+                showToast('Gagal mengimpor Pengurus Excel: ' + err.message, 'error');
+            }
+            if (event.target) event.target.value = '';
+        }
+
+        function downloadTemplateSantriExcel() {
+            if (typeof XLSX === 'undefined') {
+                showToast('Library Excel belum siap.', 'error');
+                return;
+            }
+            const rows = [
+                {
+                    'Nama Lengkap Santri': 'Muhammad Fatih',
+                    'Kelas': 'X-1',
+                    'Sektor Lantai': 'NS Lt. 1 Selatan',
+                    'Kamar': 'Kamar 01'
+                },
+                {
+                    'Nama Lengkap Santri': 'Ahmad Zaki Mubarak',
+                    'Kelas': 'XI-IPA-2',
+                    'Sektor Lantai': 'NS Lt. 1 Selatan',
+                    'Kamar': 'Kamar 01'
+                },
+                {
+                    'Nama Lengkap Santri': 'Rizky Pratama',
+                    'Kelas': 'XII-IPS-1',
+                    'Sektor Lantai': 'NS Lt. 1 Utara',
+                    'Kamar': 'Kamar 02'
+                }
+            ];
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Template Santri');
+            XLSX.writeFile(wb, 'SIAN_Template_Import_Santri.xlsx');
+            showToast('Template Excel Santri berhasil diunduh.', 'success');
         }
 
         async function handleImportSantriExcel(event) {
@@ -2756,9 +2911,9 @@
                 const batch = window.FB.writeBatch(window.FB.db);
                 let count = 0;
                 rows.forEach(r => {
-                    const nama = String(r.Nama || r.nama || r['Nama Santri'] || '').trim();
+                    const nama = String(r['Nama Lengkap Santri'] || r['Nama Santri'] || r.Nama || r.nama || '').trim();
                     const kelas = String(r.Kelas || r.kelas || 'X-1').trim();
-                    const sektor = toCanonicalSektor(r.Sektor || r.sektor || SEKTOR_ASRAMA[0]);
+                    const sektor = toCanonicalSektor(r['Sektor Lantai'] || r.Sektor || r.sektor || SEKTOR_ASRAMA[0]);
                     const kamar = String(r.Kamar || r.kamar || 'Kamar 01').trim();
                     if (nama) {
                         const ref = window.FB.doc(window.FB.collection(window.FB.db, 'santri'));
@@ -2773,6 +2928,7 @@
                 hideLoading();
                 showToast('Gagal mengimpor Excel: ' + err.message, 'error');
             }
+            if (event.target) event.target.value = '';
         }
 
         function openTambahSantriModal(defaultSektor, defaultKamar) {
@@ -2812,6 +2968,100 @@
             await window.FB.addDoc(window.FB.collection(window.FB.db, 'santri'), { nama, kelas, sektor, kamar, status: 'H', catatan: '' });
             closeModal();
             showToast(`Santri ${nama} berhasil ditambahkan.`, 'success');
+        }
+
+        function openEditSantriModal(santriId) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            const canEditAll = isRecordAdmin(currentUser);
+            const canon = toCanonicalSektor(s.sektor) || SEKTOR_ASRAMA[0];
+            const kamarOpts = (kamarBySektor[canon] || []).map(k => `<option value="${k.nama}" ${k.nama === s.kamar ? 'selected' : ''}>${k.nama} (${k.murobbi})</option>`).join('');
+
+            openModal(
+                `Edit Data Santri — ${s.nama}`,
+                `
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Nama Lengkap Santri ${canEditAll ? '*' : '(Hanya Admin)'}</label>
+                        <input id="edit-santri-nama" type="text" value="${escapeHtml(s.nama)}" ${canEditAll ? '' : 'readonly'} class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs ${canEditAll ? '' : 'bg-asrama-card/80 text-slate-400 cursor-not-allowed'}">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Kelas Sekolah * <span class="text-emerald-400 font-normal">(Murobbi dapat mengedit)</span></label>
+                        <input id="edit-santri-kelas" type="text" value="${escapeHtml(s.kelas || '')}" placeholder="Contoh: X-1, XI-IPA-2, XII-3" class="w-full border border-emerald-500/50 rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-emerald-400">
+                        <p class="text-[10px] text-slate-400 mt-1">Ubah tingkat/kelas santri untuk keperluan pendataan dan presensi.</p>
+                    </div>
+                    ${canEditAll ? `
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-200 mb-1">Sektor Lantai</label>
+                            <select id="edit-santri-sektor" onchange="updateKamarDropdown('edit-santri-sektor', 'edit-santri-kamar')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${sec === canon ? 'selected' : ''}>${sec}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-200 mb-1">Kamar</label>
+                            <select id="edit-santri-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">${kamarOpts}</select>
+                        </div>
+                    </div>
+                    ` : `
+                    <div class="p-2.5 rounded-xl bg-asrama-card border border-asrama-border text-[11px] text-slate-300">
+                        Kamar & Wilayah: <strong class="text-emerald-300">${formatShortSektor(s.sektor)} • ${escapeHtml(s.kamar)}</strong>
+                    </div>
+                    `}
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="saveEditSantri('${s.id}')" class="px-4 py-2 rounded-xl bg-emerald-600 text-xs text-white font-bold cursor-pointer">Simpan Perubahan</button>
+                `
+            );
+        }
+
+        async function saveEditSantri(santriId) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            const kelas = (document.getElementById('edit-santri-kelas')?.value || '').trim();
+            const updates = { kelas: kelas || s.kelas || 'X-1' };
+
+            if (isRecordAdmin(currentUser)) {
+                const nama = (document.getElementById('edit-santri-nama')?.value || '').trim();
+                const sektor = document.getElementById('edit-santri-sektor')?.value;
+                const kamar = document.getElementById('edit-santri-kamar')?.value;
+                if (nama) updates.nama = nama;
+                if (sektor) updates.sektor = sektor;
+                if (kamar) updates.kamar = kamar;
+            }
+
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), updates);
+            closeModal();
+            showToast(`Data santri ${s.nama} (Kelas ${updates.kelas}) berhasil diperbarui.`, 'success');
+        }
+
+        function openHapusSantriModal(santriId) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            openModal(
+                'Hapus Data Santri',
+                `
+                <div class="space-y-3">
+                    <p class="text-xs text-slate-300">Apakah Anda yakin ingin menghapus data santri berikut secara permanen?</p>
+                    <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/35 text-xs text-red-200">
+                        <strong class="text-white text-sm block">${escapeHtml(s.nama)}</strong>
+                        <span>Kelas ${escapeHtml(s.kelas || '-')} • ${formatShortSektor(s.sektor)} • ${escapeHtml(s.kamar)}</span>
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="confirmHapusSantri('${s.id}')" class="px-4 py-2 rounded-xl bg-red-600 text-xs text-white font-bold cursor-pointer">Ya, Hapus Santri</button>
+                `
+            );
+        }
+
+        async function confirmHapusSantri(santriId) {
+            await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'santri', santriId));
+            closeModal();
+            showToast('Data santri berhasil dihapus.', 'info');
         }
 
         function openPindahKamarModal(santriId) {
@@ -3182,9 +3432,15 @@
             const tidakHadir = list.length - hadirCount;
 
             const canonSec = toCanonicalSektor(currentUser.sektor);
+            if (isRecordKetuaLantai(currentUser) && currentUser.kamar && currentUser.kamar !== 'Semua Kamar') {
+                if (!window._ketuaKamarInitialized) {
+                    ketuaSelectedKamar = currentUser.kamar;
+                    window._ketuaKamarInitialized = true;
+                }
+            }
             const kamarSelector = isRecordKetuaLantai(currentUser) ? `
                 <select onchange="ketuaSelectedKamar = this.value; renderCurrentPage();" class="border border-emerald-500/40 rounded-xl px-3 py-2 text-xs font-bold">
-                    ${(kamarBySektor[canonSec] || []).map(k => `<option value="${k.nama}" ${k.nama === ketuaSelectedKamar ? 'selected' : ''}>${k.nama} (${k.murobbi})</option>`).join('')}
+                    ${(kamarBySektor[canonSec] || []).map(k => `<option value="${k.nama}" ${k.nama === ketuaSelectedKamar ? 'selected' : ''}>${k.nama} (${k.nama === currentUser.kamar ? 'Kamar Anda' : k.murobbi})</option>`).join('')}
                 </select>
             ` : `<span class="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold">${escapeHtml(currentUser.kamar)}</span>`;
 
@@ -3233,8 +3489,13 @@
                                 <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-2.5">
                                     <div class="flex items-center justify-between gap-3">
                                         <div class="min-w-0">
-                                            <p class="text-sm font-bold text-white truncate">${escapeHtml(s.nama)}</p>
-                                            <p class="text-[11px] text-slate-400">Kelas ${escapeHtml(s.kelas || '-')} ${s.catatan ? `• <span class="text-sky-300">${escapeHtml(s.catatan)}</span>` : ''}</p>
+                                            <div class="flex items-center gap-2">
+                                                <p class="text-sm font-bold text-white truncate">${escapeHtml(s.nama)}</p>
+                                                <button onclick="openEditSantriModal('${s.id}')" class="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300 hover:bg-sky-500/25 font-semibold flex items-center gap-1 cursor-pointer" title="Edit Kelas">
+                                                    <i class="ph-bold ph-pencil-simple"></i> Edit Kelas
+                                                </button>
+                                            </div>
+                                            <p class="text-[11px] text-slate-400">Kelas <strong class="text-slate-200">${escapeHtml(s.kelas || '-')}</strong> ${s.catatan ? `• <span class="text-sky-300">${escapeHtml(s.catatan)}</span>` : ''}</p>
                                         </div>
                                         <div class="flex items-center gap-1 shrink-0">
                                             ${['H','S','I','A','P'].map(st => {
