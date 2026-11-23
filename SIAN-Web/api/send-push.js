@@ -71,7 +71,7 @@ function extractFirestoreTokens(field) {
 
 function isRecipientEligible(userFields, eventPayload) {
     const status = norm(extractFirestoreString(userFields.status));
-    if (status && status !== 'approved') return false;
+    if (status === 'pending' || status === 'menunggu' || status === 'rejected' || status === 'ditolak') return false;
 
     const email = norm(extractFirestoreString(userFields.email));
     const isAdmin = email === 'admin.sianusantara@gmail.com'
