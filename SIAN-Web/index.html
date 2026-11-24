@@ -247,6 +247,9 @@
                 </div>
             </div>
             <div class="flex items-center gap-2">
+                <button onclick="openGlobalSearchMobileModal()" class="p-2 rounded-lg bg-asrama-card border border-asrama-border text-slate-200 hover:text-emerald-300 cursor-pointer" title="Universal Search">
+                    <i class="ph-bold ph-magnifying-glass text-lg text-emerald-400"></i>
+                </button>
                 <button onclick="openPwaInstallAndNotifModal()" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer">
                     <i class="ph-bold ph-bell-ringing"></i> App & Notif
                 </button>
@@ -346,9 +349,23 @@
         <main class="flex-1 flex flex-col min-w-0 bg-[#090d0b]">
             <!-- Top Header Bar (Desktop) -->
             <header class="hidden md:flex items-center justify-between px-6 py-3.5 border-b border-asrama-border bg-asrama-bg/90 backdrop-blur-md sticky top-0 z-20">
-                <div class="relative w-80">
+                <div class="relative w-80 md:w-96" id="desktop-search-container">
                     <i class="ph ph-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                    <input type="text" id="global-search" oninput="handleGlobalSearch(this.value)" placeholder="Cari nama santri, kelas, atau kamar..." class="w-full border border-asrama-border rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition-colors">
+                    <input type="text" id="global-search" oninput="handleGlobalSearch(this.value)" onfocus="if(this.value.trim().length >= 1) handleGlobalSearch(this.value)" placeholder="Cari santri, kamar, murobbi, kelas..." class="w-full border border-asrama-border rounded-xl pl-10 pr-8 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition-colors">
+                    <button id="clear-desktop-search" onclick="clearGlobalSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 text-xs">
+                        <i class="ph-bold ph-x"></i>
+                    </button>
+
+                    <!-- Universal Search Spotlight Popover Dropdown (Desktop) -->
+                    <div id="desktop-search-dropdown" class="hidden absolute top-full left-0 right-0 mt-2 bg-asrama-card/95 backdrop-blur-xl border border-asrama-border rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[75vh]">
+                        <div class="px-3.5 py-2 border-b border-asrama-border bg-asrama-bg/90 flex items-center justify-between shrink-0">
+                            <span class="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                                <i class="ph-bold ph-magnifying-glass text-emerald-400"></i> Hasil Universal Search
+                            </span>
+                            <span id="desktop-search-count" class="text-[10px] text-slate-400"></span>
+                        </div>
+                        <div id="desktop-search-results" class="overflow-y-auto p-2 space-y-3 divide-y divide-asrama-border/40 text-xs"></div>
+                    </div>
                 </div>
 
                 <div class="flex items-center gap-3">
@@ -886,6 +903,18 @@
             let clean = String(no).replace(/[^0-9]/g, '');
             if (clean.startsWith('62')) clean = '0' + clean.slice(2);
             return clean;
+        }
+
+        function getMurobbiPhone(sektor, namaKamar) {
+            if (!namaKamar) return '';
+            const pObj = pengurusList.find(p => isPengurusApproved(p) && isSameSektor(p.sektor, sektor) && p.kamar === namaKamar);
+            if (pObj && pObj.noHp) return pObj.noHp;
+            const kObj = getKamarObj(sektor, namaKamar);
+            if (kObj && kObj.murobbi && kObj.murobbi !== 'Belum Ada Murobbi') {
+                const pByName = pengurusList.find(p => isPengurusApproved(p) && p.nama.trim().toLowerCase() === kObj.murobbi.trim().toLowerCase());
+                if (pByName && pByName.noHp) return pByName.noHp;
+            }
+            return '';
         }
 
         function formatRupiah(angka) {
@@ -1811,8 +1840,469 @@
         }
 
         function handleGlobalSearch(val) {
-            globalSearchQuery = (val || '').trim().toLowerCase();
+            const raw = (val || '').trim();
+            globalSearchQuery = raw.toLowerCase();
+            
+            // Sinkronkan input desktop & clear button
+            const dInput = document.getElementById('global-search');
+            const dClear = document.getElementById('clear-desktop-search');
+            if (dInput && dInput.value !== val) dInput.value = val;
+            if (dClear) {
+                if (raw.length > 0) dClear.classList.remove('hidden');
+                else dClear.classList.add('hidden');
+            }
+
+            // Update halaman aktif jika halaman aktif menggunakan filter globalSearchQuery
             renderCurrentPage();
+
+            // Render spotlight dropdown desktop
+            renderGlobalSearchDropdown(raw, 'desktop');
+
+            // Jika mobile search modal sedang terbuka, render juga hasil di modal
+            const mInput = document.getElementById('mobile-search-input');
+            if (mInput && mInput.value !== val) mInput.value = val;
+            renderGlobalSearchDropdown(raw, 'mobile');
+        }
+
+        function clearGlobalSearch() {
+            const dInput = document.getElementById('global-search');
+            if (dInput) dInput.value = '';
+            const mInput = document.getElementById('mobile-search-input');
+            if (mInput) mInput.value = '';
+            handleGlobalSearch('');
+            closeDesktopSearchDropdown();
+        }
+
+        function closeDesktopSearchDropdown() {
+            const dd = document.getElementById('desktop-search-dropdown');
+            if (dd) dd.classList.add('hidden');
+        }
+
+        function queryUniversalSearch(rawQuery) {
+            const q = (rawQuery || '').trim().toLowerCase();
+            if (!q) return { total: 0, kamarList: [], santriListMatches: [], pengurusListMatches: [] };
+
+            // 1. Cari Kamar
+            const kamarMatches = [];
+            SEKTOR_ASRAMA.forEach(sektor => {
+                const list = kamarBySektor[sektor] || [];
+                list.forEach(k => {
+                    const matchNama = k.nama.toLowerCase().includes(q);
+                    const matchMurobbi = String(k.murobbi || '').toLowerCase().includes(q);
+                    const matchSektor = formatShortSektor(sektor).toLowerCase().includes(q);
+                    if (matchNama || matchMurobbi || matchSektor) {
+                        const santriDiKamar = santriList.filter(s => isSameSektor(s.sektor, sektor) && s.kamar === k.nama);
+                        const noHp = getMurobbiPhone(sektor, k.nama);
+                        kamarMatches.push({
+                            sektor,
+                            kamarNama: k.nama,
+                            murobbi: k.murobbi || 'Belum Ada Murobbi',
+                            noHp,
+                            totalSantri: santriDiKamar.length
+                        });
+                    }
+                });
+            });
+
+            // 2. Cari Santri
+            const santriMatches = [];
+            santriList.forEach(s => {
+                const matchNama = String(s.nama || '').toLowerCase().includes(q);
+                const matchKelas = String(s.kelas || '').toLowerCase().includes(q);
+                const matchKamar = String(s.kamar || '').toLowerCase().includes(q);
+                const matchSektor = formatShortSektor(s.sektor).toLowerCase().includes(q);
+                if (matchNama || matchKelas || matchKamar || matchSektor) {
+                    const kObj = getKamarObj(s.sektor, s.kamar);
+                    const murobbiPhone = getMurobbiPhone(s.sektor, s.kamar);
+                    santriMatches.push({
+                        ...s,
+                        murobbiNama: kObj.murobbi || 'Belum Ada Murobbi',
+                        murobbiPhone
+                    });
+                }
+            });
+
+            // 3. Cari Pengurus / Murobbi
+            const pengurusMatches = [];
+            pengurusList.forEach(p => {
+                if (!isPengurusApproved(p)) return;
+                const matchNama = String(p.nama || '').toLowerCase().includes(q);
+                const matchEmail = String(p.email || '').toLowerCase().includes(q);
+                const matchRole = getRoleBadgeLabel(p).toLowerCase().includes(q);
+                const matchKamar = String(p.kamar || '').toLowerCase().includes(q);
+                const matchDivisi = String(p.divisi || '').toLowerCase().includes(q);
+                if (matchNama || matchEmail || matchRole || matchKamar || matchDivisi) {
+                    pengurusMatches.push(p);
+                }
+            });
+
+            const total = kamarMatches.length + santriMatches.length + pengurusMatches.length;
+            return {
+                total,
+                kamarList: kamarMatches,
+                santriListMatches: santriMatches,
+                pengurusListMatches: pengurusMatches
+            };
+        }
+
+        function renderGlobalSearchDropdown(rawQuery, targetType) {
+            const isDesktop = targetType === 'desktop';
+            const dropdown = document.getElementById(isDesktop ? 'desktop-search-dropdown' : 'mobile-search-results-container');
+            const countEl = document.getElementById(isDesktop ? 'desktop-search-count' : 'mobile-search-count');
+            const resultsEl = document.getElementById(isDesktop ? 'desktop-search-results' : 'mobile-search-results');
+
+            if (!dropdown || !resultsEl) return;
+
+            const q = (rawQuery || '').trim();
+            if (q.length < 1) {
+                if (isDesktop) dropdown.classList.add('hidden');
+                resultsEl.innerHTML = isDesktop ? '' : `
+                    <div class="py-12 text-center text-slate-400 space-y-2">
+                        <i class="ph ph-magnifying-glass text-4xl text-slate-500 block"></i>
+                        <p class="text-xs">Ketik nama santri, nomor kamar, nama murobbi, atau kelas.</p>
+                    </div>`;
+                if (countEl) countEl.textContent = '';
+                return;
+            }
+
+            const res = queryUniversalSearch(q);
+
+            if (countEl) {
+                countEl.textContent = `${res.total} hasil ditemukan`;
+            }
+
+            if (res.total === 0) {
+                resultsEl.innerHTML = `
+                    <div class="p-6 text-center text-slate-400 space-y-2">
+                        <i class="ph ph-magnifying-glass text-3xl text-slate-500 block"></i>
+                        <p class="text-xs font-semibold text-slate-300">Tidak ada data yang cocok dengan "${escapeHtml(q)}"</p>
+                        <p class="text-[11px] text-slate-400">Coba periksa ejaan nama santri, nama kamar, atau nama murobbi.</p>
+                    </div>
+                `;
+                if (isDesktop) dropdown.classList.remove('hidden');
+                return;
+            }
+
+            let html = '';
+
+            // 1. KELOMPOK KAMAR
+            if (res.kamarList.length > 0) {
+                const limitedKamar = res.kamarList.slice(0, 10);
+                html += `
+                    <div class="pt-2 first:pt-0">
+                        <div class="flex items-center justify-between mb-1.5 px-2">
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                                <i class="ph-bold ph-door text-xs"></i> Kamar & Murobbi (${res.kamarList.length})
+                            </span>
+                            ${res.kamarList.length > 10 ? `<span class="text-[10px] text-slate-400">Menampilkan 10</span>` : ''}
+                        </div>
+                        <div class="space-y-1.5">
+                            ${limitedKamar.map(k => {
+                                const waClean = cleanWaNumber(k.noHp);
+                                return `
+                                    <div class="p-2.5 rounded-xl bg-asrama-bg/80 border border-asrama-border/80 hover:border-emerald-500/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="text-xs font-bold text-white leading-tight">${escapeHtml(k.kamarNama)}</span>
+                                                <span class="text-[10px] font-semibold text-emerald-400 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20">${formatShortSektor(k.sektor)}</span>
+                                                <span class="text-[10px] text-slate-400">${k.totalSantri} Santri</span>
+                                            </div>
+                                            <p class="text-[11px] text-slate-300 mt-0.5">
+                                                Murobbi: <strong class="text-slate-100">${escapeHtml(k.murobbi)}</strong>
+                                            </p>
+                                        </div>
+                                        <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                                            ${waClean ? `
+                                                <a href="https://wa.me/${waClean}" target="_blank" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold inline-flex items-center gap-1 transition-colors" title="Hubungi Murobbi via WhatsApp">
+                                                    <i class="ph-bold ph-whatsapp-logo text-xs text-emerald-400"></i> Chat WA
+                                                </a>
+                                            ` : `
+                                                <span class="px-2 py-0.5 rounded text-[10px] text-slate-400 bg-slate-800 border border-slate-700/60" title="Nomor WhatsApp murobbi belum terdaftar">Tanpa WA</span>
+                                            `}
+                                            <button onclick="openGlobalSearchKamarDetail('${k.sektor}', '${k.kamarNama.replace(/'/g, "\\'")}')" class="px-2.5 py-1 rounded-lg bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-slate-200 hover:text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition-colors">
+                                                <i class="ph-bold ph-users text-xs text-teal-400"></i> Daftar Santri
+                                            </button>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 2. KELOMPOK SANTRI
+            if (res.santriListMatches.length > 0) {
+                const limitedSantri = res.santriListMatches.slice(0, 15);
+                html += `
+                    <div class="pt-2.5 first:pt-0">
+                        <div class="flex items-center justify-between mb-1.5 px-2">
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-teal-400 flex items-center gap-1">
+                                <i class="ph-bold ph-student text-xs"></i> Santri (${res.santriListMatches.length})
+                            </span>
+                            ${res.santriListMatches.length > 15 ? `<span class="text-[10px] text-slate-400">Menampilkan 15</span>` : ''}
+                        </div>
+                        <div class="space-y-1.5">
+                            ${limitedSantri.map(s => {
+                                const waClean = cleanWaNumber(s.murobbiPhone);
+                                return `
+                                    <div class="p-2.5 rounded-xl bg-asrama-bg/80 border border-asrama-border/80 hover:border-teal-500/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="text-xs font-bold text-white leading-tight">${escapeHtml(s.nama)}</span>
+                                                ${s.kelas ? `<span class="text-[10px] font-bold text-teal-300 px-1.5 py-0.2 rounded bg-teal-500/10 border border-teal-500/20">${escapeHtml(s.kelas)}</span>` : ''}
+                                                ${renderStatusBadge(s.status)}
+                                            </div>
+                                            <p class="text-[11px] text-slate-300 mt-0.5">
+                                                ${formatShortSektor(s.sektor)} • <strong class="text-slate-100">${escapeHtml(s.kamar)}</strong>
+                                                <span class="text-slate-400 ml-1">(Murobbi: ${escapeHtml(s.murobbiNama)})</span>
+                                            </p>
+                                        </div>
+                                        <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                                            ${waClean ? `
+                                                <a href="https://wa.me/${waClean}" target="_blank" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold inline-flex items-center gap-1 transition-colors" title="Hubungi Murobbi Kamar ${escapeHtml(s.kamar)}">
+                                                    <i class="ph-bold ph-whatsapp-logo text-xs text-emerald-400"></i> WA Murobbi
+                                                </a>
+                                            ` : ''}
+                                            <button onclick="openGlobalSearchSantriDetail('${s.id}')" class="px-2.5 py-1 rounded-lg bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-slate-200 hover:text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition-colors">
+                                                <i class="ph-bold ph-info text-xs text-cyan-400"></i> Detail
+                                            </button>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 3. KELOMPOK PENGURUS & MUROBBI
+            if (res.pengurusListMatches.length > 0) {
+                const limitedPengurus = res.pengurusListMatches.slice(0, 10);
+                html += `
+                    <div class="pt-2.5 first:pt-0">
+                        <div class="flex items-center justify-between mb-1.5 px-2">
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                                <i class="ph-bold ph-user-circle text-xs"></i> Pengurus & Murobbi (${res.pengurusListMatches.length})
+                            </span>
+                            ${res.pengurusListMatches.length > 10 ? `<span class="text-[10px] text-slate-400">Menampilkan 10</span>` : ''}
+                        </div>
+                        <div class="space-y-1.5">
+                            ${limitedPengurus.map(p => {
+                                const waClean = cleanWaNumber(p.noHp);
+                                const roleLabel = getRoleBadgeLabel(p);
+                                return `
+                                    <div class="p-2.5 rounded-xl bg-asrama-bg/80 border border-asrama-border/80 hover:border-amber-500/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="text-xs font-bold text-white leading-tight">${escapeHtml(p.nama)}</span>
+                                                <span class="text-[10px] font-bold text-amber-300 px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/20">${roleLabel}</span>
+                                            </div>
+                                            <p class="text-[11px] text-slate-300 mt-0.5">
+                                                ${formatShortSektor(p.sektor)} ${p.kamar && p.kamar !== 'Semua Kamar' ? `• ${escapeHtml(p.kamar)}` : ''}
+                                                ${p.noHp ? `<span class="text-slate-400 ml-1">(${formatDisplayPhone(p.noHp)})</span>` : ''}
+                                            </p>
+                                        </div>
+                                        <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                                            ${waClean ? `
+                                                <a href="https://wa.me/${waClean}" target="_blank" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold inline-flex items-center gap-1 transition-colors">
+                                                    <i class="ph-bold ph-whatsapp-logo text-xs text-emerald-400"></i> Chat WA
+                                                </a>
+                                            ` : `
+                                                <span class="px-2 py-0.5 rounded text-[10px] text-slate-400 bg-slate-800 border border-slate-700/60">Tanpa WA</span>
+                                            `}
+                                            ${isRecordAdmin(currentUser) ? `
+                                                <button onclick="openEditPengurusModal('${p.id}'); if(window.innerWidth<768) closeModal();" class="px-2.5 py-1 rounded-lg bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-slate-200 hover:text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition-colors">
+                                                    <i class="ph-bold ph-pencil text-xs text-amber-400"></i> Kelola
+                                                </button>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            resultsEl.innerHTML = html;
+            if (isDesktop) dropdown.classList.remove('hidden');
+        }
+
+        function openGlobalSearchKamarDetail(sektor, namaKamar) {
+            closeDesktopSearchDropdown();
+            const canon = toCanonicalSektor(sektor);
+            const kObj = getKamarObj(canon, namaKamar);
+            const santriDiKamar = santriList.filter(s => isSameSektor(s.sektor, canon) && s.kamar === namaKamar);
+            const waHp = getMurobbiPhone(canon, namaKamar);
+            const waClean = cleanWaNumber(waHp);
+
+            openModal(
+                `Detail Kamar — ${namaKamar}`,
+                `
+                <div class="space-y-4">
+                    <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">${canon}</span>
+                            <h4 class="text-base font-extrabold text-white mt-0.5">${escapeHtml(namaKamar)}</h4>
+                            <p class="text-xs text-slate-300 mt-0.5">
+                                Murobbi: <strong class="text-white">${escapeHtml(kObj.murobbi)}</strong>
+                                ${waHp ? `<span class="text-slate-400 ml-1">(${formatDisplayPhone(waHp)})</span>` : ''}
+                            </p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            ${waClean ? `
+                                <a href="https://wa.me/${waClean}" target="_blank" class="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-colors">
+                                    <i class="ph-bold ph-whatsapp-logo text-sm text-emerald-400"></i> Hubungi WA
+                                </a>
+                            ` : `
+                                <span class="px-2.5 py-1 rounded-lg text-xs text-slate-400 bg-slate-800 border border-slate-700/60">Nomor WA Belum Ada</span>
+                            `}
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold text-slate-200">Daftar Penghuni Santri (${santriDiKamar.length})</span>
+                            <span class="text-[11px] text-slate-400">Kamar ${escapeHtml(namaKamar)}</span>
+                        </div>
+                        <div class="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                            ${santriDiKamar.length === 0 ? `
+                                <div class="p-6 text-center bg-asrama-bg border border-dashed border-asrama-border rounded-xl text-xs text-slate-400">
+                                    Belum ada santri yang terdaftar di ${escapeHtml(namaKamar)}.
+                                </div>
+                            ` : santriDiKamar.map((s, idx) => `
+                                <div class="p-2.5 rounded-xl bg-asrama-bg/90 border border-asrama-border flex items-center justify-between gap-3">
+                                    <div class="min-w-0 flex items-center gap-2.5">
+                                        <span class="w-6 h-6 rounded-full bg-asrama-card border border-asrama-border text-slate-400 text-[11px] font-bold flex items-center justify-center shrink-0">${idx + 1}</span>
+                                        <div>
+                                            <p class="text-xs font-bold text-white leading-tight truncate">${escapeHtml(s.nama)}</p>
+                                            <p class="text-[11px] text-slate-400 mt-0.5">Kelas: <strong class="text-slate-300">${escapeHtml(s.kelas || '-')}</strong></p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2 shrink-0">
+                                        ${renderStatusBadge(s.status)}
+                                        <button onclick="openGlobalSearchSantriDetail('${s.id}')" class="p-1.5 rounded-lg bg-asrama-card border border-asrama-border text-slate-300 hover:text-white cursor-pointer" title="Lihat Detail Santri">
+                                            <i class="ph-bold ph-info text-xs"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Tutup</button>
+                ${isRecordAdmin(currentUser) ? `
+                    <button onclick="closeModal(); adminInfoSelectedSektor='${canon}'; adminInfoSelectedKamar='${namaKamar.replace(/'/g, "\\\'")}'; navigate('admin_info');" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold cursor-pointer">Buka di Info Kamar</button>
+                ` : ''}
+                `
+            );
+        }
+
+        function openGlobalSearchSantriDetail(santriId) {
+            closeDesktopSearchDropdown();
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            const canon = toCanonicalSektor(s.sektor);
+            const kObj = getKamarObj(canon, s.kamar);
+            const waHp = getMurobbiPhone(canon, s.kamar);
+            const waClean = cleanWaNumber(waHp);
+
+            // Cari perizinan aktif
+            const izinAktif = perizinanList.find(p => (p.santriId === s.id || p.santriNama === s.nama) && ['pending', 'disetujui'].includes(p.status));
+
+            openModal(
+                `Detail Santri — ${s.nama}`,
+                `
+                <div class="space-y-4">
+                    <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <div>
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-teal-400">${canon}</span>
+                                <h4 class="text-base font-extrabold text-white mt-0.5">${escapeHtml(s.nama)}</h4>
+                            </div>
+                            <div>${renderStatusBadge(s.status)}</div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-asrama-border/60">
+                            <div>
+                                <span class="text-slate-400 block text-[10px]">Kelas:</span>
+                                <strong class="text-slate-200">${escapeHtml(s.kelas || '-')}</strong>
+                            </div>
+                            <div>
+                                <span class="text-slate-400 block text-[10px]">Kamar:</span>
+                                <strong class="text-slate-200">${escapeHtml(s.kamar || '-')}</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-asrama-bg/80 border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Murobbi Penanggung Jawab</span>
+                            <h5 class="text-xs font-bold text-white mt-0.5">${escapeHtml(kObj.murobbi)}</h5>
+                            ${waHp ? `<p class="text-[11px] text-slate-300 mt-0.5">WA: ${formatDisplayPhone(waHp)}</p>` : '<p class="text-[11px] text-slate-500 mt-0.5">Nomor WhatsApp belum tercatat</p>'}
+                        </div>
+                        ${waClean ? `
+                            <a href="https://wa.me/${waClean}" target="_blank" class="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1.5 shrink-0 self-start sm:self-center transition-colors">
+                                <i class="ph-bold ph-whatsapp-logo text-sm text-emerald-400"></i> Hubungi Murobbi
+                            </a>
+                        ` : ''}
+                    </div>
+
+                    ${izinAktif ? `
+                        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 space-y-1">
+                            <div class="flex items-center gap-1.5 font-bold text-amber-300">
+                                <i class="ph-bold ph-clock"></i> Izin Aktif / Pengajuan:
+                            </div>
+                            <p class="text-[11px] leading-relaxed">
+                                Jenis: <strong>${escapeHtml(izinAktif.jenis || izinAktif.kategori || 'Izin')}</strong> 
+                                (${izinAktif.status === 'disetujui' ? 'Disetujui' : 'Menunggu Persetujuan'})
+                                ${izinAktif.keterangan ? `• Catatan: ${escapeHtml(izinAktif.keterangan)}` : ''}
+                            </p>
+                        </div>
+                    ` : ''}
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Tutup</button>
+                ${(isRecordAdmin(currentUser) || isRecordKetuaLantai(currentUser) || (currentUser && currentUser.kamar === s.kamar && isSameSektor(currentUser.sektor, s.sektor))) ? `
+                    <button onclick="openEditSantriModal('${s.id}')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold cursor-pointer">Edit Data Santri</button>
+                ` : ''}
+                `
+            );
+        }
+
+        function openGlobalSearchMobileModal() {
+            openModal(
+                'Universal Search — Asrama Nusantara',
+                `
+                <div class="space-y-3">
+                    <div class="relative">
+                        <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" id="mobile-search-input" oninput="handleGlobalSearch(this.value)" placeholder="Ketik santri, kamar, murobbi, kelas..." value="${escapeHtml(globalSearchQuery)}" class="w-full border border-emerald-500/50 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-400 bg-asrama-bg focus:border-emerald-400">
+                        <button onclick="clearGlobalSearch()" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 text-xs">
+                            <i class="ph-bold ph-x"></i>
+                        </button>
+                    </div>
+                    <div class="flex items-center justify-between px-1">
+                        <span class="text-[10px] text-slate-400">Kamar • Santri • Murobbi & Pengurus</span>
+                        <span id="mobile-search-count" class="text-[10px] font-bold text-emerald-400"></span>
+                    </div>
+                    <div id="mobile-search-results-container" class="max-h-[60vh] overflow-y-auto pr-1">
+                        <div id="mobile-search-results" class="space-y-3 divide-y divide-asrama-border/40 text-xs"></div>
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Tutup</button>
+                `
+            );
+            setTimeout(() => {
+                const inp = document.getElementById('mobile-search-input');
+                if (inp) inp.focus();
+                renderGlobalSearchDropdown(globalSearchQuery, 'mobile');
+            }, 50);
         }
 
         function openPendingShortcut() {
@@ -7508,6 +7998,21 @@ daftarTugas +
                 if (!pop.contains(e.target) && (!btnD || !btnD.contains(e.target)) && (!btnM || !btnM.contains(e.target))) {
                     pop.classList.add('hidden');
                 }
+            }
+
+            // Universal Search desktop dropdown outside click
+            const searchContainer = document.getElementById('desktop-search-container');
+            const searchDropdown = document.getElementById('desktop-search-dropdown');
+            if (searchDropdown && !searchDropdown.classList.contains('hidden')) {
+                if (searchContainer && !searchContainer.contains(e.target)) {
+                    searchDropdown.classList.add('hidden');
+                }
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeDesktopSearchDropdown();
             }
         });
 
