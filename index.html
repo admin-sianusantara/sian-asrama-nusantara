@@ -6045,6 +6045,283 @@
             modal.classList.add('flex');
         }
 
+        
+        // =========================================================================
+        // PUSAT NOTIFIKASI POPUP, TES NOTIFIKASI & PENGATURAN NOTIFIKASI ADMIN
+        // =========================================================================
+        function toggleNotificationPanel(event, forceState = null) {
+            if (event && event.stopPropagation) event.stopPropagation();
+            const popover = document.getElementById('notification-popover');
+            if (!popover) return;
+            const willOpen = forceState !== null ? forceState : popover.classList.contains('hidden');
+            if (willOpen) {
+                renderNotificationPopoverItems();
+                popover.classList.remove('hidden');
+            } else {
+                popover.classList.add('hidden');
+            }
+        }
+
+        document.addEventListener('click', (e) => {
+            const pop = document.getElementById('notification-popover');
+            const btnD = document.getElementById('btn-desktop-notif');
+            const btnM = document.getElementById('btn-mobile-notif');
+            if (pop && !pop.classList.contains('hidden')) {
+                if (!pop.contains(e.target) && (!btnD || !btnD.contains(e.target)) && (!btnM || !btnM.contains(e.target))) {
+                    pop.classList.add('hidden');
+                }
+            }
+        });
+
+        function renderNotificationPopoverItems() {
+            const container = document.getElementById('notification-popover-items');
+            if (!container || !currentUser) return;
+
+            const notifItems = [];
+
+            // 1. Notifikasi Murobbi Kamar (murobbi_notif)
+            const myRoomNotifs = murobbiNotifList.filter(n =>
+                isSameSektor(n.sektor, currentUser.sektor) && (isRecordKetuaLantai(currentUser) || n.kamar === currentUser.kamar || isRecordAdmin(currentUser))
+            );
+            myRoomNotifs.forEach(n => {
+                let icon = 'ph-warning-octagon text-amber-400';
+                let navTarget = n.targetPage || (n.tipe === 'roan' ? 'div_kebersihan_roan' : (n.tipe === 'pelanggaran' ? 'murobbi_pelanggaran' : 'murobbi_izin'));
+                if (n.pesan && n.pesan.includes('DISETUJUI')) icon = 'ph-check-circle text-emerald-400';
+                if (n.pesan && n.pesan.includes('ditolak')) icon = 'ph-x-circle text-red-400';
+
+                notifItems.push({
+                    id: n.id,
+                    title: n.santriNama ? `${n.santriNama} (${n.kamar})` : n.kamar,
+                    body: n.pesan,
+                    icon,
+                    dibaca: n.dibaca,
+                    time: n.createdAt,
+                    navTarget
+                });
+            });
+
+            // 2. Antrean ACC Perizinan untuk role berwenang
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordKetuaLantai(currentUser) || hasDivisiAccess('keamanan') || hasDivisiAccess('kesehatan')) {
+                const pendingIzin = perizinanList.filter(p => {
+                    if (p.status !== 'menunggu') return false;
+                    if (isRecordAdmin(currentUser)) return true;
+                    if (isRecordKetuaAsrama(currentUser)) return isIzinPulangKeluarga(p);
+                    if (isRecordKetuaLantai(currentUser)) return isIzinPulangKeluarga(p) && isIzinInSektor(p, currentUser.sektor);
+                    if (hasDivisiAccess('keamanan')) return isIzinPulangRecord(p) && !isIzinPulangKeluarga(p);
+                    if (hasDivisiAccess('kesehatan')) return isIzinSakitRecord(p);
+                    return false;
+                });
+
+                pendingIzin.forEach(p => {
+                    const isSakit = isIzinSakitRecord(p);
+                    const isKel = isIzinPulangKeluarga(p);
+                    const nav = isRecordAdmin(currentUser) ? 'admin_izin' : (isKel ? 'pimpinan_acc_pulang' : (isSakit ? 'div_kesehatan_izin' : 'div_keamanan_izin'));
+                    notifItems.push({
+                        id: 'izin_' + p.id,
+                        title: `Antrean ACC: ${p.santriNama} (${p.kamar})`,
+                        body: `${isSakit ? 'Izin Sakit' : 'Izin Pulang'} — ${p.kategori} (${formatTanggalHari(p.tanggal)})`,
+                        icon: 'ph-hourglass-high text-sky-400',
+                        dibaca: false,
+                        time: p.createdAt,
+                        navTarget: nav
+                    });
+                });
+            }
+
+            // 3. Antrean Pendaftaran Pengurus Baru (Khusus Admin)
+            if (isRecordAdmin(currentUser)) {
+                pengurusList.filter(p => isPengurusPending(p)).forEach(p => {
+                    notifItems.push({
+                        id: 'pengurus_' + p.id,
+                        title: `Calon Pengurus Baru: ${p.nama}`,
+                        body: `Mengajukan akun Murobbi ${p.kamar} (${formatShortSektor(p.sektor)}).`,
+                        icon: 'ph-user-plus text-amber-300',
+                        dibaca: false,
+                        time: p.createdAt,
+                        navTarget: 'admin_pengurus'
+                    });
+                });
+            }
+
+            notifItems.sort((a, b) => toSortableTime(b.time).localeCompare(toSortableTime(a.time)));
+
+            if (notifItems.length === 0) {
+                container.innerHTML = `
+                    <div class="py-8 text-center text-slate-400">
+                        <i class="ph ph-bell-slash text-3xl text-slate-500 mb-1.5 block"></i>
+                        <p class="text-xs">Belum ada notifikasi baru untuk Anda.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = notifItems.map(item => `
+                <div onclick="handleNotificationClick('${item.id}', '${item.navTarget}')" class="p-2.5 rounded-xl hover:bg-asrama-bg/80 border border-transparent hover:border-asrama-border transition-colors cursor-pointer flex items-start gap-2.5 ${!item.dibaca ? 'bg-emerald-500/5' : ''}">
+                    <div class="p-1.5 rounded-lg bg-asrama-card border border-asrama-border shrink-0 mt-0.5">
+                        <i class="ph-bold ${item.icon} text-base"></i>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center justify-between gap-1">
+                            <p class="text-xs font-bold text-white truncate">${escapeHtml(item.title)}</p>
+                            ${!item.dibaca ? '<span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>' : ''}
+                        </div>
+                        <p class="text-[11px] text-slate-300 line-clamp-2 mt-0.5 leading-snug">${escapeHtml(item.body)}</p>
+                        <p class="text-[10px] text-slate-500 mt-1">${item.time ? formatTanggalHari(String(item.time).slice(0, 10)) : 'Baru saja'}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function handleNotificationClick(notifId, navTarget) {
+            toggleNotificationPanel(null, false);
+            if (notifId && !notifId.startsWith('izin_') && !notifId.startsWith('pengurus_')) {
+                try {
+                    await window.FB.updateDoc(window.FB.doc(window.FB.db, 'murobbi_notif', notifId), { dibaca: true });
+                } catch (_) {}
+            }
+            if (navTarget) {
+                navigate(navTarget);
+            }
+        }
+
+        async function kirimTesNotifikasiKeHpSaya() {
+            if (!currentUser) {
+                showToast('Silakan login terlebih dahulu!', 'error');
+                return;
+            }
+            const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+            if (perm !== 'granted') {
+                showToast('Aktifkan izin notifikasi pada HP ini terlebih dahulu lewat tombol kuning di atas!', 'error');
+                return;
+            }
+
+            showToast('Mengirim sinyal tes push ke HP...', 'info');
+
+            try {
+                let localToken = '';
+                if (window.FB && window.FB.messaging && window.FB.getToken) {
+                    const reg = window.sianSwRegistration || (navigator.serviceWorker ? await navigator.serviceWorker.ready : null);
+                    const vapidKey = cloudVapidKey || window.DEFAULT_VAPID_KEY;
+                    if (reg) {
+                        try {
+                            localToken = await window.FB.getToken(window.FB.messaging, { vapidKey, serviceWorkerRegistration: reg });
+                        } catch (tErr) {
+                            console.warn('Gagal ambil token lokal FCM:', tErr);
+                        }
+                    }
+                }
+
+                // Simpan token ke pengurus jika ada
+                if (localToken && currentUser.id) {
+                    try {
+                        await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', currentUser.id), {
+                            fcmTokens: window.FB.arrayUnion(localToken)
+                        });
+                    } catch (_) {}
+                }
+
+                const res = await fetch('/api/send-push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        testToken: localToken || undefined,
+                        eventType: 'test_notif',
+                        targetEmail: currentUser.email,
+                        title: 'SIAN · Tes Notifikasi Berhasil! 🔔',
+                        body: `Halo Ust. ${currentUser.nama}, notifikasi push di HP Anda telah aktif dan siap menerima update.`,
+                        dedupId: 'test_' + Date.now()
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok && (data.sent > 0 || data.ok)) {
+                    showToast('Tes notifikasi terkirim! Cek bilah status HP Anda.', 'success');
+                    playNotificationChime();
+                    triggerSystemNotification('SIAN · Tes Notifikasi Berhasil! 🔔', `Halo Ust. ${currentUser.nama}, notifikasi push di HP Anda telah aktif.`);
+                } else {
+                    showToast('Respon server: ' + (data.error || 'Token belum terdaftar di FCM'), 'info');
+                    triggerSystemNotification('SIAN · Tes Notifikasi', 'Tes notifikasi browser lokal.');
+                }
+            } catch (err) {
+                console.error('Gagal kirim tes push:', err);
+                showToast('Gagal mengirim tes: ' + err.message, 'error');
+            }
+        }
+
+        function openPengaturanNotifikasiModal() {
+            openModal(
+                'Pengaturan Notifikasi Asrama (Admin)',
+                `
+                <div class="space-y-4">
+                    <p class="text-xs text-slate-300">Tentukan jenis pemberitahuan otomatis yang dikirimkan ke HP Murobbi kamar dan divisi terkait:</p>
+                    
+                    <div class="space-y-2.5">
+                        <label class="flex items-center justify-between p-3 rounded-xl bg-asrama-bg border border-asrama-border cursor-pointer">
+                            <div>
+                                <p class="text-xs font-bold text-white">Notifikasi Izin Santri ke Murobbi</p>
+                                <p class="text-[11px] text-slate-400">Kirim pemberitahuan saat izin santri di-ACC atau ditolak/dihapus.</p>
+                            </div>
+                            <input id="cfg-notif-izin" type="checkbox" ${notifSettings.izinMurobbi !== false ? 'checked' : ''} class="w-4 h-4 accent-emerald-500">
+                        </label>
+
+                        <label class="flex items-center justify-between p-3 rounded-xl bg-asrama-bg border border-asrama-border cursor-pointer">
+                            <div>
+                                <p class="text-xs font-bold text-white">Notifikasi Jadwal Roan Kebersihan</p>
+                                <p class="text-[11px] text-slate-400">Kirim jadwal roan ke Murobbi kamar yang ditugaskan bersih-bersih.</p>
+                            </div>
+                            <input id="cfg-notif-roan" type="checkbox" ${notifSettings.roanKebersihan !== false ? 'checked' : ''} class="w-4 h-4 accent-emerald-500">
+                        </label>
+
+                        <label class="flex items-center justify-between p-3 rounded-xl bg-asrama-bg border border-asrama-border cursor-pointer">
+                            <div>
+                                <p class="text-xs font-bold text-white">Notifikasi Penilaian Kegiatan / Rubrik</p>
+                                <p class="text-[11px] text-slate-400">Kirim penugasan rubrik ke ustaz penguji kamar yang ditentukan.</p>
+                            </div>
+                            <input id="cfg-notif-rubrik" type="checkbox" ${notifSettings.penilaianKegiatan !== false ? 'checked' : ''} class="w-4 h-4 accent-emerald-500">
+                        </label>
+
+                        <label class="flex items-center justify-between p-3 rounded-xl bg-asrama-bg border border-asrama-border cursor-pointer">
+                            <div>
+                                <p class="text-xs font-bold text-white">Notifikasi Takziran Santri ke Murobbi</p>
+                                <p class="text-[11px] text-slate-400">Kirim catatan keterlambatan santri ke Murobbi kamarnya.</p>
+                            </div>
+                            <input id="cfg-notif-takziran" type="checkbox" ${notifSettings.takziranKeamanan !== false ? 'checked' : ''} class="w-4 h-4 accent-emerald-500">
+                        </label>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                        <button onclick="kirimTesNotifikasiKeHpSaya()" class="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
+                            <i class="ph-bold ph-paper-plane-tilt"></i> Kirim Tes Notifikasi ke HP Ini
+                        </button>
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="savePengaturanNotifikasi()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Simpan Pengaturan</button>
+                `
+            );
+        }
+
+        async function savePengaturanNotifikasi() {
+            const izinMurobbi = document.getElementById('cfg-notif-izin').checked;
+            const roanKebersihan = document.getElementById('cfg-notif-roan').checked;
+            const penilaianKegiatan = document.getElementById('cfg-notif-rubrik').checked;
+            const takziranKeamanan = document.getElementById('cfg-notif-takziran').checked;
+
+            await window.FB.setDoc(window.FB.doc(window.FB.db, 'settings', 'notifikasi'), {
+                izinMurobbi,
+                roanKebersihan,
+                penilaianKegiatan,
+                takziranKeamanan,
+                updatedAt: new Date().toISOString()
+            }, { merge: true });
+
+            notifSettings = { izinMurobbi, roanKebersihan, penilaianKegiatan, takziranKeamanan };
+            closeModal();
+            showToast('Pengaturan notifikasi berhasil disimpan.', 'success');
+        }
+
         function closeModal() {
             const modal = document.getElementById('custom-modal');
             modal.classList.add('hidden');
