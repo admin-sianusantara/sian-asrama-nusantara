@@ -689,10 +689,61 @@
             return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
         }
 
-        function getKegiatanPresensiOtomatis(listKegiatan, customMinutes) {
-            const list = listKegiatan || kegiatanList || [];
-            if (!list || list.length === 0) return null;
+        function isKegiatanAktifHariIni(k, hariNama) {
+            if (!k) return false;
+            const h = hariNama || HARI_SEMINGGU[new Date().getDay()]; // misal: 'Senin', 'Ahad', dll.
+            const kNama = String(k.nama || '').toLowerCase();
+
+            // 1. Jika ada array hariAktif atau properti hari dari database
+            if (Array.isArray(k.hari) && k.hari.length > 0) {
+                return k.hari.includes('Semua Hari') || k.hari.includes(h);
+            }
+            if (typeof k.hari === 'string' && k.hari.trim()) {
+                const hVal = k.hari.trim();
+                if (hVal === 'Semua Hari' || hVal.toLowerCase() === 'semua') return true;
+                if (hVal === 'Senin - Jumat' || hVal === 'Hari Sekolah') return ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].includes(h);
+                if (hVal === 'Sabtu - Ahad' || hVal === 'Akhir Pekan') return ['Sabtu', 'Ahad'].includes(h);
+                if (hVal.toLowerCase().includes(h.toLowerCase())) return true;
+            }
+
+            // 2. Deteksi cerdas otomatis berdasarkan nama kegiatan (Fallback cerdas)
+            // Laptopan: hanya Ahad / Minggu
+            if (kNama.includes('laptop') || kNama.includes('laptopan')) {
+                return h === 'Ahad';
+            }
+            // Sekolah / Persiapan Sekolah: hanya Senin s/d Jumat
+            if (kNama.includes('sekolah') || kNama.includes('persiapan sekolah')) {
+                return ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].includes(h);
+            }
+            // Ro'an Akbar / Kerja Bakti: biasanya Ahad
+            if (kNama.includes("ro'an") || kNama.includes('roan') || kNama.includes('kerja bakti')) {
+                return h === 'Ahad' || h === 'Jumat';
+            }
+            // Diba' Asrama: biasanya Malam Jumat / Kamis / Ahad
+            if (kNama.includes("diba") || kNama.includes("maulid")) {
+                return h === 'Kamis' || h === 'Ahad';
+            }
+
+            // Default untuk kegiatan umum (Sholat, Halaqoh, Madin, Makan, Istirahat) -> aktif setiap hari
+            return true;
+        }
+
+        function getKegiatanListHariIni(hariNama) {
+            const h = hariNama || HARI_SEMINGGU[new Date().getDay()];
+            const filtered = kegiatanList.filter(k => isKegiatanAktifHariIni(k, h));
+            return filtered.length > 0 ? filtered : kegiatanList;
+        }
+
+        function getKegiatanPresensiOtomatis(listKegiatan, customMinutes, targetHari) {
             const now = new Date();
+            const h = targetHari || HARI_SEMINGGU[now.getDay()];
+            const rawList = listKegiatan || kegiatanList || [];
+            if (!rawList || rawList.length === 0) return null;
+
+            // Prioritaskan daftar kegiatan yang aktif untuk hari ini
+            const listHariIni = rawList.filter(k => isKegiatanAktifHariIni(k, h));
+            const list = listHariIni.length > 0 ? listHariIni : rawList;
+
             const curMinutes = (typeof customMinutes === 'number') ? customMinutes : (now.getHours() * 60 + now.getMinutes());
 
             // 1. Cek apakah ada kegiatan yang rentang jam-nya sedang aktif saat ini
@@ -711,16 +762,26 @@
                 }
             }
 
-            // 2. Jika di luar rentang pas, cari kegiatan yang waktu mulainya paling dekat dengan jam sekarang
+            // 2. Jika di luar rentang pas (jam kosong / jeda), cari kegiatan terdekat
             let bestKeg = list[0];
             let minDiff = 999999;
             for (const k of list) {
                 const jam = String(k.jam || '');
-                const startMin = parseTimeToMinutes(jam.split('-')[0].trim());
-                let diff = curMinutes - startMin;
-                if (diff < 0) diff += 1440; // hitung selisih putaran 24 jam
-                if (diff < minDiff) {
-                    minDiff = diff;
+                const parts = jam.split('-');
+                const startMin = parseTimeToMinutes(parts[0].trim());
+                const endMin = parts.length >= 2 ? parseTimeToMinutes(parts[1].trim()) : startMin;
+
+                let dist = 0;
+                if (curMinutes < startMin) {
+                    dist = startMin - curMinutes;
+                } else if (curMinutes > endMin) {
+                    dist = curMinutes - endMin;
+                } else {
+                    dist = 0;
+                }
+
+                if (dist < minDiff) {
+                    minDiff = dist;
                     bestKeg = k;
                 }
             }
@@ -3899,8 +3960,15 @@
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
                             ${kegiatanList.length > 0 ? `
-                                <select onchange="selectedKegiatanId = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                    ${kegiatanList.map(k => `<option value="${k.id}" ${k.id === selectedKegiatanId ? 'selected' : ''}>${escapeHtml(k.jam)} — ${escapeHtml(k.nama)}</option>`).join('')}
+                                <select onchange="selectedKegiatanId = this.value; renderCurrentPage();" class="border border-emerald-500/50 bg-asrama-card rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none">
+                                    <optgroup label="Jadwal Hari Ini (${HARI_SEMINGGU[new Date().getDay()]})">
+                                        ${getKegiatanListHariIni().map(k => `<option value="${k.id}" ${k.id === selectedKegiatanId ? 'selected' : ''}>${escapeHtml(k.jam)} — ${escapeHtml(k.nama)}</option>`).join('')}
+                                    </optgroup>
+                                    ${kegiatanList.filter(k => !isKegiatanAktifHariIni(k)).length > 0 ? `
+                                        <optgroup label="Kegiatan Hari Lainnya">
+                                            ${kegiatanList.filter(k => !isKegiatanAktifHariIni(k)).map(k => `<option value="${k.id}" ${k.id === selectedKegiatanId ? 'selected' : ''}>${escapeHtml(k.jam)} — ${escapeHtml(k.nama)} (${escapeHtml(k.hari || 'Hari Lain')})</option>`).join('')}
+                                        </optgroup>
+                                    ` : ''}
                                 </select>
                             ` : ''}
                             <button onclick="setSemuaHadir()" class="px-3.5 py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-xs font-semibold text-emerald-300 cursor-pointer">
@@ -5221,7 +5289,10 @@
                         ${kegiatanList.length === 0 ? `<p class="text-xs text-slate-400">Belum ada kegiatan harian.</p>` : kegiatanList.map(k => `
                             <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex items-center justify-between gap-3">
                                 <div>
-                                    <span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[11px] font-bold">${escapeHtml(k.jam)}</span>
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        <span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[11px] font-bold">${escapeHtml(k.jam)}</span>
+                                        <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[10px] font-semibold border border-emerald-500/30">${escapeHtml(k.hari || (String(k.nama || '').toLowerCase().includes('laptop') ? 'Ahad' : (String(k.nama || '').toLowerCase().includes('sekolah') ? 'Senin - Jumat' : 'Semua Hari')))}</span>
+                                    </div>
                                     <p class="text-sm font-bold text-white mt-1">${escapeHtml(k.nama)}</p>
                                     <p class="text-[11px] text-slate-400">Penanggung Jawab: ${escapeHtml(k.pj || 'Divisi Kegiatan')}</p>
                                 </div>
@@ -5245,9 +5316,33 @@
                 'Tambah Kegiatan Harian Baru',
                 `
                 <div class="space-y-3">
-                    <input id="keg-jam" type="text" placeholder="Jam (misal: 20:00 - 21:15)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                    <input id="keg-nama" type="text" placeholder="Nama Kegiatan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                    <input id="keg-pj" type="text" placeholder="Penanggung Jawab" value="Divisi Kegiatan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jam Kegiatan (WIB) *</label>
+                        <input id="keg-jam" type="text" placeholder="Misal: 06:45 - 12:30 atau 20:00 - 21:15" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Nama Kegiatan *</label>
+                        <input id="keg-nama" type="text" placeholder="Misal: Sekolah Pagi / Laptopan / Sholat Ashar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Berlaku Pada Hari *</label>
+                        <select id="keg-hari" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="Semua Hari">Semua Hari (Setiap Hari)</option>
+                            <option value="Senin - Jumat">Senin - Jumat (Hari Sekolah)</option>
+                            <option value="Sabtu - Ahad">Sabtu & Ahad (Akhir Pekan)</option>
+                            <option value="Ahad">Khusus Hari Ahad (Minggu)</option>
+                            <option value="Senin">Khusus Hari Senin</option>
+                            <option value="Selasa">Khusus Hari Selasa</option>
+                            <option value="Rabu">Khusus Hari Rabu</option>
+                            <option value="Kamis">Khusus Hari Kamis</option>
+                            <option value="Jumat">Khusus Hari Jumat</option>
+                            <option value="Sabtu">Khusus Hari Sabtu</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Penanggung Jawab (PJ)</label>
+                        <input id="keg-pj" type="text" placeholder="Penanggung Jawab" value="Divisi Kegiatan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
                 </div>
                 `,
                 `
@@ -5260,9 +5355,10 @@
         async function saveKegiatan() {
             const jam = document.getElementById('keg-jam').value.trim();
             const nama = document.getElementById('keg-nama').value.trim();
+            const hari = document.getElementById('keg-hari')?.value || 'Semua Hari';
             const pj = document.getElementById('keg-pj').value.trim() || 'Divisi Kegiatan';
             if (!jam || !nama) return;
-            await window.FB.addDoc(window.FB.collection(window.FB.db, 'kegiatan'), { jam, nama, pj });
+            await window.FB.addDoc(window.FB.collection(window.FB.db, 'kegiatan'), { jam, nama, hari, pj });
             closeModal();
             showToast('Kegiatan harian ditambahkan.', 'success');
         }
@@ -5274,9 +5370,33 @@
                 'Edit Kegiatan Harian',
                 `
                 <div class="space-y-3">
-                    <input id="edit-keg-jam" type="text" value="${escapeHtml(k.jam)}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                    <input id="edit-keg-nama" type="text" value="${escapeHtml(k.nama)}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                    <input id="edit-keg-pj" type="text" value="${escapeHtml(k.pj || '')}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jam Kegiatan (WIB) *</label>
+                        <input id="edit-keg-jam" type="text" value="${escapeHtml(k.jam)}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Nama Kegiatan *</label>
+                        <input id="edit-keg-nama" type="text" value="${escapeHtml(k.nama)}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Berlaku Pada Hari *</label>
+                        <select id="edit-keg-hari" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="Semua Hari" ${k.hari === 'Semua Hari' || !k.hari ? 'selected' : ''}>Semua Hari (Setiap Hari)</option>
+                            <option value="Senin - Jumat" ${k.hari === 'Senin - Jumat' ? 'selected' : ''}>Senin - Jumat (Hari Sekolah)</option>
+                            <option value="Sabtu - Ahad" ${k.hari === 'Sabtu - Ahad' ? 'selected' : ''}>Sabtu & Ahad (Akhir Pekan)</option>
+                            <option value="Ahad" ${k.hari === 'Ahad' ? 'selected' : ''}>Khusus Hari Ahad (Minggu)</option>
+                            <option value="Senin" ${k.hari === 'Senin' ? 'selected' : ''}>Khusus Hari Senin</option>
+                            <option value="Selasa" ${k.hari === 'Selasa' ? 'selected' : ''}>Khusus Hari Selasa</option>
+                            <option value="Rabu" ${k.hari === 'Rabu' ? 'selected' : ''}>Khusus Hari Rabu</option>
+                            <option value="Kamis" ${k.hari === 'Kamis' ? 'selected' : ''}>Khusus Hari Kamis</option>
+                            <option value="Jumat" ${k.hari === 'Jumat' ? 'selected' : ''}>Khusus Hari Jumat</option>
+                            <option value="Sabtu" ${k.hari === 'Sabtu' ? 'selected' : ''}>Khusus Hari Sabtu</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Penanggung Jawab (PJ)</label>
+                        <input id="edit-keg-pj" type="text" value="${escapeHtml(k.pj || '')}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
                 </div>
                 `,
                 `
@@ -5289,9 +5409,10 @@
         async function saveEditKegiatan(id) {
             const jam = document.getElementById('edit-keg-jam').value.trim();
             const nama = document.getElementById('edit-keg-nama').value.trim();
+            const hari = document.getElementById('edit-keg-hari')?.value || 'Semua Hari';
             const pj = document.getElementById('edit-keg-pj').value.trim();
             if (!jam || !nama) return;
-            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'kegiatan', id), { jam, nama, pj });
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'kegiatan', id), { jam, nama, hari, pj });
             closeModal();
             showToast('Kegiatan diperbarui.', 'success');
         }
