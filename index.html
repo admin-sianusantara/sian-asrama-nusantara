@@ -920,6 +920,14 @@
             return d.includes(divName) || k === divName;
         }
 
+        function isKetuaKebersihanAsrama(u) {
+            if (!u) return false;
+            if (isRecordAdmin(u) || isRecordKetuaAsrama(u)) return true;
+            const k = String(u.ketuaUtamaDivisi || '').toLowerCase();
+            const role = String(u.role || '').toLowerCase();
+            return k === 'kebersihan' || role === 'ketua_kebersihan_asrama' || u.isKetuaKebersihanAsrama === true;
+        }
+
         function getKamarObj(sektor, namaKamar) {
             const canon = toCanonicalSektor(sektor);
             const list = kamarBySektor[canon] || [];
