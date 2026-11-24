@@ -2505,6 +2505,55 @@
                         </div>
                     ` : ''}
 
+                    
+                    ${(() => {
+                        const perluKonfirmasi = getDaftarSantriPerluKonfirmasiSakit();
+                        if (perluKonfirmasi.length === 0) return '';
+                        return `
+                            <!-- BANNER KONFIRMASI KESEHATAN SANTRI PER SESI KEGIATAN -->
+                            <div class="bg-gradient-to-r from-amber-950/60 via-asrama-card to-amber-950/40 border border-amber-500/40 rounded-2xl p-4 md:p-5 shadow-xl space-y-3">
+                                <div class="flex items-center justify-between border-b border-amber-500/20 pb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="p-2 rounded-xl bg-amber-500/20 text-amber-300">
+                                            <i class="ph-bold ph-heartbeat text-lg"></i>
+                                        </span>
+                                        <div>
+                                            <h4 class="text-xs md:text-sm font-extrabold text-white flex items-center gap-1.5">
+                                                Konfirmasi Kesehatan Santri Kamar — Pergantian Sesi Kegiatan
+                                                <span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold">${perluKonfirmasi.length} Santri</span>
+                                            </h4>
+                                            <p class="text-[11px] text-slate-300">Santri di bawah tadi izin pada sesi sebelumnya. Mohon pastikan apakah sudah sehat atau perlu izin sesi selanjutnya.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    ${perluKonfirmasi.map(item => `
+                                        <div class="p-3.5 rounded-xl bg-asrama-bg/90 border border-amber-500/30 space-y-2">
+                                            <div class="flex items-start justify-between gap-2">
+                                                <div>
+                                                    <span class="text-xs font-bold text-white">${escapeHtml(item.santriNama)}</span>
+                                                    <span class="px-2 py-0.5 rounded bg-asrama-card border border-asrama-border text-emerald-300 text-[10px] font-bold ml-1.5">${escapeHtml(item.kamar)}</span>
+                                                    <p class="text-[11px] text-slate-300 mt-0.5">Keluhan: <strong>${escapeHtml(item.keluhan)}</strong></p>
+                                                    <p class="text-[10px] text-amber-400">Sesi Sebelumnya: <strong>${escapeHtml(item.sesiSebelumnya)}</strong> ➡️ Menuju: <strong class="text-amber-200 underline">${escapeHtml(item.targetSesiBerikutnya)}</strong></p>
+                                                </div>
+                                            </div>
+
+                                            <div class="flex items-center gap-2 pt-1 border-t border-asrama-border/50">
+                                                <button onclick="konfirmasiSantriSudahSehat('${item.izin.id}', '${item.santriId}')" class="flex-1 py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center justify-center gap-1 cursor-pointer transition-colors shadow">
+                                                    <i class="ph-bold ph-check-circle"></i> Sudah Sehat
+                                                </button>
+                                                <button onclick="konfirmasiLanjutSakitKeSesi('${item.izin.id}', '${item.targetSesiBerikutnya}')" class="flex-1 py-1.5 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-[11px] flex items-center justify-center gap-1 cursor-pointer transition-colors">
+                                                    <i class="ph-bold ph-plus-circle"></i> Lanjut Sakit (${escapeHtml(item.targetSesiBerikutnya)})
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    })()}
+
                     <!-- Banner Selamat Datang -->
                     <div class="bg-gradient-to-br from-emerald-950/70 via-asrama-card to-asrama-card border border-emerald-500/30 rounded-3xl p-5 md:p-7 shadow-xl relative overflow-hidden">
                         <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
@@ -6097,6 +6146,171 @@
             showToast('Rekap WhatsApp berhasil disalin ke clipboard!', 'success');
         }
 
+
+        // ==========================================
+        // SISTEM SESI IZIN SAKIT DINAMIS & KONFIRMASI KESEHATAN
+        // ==========================================
+        function getSesiSakitOtomatis(nowTimeStr) {
+            const time = nowTimeStr || getCurrentTimeHHMM();
+            const min = parseTimeToMinutes(time);
+            // Sesi Pagi: 00:00 - 14:00 (Sekolah)
+            if (min < parseTimeToMinutes('14:00')) {
+                return { key: 'Sekolah', label: 'Sekolah Formal', icon: 'ph-student', badge: 'bg-blue-500/20 text-blue-300 border-blue-500/30' };
+            }
+            // Sesi Sore: 14:00 - 17:30 (Halaqoh Sore)
+            if (min < parseTimeToMinutes('17:30')) {
+                return { key: 'Halaqoh Sore', label: 'Halaqoh Sore', icon: 'ph-book-open', badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+            }
+            // Sesi Malam: 17:30 - 23:59 (Madin)
+            return { key: 'Madin', label: 'Madrasah Diniyah (Madin)', icon: 'ph-moon-stars', badge: 'bg-purple-500/20 text-purple-300 border-purple-500/30' };
+        }
+
+        function getDaftarSantriPerluKonfirmasiSakit() {
+            if (!currentUser) return [];
+            const isMurobbi = !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && !isRecordAdminKantor(currentUser);
+            if (!isMurobbi) return [];
+
+            const today = getTodayIso();
+            const nowTime = getCurrentTimeHHMM();
+            const nowMin = parseTimeToMinutes(nowTime);
+
+            // Batas waktu pergantian sesi konfirmasi:
+            // Sesi Sekolah -> Menuju Halaqoh Sore (muncul mulai jam 14:00 sampai 17:30)
+            // Sesi Halaqoh Sore -> Menuju Madin (muncul mulai jam 17:30 sampai 21:00)
+            let pergantianTarget = null;
+            if (nowMin >= parseTimeToMinutes('14:00') && nowMin < parseTimeToMinutes('17:30')) {
+                pergantianTarget = { dari: 'Sekolah', ke: 'Halaqoh Sore', labelJam: '14:30 WIB' };
+            } else if (nowMin >= parseTimeToMinutes('17:30') && nowMin < parseTimeToMinutes('22:00')) {
+                pergantianTarget = { dari: 'Halaqoh Sore', ke: 'Madin', labelJam: '18:30 WIB' };
+            }
+
+            if (!pergantianTarget) return [];
+
+            // Cari santri kamar murobbi yang izin sakit aktif hari ini
+            return perizinanList.filter(p => {
+                if (p.jenis !== 'sakit') return false;
+                if (String(p.tanggal || '').slice(0, 10) !== today) return false;
+                if (p.status !== 'disetujui' && p.status !== 'menunggu') return false;
+                if (p.sudahSembuh) return false;
+                if (p.sakitSeharianPenuh) return false; // Sakit berat seharian penuh tidak diberondong notif per jam
+
+                // Cocokkan sektor & kamar murobbi
+                if (!isSameSektor(p.sektor, currentUser.sektor)) return false;
+                if (currentUser.kamar && currentUser.kamar !== 'Semua Kamar' && p.kamar !== currentUser.kamar) return false;
+
+                // Periksa apakah sesi sebelumnya sudah tercover tapi sesi berikutnya belum dikonfirmasi
+                const sesiList = Array.isArray(p.kegiatanSakitList) ? p.kegiatanSakitList : [p.targetKegiatan || 'Sekolah'];
+                const sudahTercoverDari = sesiList.includes(pergantianTarget.dari);
+                const sudahTerkonfirmasiKe = sesiList.includes(pergantianTarget.ke);
+
+                // Perlu konfirmasi jika sesi sebelumnya aktif dan belum dikonfirmasi lanjut atau sembuh
+                return sudahTercoverDari && !sudahTerkonfirmasiKe;
+            }).map(p => ({
+                izin: p,
+                santriId: p.santriId,
+                santriNama: p.santriNama,
+                kamar: p.kamar,
+                keluhan: p.kategori,
+                targetSesiBerikutnya: pergantianTarget.ke,
+                sesiSebelumnya: pergantianTarget.dari
+            }));
+        }
+
+        async function konfirmasiSantriSudahSehat(izinId, santriId) {
+            const nowTime = getCurrentTimeHHMM();
+            showLoading('Memperbarui status santri sudah sehat...');
+            try {
+                // Update dokumen perizinan (parent record tidak dihapus / tidak dobel)
+                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), {
+                    sudahSembuh: true,
+                    sembuhJam: nowTime,
+                    sembuhAt: new Date().toISOString(),
+                    statusPerkembangan: `Sudah Sehat (Pukul ${nowTime} WIB)`
+                });
+
+                // Update status santri kembali Hadir (H)
+                if (santriId) {
+                    await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), {
+                        status: 'H',
+                        catatan: ''
+                    });
+                }
+
+                // Notifikasi ke Divisi Kesehatan bahwa santri telah sembuh
+                try {
+                    const izin = perizinanList.find(x => x.id === izinId);
+                    if (izin) {
+                        await window.FB.addDoc(window.FB.collection(window.FB.db, 'notifikasi'), {
+                            divisi: 'kesehatan',
+                            judul: 'Santri Sembuh dari Sakit',
+                            pesan: `Santri ${izin.santriNama} (${izin.kamar}) dikonfirmasi telah sehat oleh Murobbi pada jam ${nowTime} WIB dan siap mengikuti kegiatan kembali.`,
+                            tanggal: new Date().toISOString(),
+                            dibaca: false
+                        });
+                    }
+                } catch (notifErr) {
+                    console.warn('Gagal kirim notif sembuh:', notifErr);
+                }
+
+                hideLoading();
+                showToast('Alhamdulillah, santri ditandai sudah sehat dan status kembali Hadir (H).', 'success');
+                renderCurrentPage();
+            } catch (err) {
+                hideLoading();
+                console.error('Gagal konfirmasi sehat:', err);
+                showToast('Gagal konfirmasi: ' + err.message, 'error');
+            }
+        }
+
+        async function konfirmasiLanjutSakitKeSesi(izinId, sesiBerikutnya) {
+            const nowTime = getCurrentTimeHHMM();
+            showLoading(`Memperpanjang izin sakit ke sesi ${sesiBerikutnya}...`);
+            try {
+                const izin = perizinanList.find(x => x.id === izinId);
+                if (!izin) throw new Error('Data izin tidak ditemukan');
+
+                const currentList = Array.isArray(izin.kegiatanSakitList) ? [...izin.kegiatanSakitList] : [izin.targetKegiatan || 'Sekolah'];
+                if (!currentList.includes(sesiBerikutnya)) {
+                    currentList.push(sesiBerikutnya);
+                }
+
+                const updatedTarget = currentList.join(', ');
+
+                // Update data izin parent (anti dobel, 1 rekor terpadu)
+                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), {
+                    kegiatanSakitList: currentList,
+                    targetKegiatan: updatedTarget,
+                    terakhirDiperpanjangKe: sesiBerikutnya,
+                    statusPerkembangan: `Masih Sakit (Diperpanjang ke ${sesiBerikutnya} pk ${nowTime})`,
+                    riwayatTimeline: [
+                        ...(izin.riwayatTimeline || []),
+                        { jam: nowTime, status: `Diperpanjang ke sesi ${sesiBerikutnya}`, oleh: currentUser.nama }
+                    ]
+                });
+
+                // Notifikasi pembaruan ke Divisi Kesehatan
+                try {
+                    await window.FB.addDoc(window.FB.collection(window.FB.db, 'notifikasi'), {
+                        divisi: 'kesehatan',
+                        judul: `Perpanjangan Izin Sakit: ${izin.santriNama}`,
+                        pesan: `Santri ${izin.santriNama} (${izin.kamar}) masih belum sehat. Izin diperpanjang oleh Murobbi untuk sesi: ${sesiBerikutnya}.`,
+                        tanggal: new Date().toISOString(),
+                        dibaca: false
+                    });
+                } catch (notifErr) {
+                    console.warn('Gagal notif perpanjang:', notifErr);
+                }
+
+                hideLoading();
+                showToast(`Izin sakit ${izin.santriNama} berhasil diperpanjang ke sesi ${sesiBerikutnya}.`, 'info');
+                renderCurrentPage();
+            } catch (err) {
+                hideLoading();
+                console.error('Gagal memperpanjang sesi sakit:', err);
+                showToast('Gagal: ' + err.message, 'error');
+            }
+        }
+    
         // FORM PENGAJUAN IZIN SAKIT & PULANG + RIWAYAT & KONFIRMASI KEMBALI
         function renderMurobbiIzin() {
             const scopedSantri = getScopedSantri();
@@ -6136,23 +6350,56 @@
                             </div>
 
                             ${isSakit ? `
-                                <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
-                                    <label class="block text-xs font-bold text-amber-300">Pilih Kegiatan yang Tidak Diikuti (Izin Sakit) *</label>
-                                    <div class="grid grid-cols-3 gap-2 text-xs">
-                                        <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
-                                            <input type="checkbox" name="izin-sakit-keg" value="Sekolah" checked class="accent-emerald-500">
-                                            <span>Sekolah</span>
-                                        </label>
-                                        <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
-                                            <input type="checkbox" name="izin-sakit-keg" value="Halaqoh Sore" checked class="accent-emerald-500">
-                                            <span>Halaqoh Sore</span>
-                                        </label>
-                                        <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
-                                            <input type="checkbox" name="izin-sakit-keg" value="Madin" checked class="accent-emerald-500">
-                                            <span>Madin</span>
-                                        </label>
-                                    </div>
-                                </div>
+                                ${(() => {
+                                    const nowHHMM = getCurrentTimeHHMM();
+                                    const sesiOto = getSesiSakitOtomatis(nowHHMM);
+                                    return `
+                                        <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-3">
+                                            <div class="flex items-center justify-between">
+                                                <label class="block text-xs font-bold text-amber-300">Kegiatan Izin Sakit Sesi Ini *</label>
+                                                <span class="text-[10px] text-amber-400 font-medium">Jam: ${nowHHMM} WIB</span>
+                                            </div>
+
+                                            <div class="p-2.5 rounded-lg bg-asrama-bg border border-amber-500/30 flex items-center justify-between">
+                                                <div class="flex items-center gap-2">
+                                                    <i class="ph-bold ${sesiOto.icon} text-amber-400 text-base"></i>
+                                                    <div>
+                                                        <span class="text-xs font-bold text-white">${sesiOto.label}</span>
+                                                        <p class="text-[10px] text-slate-400">Menyesuaikan jam pengajuan saat ini</p>
+                                                    </div>
+                                                </div>
+                                                <span class="px-2 py-0.5 rounded text-[10px] font-extrabold ${sesiOto.badge}">Sesi Aktif</span>
+                                            </div>
+
+                                            <div class="space-y-1.5">
+                                                <span class="text-[11px] font-semibold text-slate-300 block">Sesi yang diajukan:</span>
+                                                <div class="grid grid-cols-3 gap-2 text-xs">
+                                                    <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
+                                                        <input type="checkbox" name="izin-sakit-keg" value="Sekolah" ${sesiOto.key === 'Sekolah' ? 'checked' : ''} class="accent-emerald-500">
+                                                        <span>Sekolah</span>
+                                                    </label>
+                                                    <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
+                                                        <input type="checkbox" name="izin-sakit-keg" value="Halaqoh Sore" ${sesiOto.key === 'Halaqoh Sore' ? 'checked' : ''} class="accent-emerald-500">
+                                                        <span>Halaqoh Sore</span>
+                                                    </label>
+                                                    <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
+                                                        <input type="checkbox" name="izin-sakit-keg" value="Madin" ${sesiOto.key === 'Madin' ? 'checked' : ''} class="accent-emerald-500">
+                                                        <span>Madin</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <!-- Opsi Sakit Berat / Seharian Penuh -->
+                                            <label class="flex items-start gap-2 pt-2 border-t border-amber-500/20 cursor-pointer">
+                                                <input type="checkbox" id="izin-sakit-seharian" onchange="const chks = document.querySelectorAll('input[name=\'izin-sakit-keg\']'); if (this.checked) chks.forEach(c => c.checked = true);" class="mt-0.5 w-4 h-4 rounded text-amber-500 border-asrama-border focus:ring-0 accent-amber-500">
+                                                <div>
+                                                    <span class="text-xs font-bold text-amber-300">Sakit Berat / Rawat Inap (Seharian Penuh)</span>
+                                                    <p class="text-[10px] text-slate-400">Centang jika santri opname / isolasi dan tidak perlu konfirmasi berkala per pergantian sesi.</p>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    `;
+                                })()}
                             ` : `
                                 <div class="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-2">
                                     <label class="block text-xs font-bold text-purple-300">Kategori Alasan Izin Pulang *</label>
@@ -6280,15 +6527,54 @@
                     return renderKartuPulangDetail(p, false);
                 }
                 return `
-                    <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div>
-                            <p class="text-xs font-bold text-white">${escapeHtml(p.santriNama)} <span class="text-slate-400 font-normal">(${escapeHtml(p.kamar)})</span></p>
-                            <p class="text-[11px] text-amber-300 mt-0.5">IZIN SAKIT • Kegiatan: ${escapeHtml(getIzinKegiatanText(p))}</p>
-                            <p class="text-[11px] text-slate-300">Keluhan: ${escapeHtml(p.kategori)}</p>
-                            <p class="text-[11px] text-slate-400">Hari & Tanggal: ${formatTanggalHari(p.tanggal)}</p>
-                        </div>
-                        ${renderApprovalBadge(p.status)}
-                    </div>
+                    ${(() => {
+                        const isSembuh = p.sudahSembuh === true;
+                        const sesiArr = Array.isArray(p.kegiatanSakitList) ? p.kegiatanSakitList : (p.targetKegiatan ? p.targetKegiatan.split(', ') : ['Sekolah']);
+                        return `
+                            <div class="p-3.5 rounded-xl bg-asrama-bg border ${isSembuh ? 'border-emerald-500/30' : 'border-asrama-border'} space-y-2">
+                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <div>
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="text-xs font-bold text-white">${escapeHtml(p.santriNama)}</span>
+                                            <span class="text-slate-400 text-[11px]">(${escapeHtml(p.kamar)})</span>
+                                            ${renderApprovalBadge(p.status)}
+                                            ${isSembuh 
+                                                ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">Sudah Sembuh</span>` 
+                                                : `<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">Sedang Sakit</span>`}
+                                        </div>
+                                        <p class="text-[11px] text-slate-300 mt-0.5">Keluhan: <strong>${escapeHtml(p.kategori)}</strong></p>
+                                    </div>
+                                    <div class="text-[11px] text-slate-400 sm:text-right">
+                                        <span>${formatTanggalHari(p.tanggal)}</span>
+                                        ${p.jamPengajuan ? `<span class="block text-[10px] text-slate-500">Pk ${p.jamPengajuan} WIB</span>` : ''}
+                                    </div>
+                                </div>
+
+                                <!-- TIMELINE SESI TERCOVER (1 BARIS UTUH ANTI-DOBEL) -->
+                                <div class="p-2 rounded-lg bg-asrama-card/80 border border-asrama-border flex flex-wrap items-center justify-between gap-2 text-xs">
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        <span class="text-[10px] text-slate-400">Sesi tercover:</span>
+                                        ${sesiArr.map(sesi => `
+                                            <span class="px-2 py-0.5 rounded bg-asrama-bg border border-asrama-border text-amber-300 text-[10px] font-semibold flex items-center gap-1">
+                                                <i class="ph-bold ph-check text-emerald-400"></i> ${escapeHtml(sesi)}
+                                            </span>
+                                        `).join('')}
+                                        ${p.sakitSeharianPenuh ? '<span class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-bold">Seharian Penuh</span>' : ''}
+                                    </div>
+
+                                    ${!isSembuh ? `
+                                        <div class="flex items-center gap-1.5 shrink-0">
+                                            <button onclick="konfirmasiSantriSudahSehat('${p.id}', '${p.santriId}')" class="px-2.5 py-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 text-emerald-200 text-[10px] font-bold cursor-pointer transition-colors">
+                                                Tandai Sehat
+                                            </button>
+                                        </div>
+                                    ` : `
+                                        <span class="text-[10px] text-emerald-400 font-semibold">${escapeHtml(p.statusPerkembangan || 'Sembuh')}</span>
+                                    `}
+                                </div>
+                            </div>
+                        `;
+                    })()}
                 `;
             }).join('');
         }
@@ -6475,6 +6761,8 @@
                     return;
                 }
                 const kegStr = checkedKeg.join(', ');
+                const isSeharian = document.getElementById('izin-sakit-seharian')?.checked || false;
+                const nowHHMM = getCurrentTimeHHMM();
                 await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
                     santriId: s.id,
                     santriNama: s.nama,
@@ -6485,7 +6773,14 @@
                     kategori: alasan,
                     kegiatanSakitList: checkedKeg,
                     targetKegiatan: kegStr,
+                    sakitSeharianPenuh: isSeharian,
+                    sudahSembuh: false,
+                    statusPerkembangan: isSeharian ? 'Sakit Seharian Penuh / Rawat Inap' : `Sakit Sesi: ${checkedKeg.join(', ')}`,
+                    riwayatTimeline: [
+                        { jam: nowHHMM, status: `Diajukan sakit: ${kegStr}`, oleh: currentUser.nama }
+                    ],
                     tanggal,
+                    jamPengajuan: nowHHMM,
                     status: 'menunggu',
                     divisiTujuan: 'kesehatan',
                     createdAt: new Date().toISOString()
@@ -6907,7 +7202,7 @@
                                             ${renderApprovalBadge(p.status)}
                                         </div>
                                         <p class="text-xs text-rose-400">${formatShortSektor(p.sektor)} • ${escapeHtml(p.kamar)} (Murobbi: ${escapeHtml(p.murobbi || '-')})</p>
-                                        <p class="text-xs text-slate-200">Keluhan: <strong>${escapeHtml(p.kategori)}</strong> • Kegiatan: <strong class="text-amber-300">${escapeHtml(getIzinKegiatanText(p))}</strong></p>
+                                        <p class="text-xs text-slate-200">Keluhan: <strong>${escapeHtml(p.kategori)}</strong> • Sesi Izin: <strong class="text-amber-300">${escapeHtml(getIzinKegiatanText(p))}</strong> ${p.sudahSembuh ? '<span class="text-emerald-400 font-bold ml-1">(Sudah Sembuh)</span>' : (p.statusPerkembangan ? `<span class="text-amber-400 text-[11px] ml-1">• ${escapeHtml(p.statusPerkembangan)}</span>` : '')}</p>
                                         <p class="text-[11px] text-slate-400">Hari & Tanggal Izin: ${formatTanggalHari(p.tanggal)}</p>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2 shrink-0">
