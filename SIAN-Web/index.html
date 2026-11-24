@@ -2908,6 +2908,7 @@
                                             ${renderStatusBadge(s.status)}
                                             <button onclick="openEditSantriModal('${s.id}')" class="px-2 py-1 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-300 text-[11px] font-semibold cursor-pointer" title="Edit Data/Kelas">Edit</button>
                                             <button onclick="openPindahKamarModal('${s.id}')" class="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-semibold cursor-pointer">Pindah</button>
+                                            ${isRecordAdmin(currentUser) ? `<button onclick="openHapusSantriModal('${s.id}')" class="px-2.5 py-1 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[11px] font-semibold cursor-pointer hover:bg-rose-500/25" title="Hapus Santri">Hapus</button>` : ''}
                                         </div>
                                     </div>
                                 `).join('')}
@@ -3550,6 +3551,40 @@
             if (!s) return;
             const isAdmin = isRecordAdmin(currentUser);
 
+            if (isAdmin) {
+                // Khusus Administrator: Bisa langsung menghapus santri secara permanen tanpa butuh persetujuan
+                openModal(
+                    `Hapus Santri (Admin) — ${s.nama}`,
+                    `
+                    <div class="space-y-3 text-left">
+                        <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs">
+                            <p class="font-extrabold text-sm text-white">${escapeHtml(s.nama)}</p>
+                            <p class="text-rose-300 mt-0.5">Kelas ${escapeHtml(s.kelas || '-')} • ${formatShortSektor(s.sektor)} • ${escapeHtml(s.kamar)}</p>
+                        </div>
+
+                        <div class="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-xs text-red-200 space-y-1.5">
+                            <div class="flex items-center gap-1.5 font-bold text-red-300">
+                                <i class="ph-bold ph-warning-octagon text-base text-red-400"></i> Peringatan Otoritas Administrator
+                            </div>
+                            <p class="text-[11px] leading-relaxed text-slate-300">
+                                Sebagai <strong>Administrator Pusat</strong>, Anda memiliki hak akses penuh untuk <strong>langsung menghapus</strong> data santri ini dari sistem asrama secara permanen tanpa perlu menunggu persetujuan (ACC).
+                            </p>
+                        </div>
+
+                        <p class="text-xs text-slate-300 font-medium">Apakah Anda yakin ingin menghapus data santri ini sekarang?</p>
+                    </div>
+                    `,
+                    `
+                    <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 hover:text-white cursor-pointer">Batal</button>
+                    <button onclick="confirmHapusSantriDirect('${s.id}')" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs text-white font-bold flex items-center gap-1.5 cursor-pointer">
+                        <i class="ph-bold ph-trash"></i> Ya, Hapus Santri Sekarang
+                    </button>
+                    `
+                );
+                return;
+            }
+
+            // Untuk Murobbi Kamar: Memerlukan Verifikasi & Persetujuan (ACC) dari Ketua Sektor / Admin
             openModal(
                 `Pengajuan Hapus Santri — ${s.nama}`,
                 `
@@ -3562,7 +3597,7 @@
                     <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 flex items-start gap-2">
                         <i class="ph-bold ph-shield-warning text-base text-amber-400 shrink-0 mt-0.5"></i>
                         <div>
-                            ${isAdmin ? 'Anda adalah Administrator. Anda dapat langsung menghapus santri secara permanen, atau mencatat pengajuan.' : 'Pengajuan hapus santri ini akan dikirimkan kepada <strong>Ketua Sektor</strong> atau <strong>Ketua Asrama / Admin</strong> untuk diverifikasi dan disetujui (ACC).'}
+                            Pengajuan hapus santri ini akan dikirimkan kepada <strong>Ketua Sektor</strong> atau <strong>Ketua Asrama / Admin</strong> untuk diverifikasi dan disetujui (ACC).
                         </div>
                     </div>
 
@@ -3586,9 +3621,6 @@
                 `,
                 `
                 <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
-                ${isAdmin ? `
-                    <button onclick="confirmHapusSantriDirect('${s.id}')" class="px-3.5 py-2 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/40 text-xs font-bold cursor-pointer">Hapus Langsung (Admin)</button>
-                ` : ''}
                 <button onclick="submitPengajuanHapusSantri('${s.id}')" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs text-white font-bold cursor-pointer">Ajukan Hapus ke Ketua</button>
                 `
             );
@@ -3597,11 +3629,11 @@
         async function confirmHapusSantriDirect(santriId) {
             const s = santriList.find(x => x.id === santriId);
             if (!s) return;
-            if (!confirm(`Apakah Anda benar-benar yakin ingin menghapus santri ${s.nama} secara langsung?`)) return;
+            if (!confirm(`Apakah Anda benar-benar yakin ingin menghapus santri "${s.nama}" secara langsung?`)) return;
             try {
                 await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'santri', santriId));
                 closeModal();
-                showToast(`Data santri ${s.nama} telah dihapus permanen.`, 'info');
+                showToast(`Data santri ${s.nama} telah berhasil dihapus langsung oleh Admin.`, 'info');
                 renderCurrentPage();
             } catch (err) {
                 console.error(err);
