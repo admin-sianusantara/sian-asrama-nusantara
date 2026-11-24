@@ -92,6 +92,12 @@ function isRecipientEligible(userFields, eventPayload) {
 
     const eventType = eventPayload.eventType;
 
+    // 0. Tes Notifikasi Personal ke User yang login
+    if (eventType === 'test_notif') {
+        const targetEmail = norm(eventPayload.targetEmail);
+        return email === targetEmail;
+    }
+
     if (eventType === 'pendaftaran_baru') {
         return isAdmin;
     }
@@ -103,26 +109,69 @@ function isRecipientEligible(userFields, eventPayload) {
         const kategoriPulang = norm(eventPayload.kategoriPulang);
         const tujuan = norm(eventPayload.divisiTujuan);
 
-        // 1. Izin Sakit -> hanya dikirim ke Divisi Kesehatan (tidak ke Ketua Asrama/Sektor)
+        // 1. Izin Sakit -> Divisi Kesehatan
         if (jenis === 'sakit' || tujuan === 'kesehatan') {
             return ketuaUtamaDiv === 'kesehatan' || userDivisi.includes('kesehatan');
         }
 
-        // 2. Izin Pulang Acara Keluarga -> hanya dikirim ke Ketua Sektor terkait & Ketua Asrama
+        // 2. Izin Pulang Acara Keluarga -> Ketua Sektor terkait & Ketua Asrama
         if (kategoriPulang === 'pulang_keluarga' || tujuan === 'pimpinan') {
             if (isKetuaAsrama) return true;
             if (isKetuaLantai && userSektor === targetSektor) return true;
             return false;
         }
 
-        // 3. Izin Pulang karena Sakit -> hanya dikirim ke Divisi Keamanan
+        // 3. Izin Pulang karena Sakit -> Divisi Keamanan
         return ketuaUtamaDiv === 'keamanan' || userDivisi.includes('keamanan');
+    }
+
+    // 2. Update Status Perizinan (ACC / Tolak) -> Murobbi Kamar Santri
+    if (eventType === 'izin_status_update') {
+        const targetSektor = normSektor(eventPayload.sektor);
+        const targetKamar = norm(eventPayload.kamar);
+        // Notif ditujukan khusus kepada Murobbi kamar santri tersebut
+        if (userSektor === targetSektor && userKamar === targetKamar) {
+            return true;
+        }
+        return false;
     }
 
     if (eventType === 'izin_dihapus') {
         const targetSektor = normSektor(eventPayload.sektor);
         const targetKamar = norm(eventPayload.kamar);
-        if (!isAdmin && !isKetuaAsrama && !isKetuaLantai && userSektor === targetSektor && userKamar === targetKamar) {
+        if (userSektor === targetSektor && userKamar === targetKamar) {
+            return true;
+        }
+        return false;
+    }
+
+    // 3. Jadwal Roan Kebersihan -> Murobbi kamar-kamar yang bertugas roan
+    if (eventType === 'roan_baru') {
+        const targetSektor = normSektor(eventPayload.sektor);
+        const targetKamarStr = norm(eventPayload.kamar); // bisa koma atau "&", misal: "demak & granada"
+        if (targetKamarStr.includes(userKamar) || userKamar.includes(targetKamarStr)) {
+            if (!eventPayload.sektor || userSektor === targetSektor || eventPayload.sektor === 'Semua Sektor') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 4. Tugas Penilaian Rubrik -> Murobbi yang ditunjuk sebagai penilai
+    if (eventType === 'rubrik_baru') {
+        if (isAdmin || isKetuaAsrama) return true;
+        if (eventPayload.penugasanMode === 'khusus' && Array.isArray(eventPayload.penugasanList)) {
+            return eventPayload.penugasanList.some(a => norm(a.pengujiEmail) === email);
+        }
+        if (eventPayload.cakupan === 'semua_asrama') return true;
+        return userSektor === normSektor(eventPayload.targetSektor);
+    }
+
+    // 5. Takziran Fix / Pelanggaran Baru -> Murobbi Kamar Santri
+    if (eventType === 'takziran_fix') {
+        const targetSektor = normSektor(eventPayload.sektor);
+        const targetKamar = norm(eventPayload.kamar);
+        if (userSektor === targetSektor && userKamar === targetKamar) {
             return true;
         }
         return false;
@@ -138,19 +187,10 @@ function isRecipientEligible(userFields, eventPayload) {
         return false;
     }
 
-    if (eventType === 'rubrik_baru') {
-        if (isAdmin || isKetuaAsrama) return true;
-        if (eventPayload.penugasanMode === 'khusus' && Array.isArray(eventPayload.penugasanList)) {
-            return eventPayload.penugasanList.some(a => norm(a.pengujiEmail) === email);
-        }
-        if (eventPayload.cakupan === 'semua_asrama') return true;
-        return userSektor === normSektor(eventPayload.targetSektor);
-    }
-
     return false;
 }
 
-async function sendSingleFcmMessage(projectId, accessToken, token, title, body, dedupId) {
+async function sendSingleFcmMessage(projectId, accessToken, token, title, body, dedupId, targetUrl = '/') {
     const res = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
         method: 'POST',
         headers: {
@@ -184,13 +224,13 @@ async function sendSingleFcmMessage(projectId, accessToken, token, title, body, 
                         requireInteraction: true
                     },
                     fcm_options: {
-                        link: '/'
+                        link: targetUrl
                     }
                 },
                 data: {
                     title,
                     body,
-                    url: '/',
+                    url: targetUrl,
                     dedupId: String(dedupId || '')
                 }
             }
@@ -226,11 +266,12 @@ module.exports = async (req, res) => {
         const title = payload.title || 'SIAN · Pemberitahuan Baru';
         const body = payload.body || 'Ada pembaruan data baru di SIAN.';
         const dedupId = payload.dedupId || '';
+        const targetUrl = payload.targetUrl || '/';
 
         const accessToken = await getGoogleAccessToken(serviceAccount);
 
         if (payload.testToken) {
-            const ok = await sendSingleFcmMessage(projectId, accessToken, payload.testToken, title, body, dedupId);
+            const ok = await sendSingleFcmMessage(projectId, accessToken, payload.testToken, title, body, dedupId, targetUrl);
             return res.status(ok ? 200 : 500).json({
                 sent: ok ? 1 : 0,
                 error: ok ? null : 'Token ditolak oleh FCM.'
@@ -254,7 +295,7 @@ module.exports = async (req, res) => {
 
         let sentCount = 0;
         for (const token of targetTokens) {
-            const ok = await sendSingleFcmMessage(projectId, accessToken, token, title, body, dedupId);
+            const ok = await sendSingleFcmMessage(projectId, accessToken, token, title, body, dedupId, targetUrl);
             if (ok) sentCount++;
         }
 

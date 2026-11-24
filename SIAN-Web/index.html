@@ -250,7 +250,7 @@
                 <button onclick="openPwaInstallAndNotifModal()" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer">
                     <i class="ph-bold ph-bell-ringing"></i> App & Notif
                 </button>
-                <button onclick="openPendingShortcut()" class="relative p-2 rounded-lg bg-asrama-card border border-asrama-border text-slate-200 cursor-pointer">
+                <button onclick="toggleNotificationPanel(event)" class="relative p-2 rounded-lg bg-asrama-card border border-asrama-border text-slate-200 cursor-pointer" id="btn-mobile-notif">
                     <i class="ph ph-bell text-lg"></i>
                     <span id="mobile-pending-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 rounded-full">0</span>
                 </button>
@@ -259,6 +259,28 @@
                 </button>
             </div>
         </header>
+
+            <!-- Panel Popover Notifikasi Interaktif -->
+            <div id="notification-popover" class="hidden absolute top-16 right-4 sm:right-6 w-[92vw] sm:w-96 max-h-[82vh] bg-asrama-card border border-asrama-border rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col">
+                <div class="px-4 py-3 border-b border-asrama-border flex items-center justify-between bg-asrama-bg/95 shrink-0">
+                    <div class="flex items-center gap-2">
+                        <i class="ph-fill ph-bell-ringing text-emerald-400 text-base"></i>
+                        <h4 class="text-xs font-extrabold text-white">Pemberitahuan & Notifikasi</h4>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="tandaiSemuaNotifMurobbiDibaca()" class="text-[10px] text-emerald-300 hover:text-white font-bold cursor-pointer">Tandai Baca</button>
+                        <button onclick="toggleNotificationPanel(null, false)" class="text-slate-400 hover:text-white p-1 cursor-pointer">✕</button>
+                    </div>
+                </div>
+                <div id="notification-popover-items" class="p-3 overflow-y-auto space-y-2 flex-1 max-h-[60vh] divide-y divide-asrama-border/40">
+                    <!-- Dinamis via renderNotificationPopoverItems() -->
+                </div>
+                <div class="p-2.5 border-t border-asrama-border bg-asrama-bg/95 shrink-0 text-center">
+                    <button onclick="toggleNotificationPanel(null, false); openPwaInstallAndNotifModal();" class="text-[11px] text-emerald-400 hover:underline font-semibold cursor-pointer">
+                        <i class="ph-bold ph-gear"></i> Status Push & Tes Notifikasi HP
+                    </button>
+                </div>
+            </div>
 
         <!-- Backdrop Mobile Sidebar -->
         <div id="sidebar-backdrop" onclick="toggleSidebar()" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-30 hidden md:hidden"></div>
@@ -333,7 +355,7 @@
                     <button onclick="openPwaInstallAndNotifModal()" class="px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                         <i class="ph-bold ph-device-mobile-camera text-sm"></i> Install App & Notif
                     </button>
-                    <button onclick="openPendingShortcut()" class="relative p-2 rounded-xl bg-asrama-card border border-asrama-border text-slate-200 hover:text-white transition-colors cursor-pointer" title="Notifikasi & Antrean ACC">
+                    <button onclick="toggleNotificationPanel(event)" class="relative p-2 rounded-xl bg-asrama-card border border-asrama-border text-slate-200 hover:text-white transition-colors cursor-pointer" id="btn-desktop-notif" title="Pusat Notifikasi & Antrean">
                         <i class="ph ph-bell text-lg"></i>
                         <span id="pending-badge" class="hidden absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow">0</span>
                     </button>
@@ -558,6 +580,7 @@
         let currentPage = 'beranda';
         let globalSearchQuery = '';
         let cloudVapidKey = '';
+        let notifSettings = { izinMurobbi: true, roanKebersihan: true, penilaianKegiatan: true, takziranKeamanan: true };
 
         let pengurusList = [];
         let santriList = [];
@@ -1351,6 +1374,14 @@
                     }
                     if (d.id === 'fcm' && data.vapidKey) {
                         cloudVapidKey = data.vapidKey;
+                    }
+                    if (d.id === 'notifikasi') {
+                        notifSettings = {
+                            izinMurobbi: data.izinMurobbi !== false,
+                            roanKebersihan: data.roanKebersihan !== false,
+                            penilaianKegiatan: data.penilaianKegiatan !== false,
+                            takziranKeamanan: data.takziranKeamanan !== false
+                        };
                     }
                     const candidateMap = data.map || data.kamarBySektor || data.kamarMap;
                     if (candidateMap && typeof candidateMap === 'object') {
@@ -2577,6 +2608,32 @@
                 if (ketEl) ketEl.value = '';
 
                 showToast(`Berhasil menyimpan catatan untuk ${targets.length} santri (${kat} — ${istighfar} Istighfar).`, 'success');
+                
+                if (notifSettings.takziranKeamanan !== false) {
+                    for (const s of targets) {
+                        await sendServerPush({
+                            eventType: 'takziran_fix',
+                            sektor: toCanonicalSektor(s.sektor),
+                            kamar: s.kamar,
+                            title: `SIAN · Catatan Takziran: ${s.nama}`,
+                            body: `${s.nama} (${s.kamar}) dicatat: ${keg} — ${kat} (${istighfar} Istighfar).`,
+                            targetUrl: '/?nav=murobbi_pelanggaran',
+                            dedupId: `takziran_${s.id}_${Date.now()}`
+                        });
+
+                        await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
+                            santriNama: s.nama,
+                            sektor: toCanonicalSektor(s.sektor),
+                            kamar: s.kamar,
+                            tipe: 'pelanggaran',
+                            pesan: `Dicatat ${kat} pada ${keg} (${istighfar} Istighfar) oleh ${currentUser.nama}.`,
+                            targetPage: 'murobbi_pelanggaran',
+                            oleh: currentUser.nama,
+                            dibaca: false,
+                            createdAt: new Date().toISOString()
+                        });
+                    }
+                }
                 renderCurrentPage();
             } catch (err) {
                 console.error('Gagal menyimpan pelanggaran multi:', err);
@@ -2691,6 +2748,9 @@
                                 <i class="ph-bold ph-file-xls"></i> Import ke Sektor Ini
                                 <input type="file" accept=".xlsx,.xls,.csv" onchange="handleImportSantriPerSektorExcel(event, '${adminInfoSelectedSektor}')" class="hidden">
                             </label>
+                            <button onclick="openPengaturanNotifikasiModal()" class="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                <i class="ph-bold ph-bell-ringing"></i> Pengaturan Notifikasi
+                            </button>
                             <button onclick="openEditPengumumanModal()" class="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                                 <i class="ph-bold ph-megaphone"></i> Pengumuman Global
                             </button>
@@ -4562,6 +4622,33 @@
                 }
             }
             showToast(`Perizinan ${p.santriNama} telah ${keputusan === 'disetujui' ? 'DISETUJUI' : 'DITOLAK'}.`, keputusan === 'disetujui' ? 'success' : 'info');
+            
+            // Push Notifikasi ke Murobbi Kamar Santri
+            if (notifSettings.izinMurobbi !== false) {
+                const statusLabel = keputusan === 'disetujui' ? 'DISETUJUI (ACC)' : 'DITOLAK';
+                await sendServerPush({
+                    eventType: 'izin_status_update',
+                    sektor: toCanonicalSektor(p.sektor),
+                    kamar: p.kamar,
+                    title: `SIAN · Izin Santri ${statusLabel}`,
+                    body: `${p.santriNama} (${p.kamar}): Pengajuan ${p.jenis === 'sakit' ? 'izin sakit' : 'izin pulang'} telah ${statusLabel.toLowerCase()} oleh ${currentUser.nama}.`,
+                    targetUrl: '/?nav=murobbi_izin',
+                    dedupId: `izin_acc_${p.id}_${Date.now()}`
+                });
+
+                // Simpan juga ke in-app notifikasi Murobbi
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
+                    santriNama: p.santriNama,
+                    sektor: toCanonicalSektor(p.sektor),
+                    kamar: p.kamar,
+                    tipe: 'izin',
+                    pesan: `Pengajuan perizinan (${p.kategori}) telah ${statusLabel} oleh ${currentUser.nama}.`,
+                    targetPage: 'murobbi_izin',
+                    oleh: currentUser.nama,
+                    dibaca: false,
+                    createdAt: new Date().toISOString()
+                });
+            }
         }
 
         // =========================================================================
@@ -5059,6 +5146,30 @@
             });
             closeModal();
             showToast('Jadwal roan disimpan.', 'success');
+            
+            if (notifSettings.roanKebersihan !== false) {
+                await sendServerPush({
+                    eventType: 'roan_baru',
+                    sektor: toCanonicalSektor(currentUser.sektor) || 'Semua Sektor',
+                    kamar,
+                    title: 'SIAN · Tugas Roan Kebersihan Baru',
+                    body: `Kamar ${kamar} dijadwalkan Roan pada hari ${formatTanggalHari(tanggal)} (Area: ${area || 'Lingkungan Asrama'}).`,
+                    targetUrl: '/?nav=div_kebersihan_roan',
+                    dedupId: `roan_${Date.now()}`
+                });
+
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
+                    santriNama: 'Kamar ' + kamar,
+                    sektor: toCanonicalSektor(currentUser.sektor) || 'Semua Sektor',
+                    kamar,
+                    tipe: 'roan',
+                    pesan: `Jadwal Roan Kebersihan: Hari ${formatTanggalHari(tanggal)} di area ${area || 'Lingkungan Asrama'}.`,
+                    targetPage: 'div_kebersihan_roan',
+                    oleh: currentUser.nama,
+                    dibaca: false,
+                    createdAt: new Date().toISOString()
+                });
+            }
         }
 
         function openTambahKasKebersihanModal() {
@@ -5856,6 +5967,11 @@
                         <p class="text-xs font-bold text-amber-300">1. Notifikasi Real-Time HP</p>
                         <p class="text-[11px] text-slate-300">Status HP ini: ${statusText}</p>
                         <button onclick="aktifkanPushFcmHpIni()" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold cursor-pointer">
+                            Aktifkan Notif di HP Ini (1 Ketuk)
+                        </button>
+                        <button onclick="kirimTesNotifikasiKeHpSaya()" class="w-full py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer mt-1.5">
+                            <i class="ph-bold ph-paper-plane-tilt"></i> Kirim Tes Notifikasi ke HP Saya
+                        </button>
                             Aktifkan Notif di HP Ini (1 Ketuk)
                         </button>
                     </div>
