@@ -621,6 +621,13 @@
         let mutasiSantriTab = 'pindah'; // 'pindah' | 'hapus'
         let mutasiSantriStatusFilter = 'ALL';
         let mutasiSantriSearchQuery = '';
+        let roanCurrentYear = new Date().getFullYear();
+        let roanCurrentMonth = new Date().getMonth(); // 0-11
+        let roanSelectedDate = getTodayIso();
+        let roanViewMode = 'calendar'; // 'calendar' | 'list'
+        let roanSavedZonas = ['Lobi & Koridor Asrama', 'Halaman & Luar Asrama', 'Kamar Mandi & Tempat Wudhu', 'Musholla / Masjid Asrama'];
+        let roanTemplateInstruksi = 'Wajib kumpul tepat waktu setelah sholat subuh di depan kantor asrama, membawa sapu lidi, kantong sampah & kain pel.';
+        let kasKebersihanTab = 'semua'; // 'semua' | 'denda' | 'pengeluaran'
         let adminIzinStatusFilter = 'ALL';
         let adminIzinSearchQuery = '';
 
@@ -1661,7 +1668,8 @@
                         ${navItem('admin_izin', 'ph-file-xls', 'Monitor Izin Sakit & Pulang', 'text-sky-400')}
                         ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
                         ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Rekap Telat & Alpa', 'text-amber-400')}
-                        ${navItem('div_kebersihan', 'ph-broom', 'Jadwal Roan & Kebersihan', 'text-teal-400')}
+                        ${navItem('div_kebersihan_roan', 'ph-calendar-check', 'Kalender & Jadwal Roan', 'text-teal-400')}
+                        ${navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400')}
                         ${navItem('div_penilaian', 'ph-exam', 'Pantau Hasil Penilaian', 'text-emerald-400')}
                     </div>
                 `;
@@ -1716,7 +1724,8 @@
                     html += `
                         <div class="space-y-1 pt-2 border-t border-asrama-border/60">
                             <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-teal-400 mb-1.5">Divisi Kebersihan</p>
-                            ${navItem('div_kebersihan', 'ph-broom', 'Jadwal Roan & Kas Sampah', 'text-teal-400')}
+                            ${navItem('div_kebersihan_roan', 'ph-calendar-check', 'Kalender & Jadwal Roan', 'text-teal-400')}
+                            ${navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400')}
                         </div>
                     `;
                 }
@@ -1812,7 +1821,9 @@
                 case 'div_keamanan_izin': container.innerHTML = renderDivKeamananIzin(); break;
                 case 'div_keamanan_aset': container.innerHTML = renderDivKeamananAset(); break;
                 case 'div_kesehatan_izin': container.innerHTML = renderDivKesehatanIzin(); break;
-                case 'div_kebersihan': container.innerHTML = renderDivKebersihan(); break;
+                case 'div_kebersihan':
+                case 'div_kebersihan_roan': container.innerHTML = renderDivKebersihanRoan(); break;
+                case 'div_kebersihan_kas': container.innerHTML = renderDivKebersihanKas(); break;
                 case 'div_kegiatan': container.innerHTML = renderDivKegiatan(); break;
                 case 'div_penilaian': container.innerHTML = renderDivPenilaian(); break;
                 default: container.innerHTML = renderBeranda();
@@ -5566,147 +5577,839 @@
             showToast('Data barang sitaan disimpan.', 'success');
         }
 
-        function renderDivKebersihan() {
-            const totalDenda = kasKebersihanList.filter(k => k.tipe === 'denda').reduce((a, b) => a + Number(b.nominal || 0), 0);
-            const totalBelanja = kasKebersihanList.filter(k => k.tipe === 'pengeluaran').reduce((a, b) => a + Number(b.nominal || 0), 0);
-            const canEdit = !isRecordKetuaAsrama(currentUser);
+        // =========================================================================
+        // 14. DIVISI KEBERSIHAN: KALENDER & JADWAL ROAN (MULTI-KAMAR, ZONA, NOTIF & SHARE WA)
+        // =========================================================================
+        function renderDivKebersihanRoan() {
+            const canEdit = !isRecordKetuaAsrama(currentUser) && (hasDivisiAccess('kebersihan') || isRecordAdmin(currentUser));
+
+            // Setup Data Kalender
+            const year = roanCurrentYear;
+            const month = roanCurrentMonth;
+            const firstDayIndex = new Date(year, month, 1).getDay(); // 0: Ahad, 1: Senin, ...
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+            // Map jadwal roan berdasarkan tanggal ISO (YYYY-MM-DD)
+            const roanMap = {};
+            roanList.forEach(r => {
+                const tgl = String(r.tanggal || '').slice(0, 10);
+                if (tgl) {
+                    if (!roanMap[tgl]) roanMap[tgl] = [];
+                    roanMap[tgl].push(r);
+                }
+            });
+
+            // Jadwal terpilih (sesuai roanSelectedDate)
+            const selectedList = roanMap[roanSelectedDate] || [];
+
+            // Semua jadwal yang akan datang (urut tanggal)
+            const sortedRoan = [...roanList].sort((a, b) => String(a.tanggal || '').localeCompare(String(b.tanggal || '')));
 
             return `
                 <div class="space-y-6">
+                    <!-- Header -->
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
                         <div>
-                            <h2 class="text-xl font-extrabold text-white">Divisi Kebersihan — Jadwal Roan & Kas Sampah</h2>
-                            <p class="text-xs text-slate-300">Total Denda Masuk: <strong class="text-emerald-400">${formatRupiah(totalDenda)}</strong> • Pengeluaran Perlengkapan: <strong class="text-amber-400">${formatRupiah(totalBelanja)}</strong></p>
+                            <h2 class="text-xl font-extrabold text-white flex items-center gap-2">
+                                <i class="ph-bold ph-calendar-check text-teal-400"></i> Kalender & Jadwal Piket Roan Asrama
+                            </h2>
+                            <p class="text-xs text-slate-300">
+                                Penjadwalan piket kebersihan santri, pembagian zona tugas, pengingat otomatis & broadcast WhatsApp.
+                            </p>
                         </div>
-                        ${canEdit ? `
-                            <div class="flex flex-wrap gap-2">
-                                <button onclick="openTambahRoanModal()" class="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold cursor-pointer">+ Jadwal Roan</button>
-                                <button onclick="openTambahKasKebersihanModal()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">+ Catat Belanja / Denda</button>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <div class="flex items-center bg-asrama-card border border-asrama-border rounded-xl p-1">
+                                <button onclick="roanViewMode = 'calendar'; renderCurrentPage();" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${roanViewMode === 'calendar' ? 'bg-teal-600 text-white shadow' : 'text-slate-400 hover:text-white'}">
+                                    <i class="ph-bold ph-calendar"></i> Kalender
+                                </button>
+                                <button onclick="roanViewMode = 'list'; renderCurrentPage();" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${roanViewMode === 'list' ? 'bg-teal-600 text-white shadow' : 'text-slate-400 hover:text-white'}">
+                                    <i class="ph-bold ph-list-dashes"></i> Daftar
+                                </button>
                             </div>
-                        ` : ''}
+                            ${canEdit ? `
+                                <button onclick="openTambahRoanModal('${roanSelectedDate}')" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-teal-900/30 cursor-pointer">
+                                    <i class="ph-bold ph-plus-circle"></i> + Buat Jadwal Roan
+                                </button>
+                            ` : ''}
+                        </div>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                        <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-3">
-                            <h3 class="text-sm font-bold text-white">Jadwal Piket Roan Asrama</h3>
-                            ${roanList.length === 0 ? `<p class="text-xs text-slate-400">Belum ada jadwal roan.</p>` : roanList.map(r => `
-                                <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border">
-                                    <p class="text-xs font-bold text-teal-300">${formatTanggalHari(r.tanggal || r.hari)}</p>
-                                    <p class="text-xs font-semibold text-white mt-0.5">${escapeHtml(r.kamar)} (${formatShortSektor(r.sektor)})</p>
-                                    <p class="text-[11px] text-slate-400">Area Tugas: ${escapeHtml(r.area)}</p>
+                    ${roanViewMode === 'calendar' ? `
+                    <!-- Tampilan Kalender Interaktif -->
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                        <!-- Kalender Bulanan -->
+                        <div class="lg:col-span-7 bg-asrama-card border border-asrama-border rounded-2xl p-4 sm:p-5 space-y-4">
+                            <div class="flex items-center justify-between pb-3 border-b border-asrama-border/60">
+                                <div class="flex items-center gap-2">
+                                    <button onclick="prevRoanMonth()" class="p-2 rounded-xl bg-asrama-bg border border-asrama-border text-slate-300 hover:text-white hover:border-teal-500/50 cursor-pointer transition-colors">
+                                        <i class="ph-bold ph-caret-left"></i>
+                                    </button>
+                                    <span class="text-sm font-extrabold text-white">${monthNames[month]} ${year}</span>
+                                    <button onclick="nextRoanMonth()" class="p-2 rounded-xl bg-asrama-bg border border-asrama-border text-slate-300 hover:text-white hover:border-teal-500/50 cursor-pointer transition-colors">
+                                        <i class="ph-bold ph-caret-right"></i>
+                                    </button>
                                 </div>
-                            `).join('')}
+                                <button onclick="roanCurrentYear = new Date().getFullYear(); roanCurrentMonth = new Date().getMonth(); roanSelectedDate = getTodayIso(); renderCurrentPage();" class="text-xs px-2.5 py-1 rounded-lg bg-teal-500/15 border border-teal-500/30 text-teal-300 hover:bg-teal-500/25 font-semibold cursor-pointer">
+                                    Hari Ini
+                                </button>
+                            </div>
+
+                            <!-- Header Hari Kalender -->
+                            <div class="grid grid-cols-7 gap-1 text-center">
+                                ${['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'].map((h, idx) => `
+                                    <div class="text-[11px] font-bold py-1 ${idx === 0 ? 'text-rose-400' : 'text-slate-400'}">${h}</div>
+                                `).join('')}
+                            </div>
+
+                            <!-- Grid Tanggal -->
+                            <div class="grid grid-cols-7 gap-1.5">
+                                ${(() => {
+                                    let cells = '';
+                                    // Empty cells before first day
+                                    for (let i = 0; i < firstDayIndex; i++) {
+                                        cells += '<div class="h-16 sm:h-20 rounded-xl bg-asrama-bg/30 border border-transparent"></div>';
+                                    }
+                                    const todayIso = getTodayIso();
+                                    for (let d = 1; d <= daysInMonth; d++) {
+                                        const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                        const isToday = iso === todayIso;
+                                        const isSelected = iso === roanSelectedDate;
+                                        const roanItems = roanMap[iso] || [];
+                                        const hasRoan = roanItems.length > 0;
+
+                                        cells += `
+                                            <div onclick="roanSelectedDate = '${iso}'; renderCurrentPage();" 
+                                                 class="h-16 sm:h-20 p-1.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between 
+                                                 ${isSelected ? 'bg-teal-600/20 border-teal-500 shadow-md shadow-teal-900/30' : (hasRoan ? 'bg-teal-500/10 border-teal-500/30 hover:border-teal-500/60' : 'bg-asrama-bg border-asrama-border/60 hover:border-slate-600')}">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-xs font-bold ${isToday ? 'w-5 h-5 rounded-full bg-teal-500 text-slate-950 flex items-center justify-center font-extrabold' : (isSelected ? 'text-teal-300' : 'text-slate-300')}">${d}</span>
+                                                    ${hasRoan ? `<span class="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>` : ''}
+                                                </div>
+                                                <div class="space-y-0.5 overflow-hidden">
+                                                    ${roanItems.slice(0, 2).map(r => `
+                                                        <div class="text-[9px] px-1 py-0.5 rounded bg-teal-500/25 text-teal-200 truncate font-semibold" title="${escapeHtml(r.kamar)} - ${escapeHtml(r.zona || r.area)}">
+                                                            ${escapeHtml(r.kamar)}
+                                                        </div>
+                                                    `).join('')}
+                                                    ${roanItems.length > 2 ? `<div class="text-[8px] text-teal-400 font-bold text-center">+${roanItems.length - 2} lagi</div>` : ''}
+                                                </div>
+                                            </div>
+                                        `;
+                                    }
+                                    return cells;
+                                })()}
+                            </div>
                         </div>
 
-                        <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-3">
-                            <h3 class="text-sm font-bold text-white">Pencatatan Kertas Minyak, Kresek & Denda Sampah</h3>
-                            ${kasKebersihanList.length === 0 ? `<p class="text-xs text-slate-400">Belum ada catatan kas kebersihan.</p>` : kasKebersihanList.map(k => `
-                                <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border flex items-center justify-between gap-2">
+                        <!-- Panel Detail Jadwal di Tanggal Terpilih -->
+                        <div class="lg:col-span-5 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+                            <div class="space-y-4">
+                                <div class="flex items-center justify-between pb-3 border-b border-asrama-border">
                                     <div>
-                                        <p class="text-xs font-bold text-white">${escapeHtml(k.keterangan)}</p>
-                                        <p class="text-[11px] text-slate-400">${formatTanggalHari(k.tanggal)} • ${k.tipe === 'denda' ? 'Denda Tidak Buang Sampah' : 'Pembelian Perlengkapan'}</p>
+                                        <p class="text-[11px] uppercase tracking-wider text-teal-400 font-bold">Agenda Tanggal</p>
+                                        <h3 class="text-base font-extrabold text-white mt-0.5">${formatTanggalHari(roanSelectedDate)}</h3>
                                     </div>
-                                    <span class="text-xs font-extrabold whitespace-nowrap ${k.tipe === 'denda' ? 'text-emerald-400' : 'text-amber-400'}">
-                                        ${k.tipe === 'denda' ? '+' : '-'}${formatRupiah(k.nominal)}
-                                    </span>
+                                    ${selectedList.length > 0 ? `
+                                        <button onclick="shareRoanWaHarian('${roanSelectedDate}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow">
+                                            <i class="ph-bold ph-whatsapp-logo text-base"></i> Share Rekap WA
+                                        </button>
+                                    ` : ''}
                                 </div>
-                            `).join('')}
+
+                                ${selectedList.length === 0 ? `
+                                    <div class="py-12 text-center text-slate-400 space-y-2">
+                                        <i class="ph ph-calendar-x text-4xl text-slate-500 block"></i>
+                                        <p class="text-xs">Tidak ada jadwal roan di tanggal ini.</p>
+                                        ${canEdit ? `
+                                            <button onclick="openTambahRoanModal('${roanSelectedDate}')" class="mt-2 text-xs font-bold text-teal-400 hover:underline">
+                                                + Tambahkan Jadwal di Tanggal Ini
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                ` : `
+                                    <div class="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                                        ${selectedList.map(r => renderKartuRoanDetail(r, canEdit)).join('')}
+                                    </div>
+                                `}
+                            </div>
+
+                            ${selectedList.length > 0 && canEdit ? `
+                                <div class="pt-3 border-t border-asrama-border/60">
+                                    <button onclick="openTambahRoanModal('${roanSelectedDate}')" class="w-full py-2.5 rounded-xl bg-asrama-bg border border-dashed border-teal-500/40 hover:border-teal-400 text-teal-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors">
+                                        <i class="ph-bold ph-plus"></i> Tambah Kamar / Sesi Lain di Tanggal Ini
+                                    </button>
+                                </div>
+                            ` : ''}
                         </div>
+                    </div>
+                    ` : `
+                    <!-- Tampilan Daftar (List Mode) -->
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
+                        <div class="flex items-center justify-between pb-3 border-b border-asrama-border">
+                            <h3 class="text-sm font-extrabold text-white">Semua Jadwal Roan Asrama (Urut Waktu)</h3>
+                            <span class="text-xs text-slate-400">Total: <strong class="text-teal-300">${sortedRoan.length}</strong> jadwal</span>
+                        </div>
+                        ${sortedRoan.length === 0 ? `
+                            <div class="p-8 text-center text-xs text-slate-400">Belum ada data jadwal roan.</div>
+                        ` : `
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                ${sortedRoan.map(r => renderKartuRoanDetail(r, canEdit)).join('')}
+                            </div>
+                        `}
+                    </div>
+                    `}
+                </div>
+            `;
+        }
+
+        function prevRoanMonth() {
+            if (roanCurrentMonth === 0) {
+                roanCurrentMonth = 11;
+                roanCurrentYear--;
+            } else {
+                roanCurrentMonth--;
+            }
+            renderCurrentPage();
+        }
+
+        function nextRoanMonth() {
+            if (roanCurrentMonth === 11) {
+                roanCurrentMonth = 0;
+                roanCurrentYear++;
+            } else {
+                roanCurrentMonth++;
+            }
+            renderCurrentPage();
+        }
+
+        function renderKartuRoanDetail(r, canEdit) {
+            const isToday = String(r.tanggal || '').slice(0, 10) === getTodayIso();
+            const waktuLabel = r.waktu || '05:00 - 06:45 WIB';
+            const reminderLabel = r.reminderJam ? `Ingatkan Jam ${r.reminderJam} WIB` : 'Tanpa Pengingat Khusus';
+            const zonaName = r.zona || r.area || 'Lingkungan Asrama';
+
+            return `
+                <div class="p-4 rounded-2xl border ${isToday ? 'bg-teal-500/10 border-teal-500/50 shadow-md' : 'bg-asrama-bg border-asrama-border'} space-y-3 transition-colors">
+                    <div class="flex items-start justify-between gap-2">
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-teal-500/20 text-teal-300 border border-teal-500/40">
+                                    <i class="ph-bold ph-clock"></i> ${escapeHtml(waktuLabel)}
+                                </span>
+                                ${isToday ? `<span class="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-500 text-slate-950 animate-pulse">HARI INI</span>` : ''}
+                            </div>
+                            <h4 class="text-sm font-black text-white mt-1.5 flex items-center gap-1.5">
+                                <i class="ph-bold ph-door text-teal-400"></i> Kamar ${escapeHtml(r.kamar)} 
+                                <span class="text-xs font-semibold text-slate-400">(${formatShortSektor(r.sektor)})</span>
+                            </h4>
+                            ${r.murobbi ? `<p class="text-[11px] text-slate-400">Murobbi: <strong class="text-slate-200">${escapeHtml(r.murobbi)}</strong></p>` : ''}
+                        </div>
+
+                        <!-- Aksi Share & Hapus -->
+                        <div class="flex items-center gap-1 shrink-0">
+                            <button onclick="shareSingleRoanWa('${r.id}')" class="p-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all" title="Share Jadwal ke WhatsApp">
+                                <i class="ph-bold ph-whatsapp-logo text-base"></i>
+                            </button>
+                            ${canEdit ? `
+                                <button onclick="openEditRoanModal('${r.id}')" class="p-2 rounded-xl bg-sky-500/20 hover:bg-sky-500 text-sky-300 hover:text-white border border-sky-500/30 text-xs font-bold cursor-pointer transition-all" title="Edit Jadwal">
+                                    <i class="ph-bold ph-pencil-simple text-sm"></i>
+                                </button>
+                                <button onclick="hapusJadwalRoan('${r.id}')" class="p-2 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-bold cursor-pointer transition-all" title="Hapus Jadwal Roan">
+                                    <i class="ph-bold ph-trash text-sm"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Zona & Detail Instruksi -->
+                    <div class="p-3 rounded-xl bg-asrama-card/80 border border-asrama-border/70 text-xs space-y-1.5">
+                        <div class="flex items-center gap-1.5 text-teal-300 font-bold">
+                            <i class="ph-bold ph-map-pin text-sm text-rose-400"></i>
+                            <span>Zona Tugas: <strong class="text-white">${escapeHtml(zonaName)}</strong></span>
+                        </div>
+                        ${r.instruksi ? `
+                            <p class="text-[11px] text-slate-300 leading-relaxed border-t border-asrama-border/50 pt-1.5">
+                                <span class="text-slate-400 block text-[10px] font-semibold">Instruksi / Catatan:</span>
+                                ${escapeHtml(r.instruksi)}
+                            </p>
+                        ` : ''}
+                        ${r.reminderJam ? `
+                            <div class="flex items-center gap-1.5 text-[10px] text-amber-300 pt-1">
+                                <i class="ph-bold ph-bell"></i>
+                                <span>Pengingat Otomatis: Jam ${escapeHtml(r.reminderJam)} WIB</span>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
             `;
         }
 
-        function openTambahRoanModal() {
+        function openTambahRoanModal(defaultDate = null) {
+            const targetDate = defaultDate || roanSelectedDate || getTodayIso();
+            const zonaOptions = roanSavedZonas.map(z => `<option value="${escapeHtml(z)}">${escapeHtml(z)}</option>`).join('');
+
+            // Kamar options per sektor
+            const allKamarOpts = [];
+            SEKTOR_ASRAMA.forEach(sec => {
+                const kamars = kamarBySektor[sec] || [];
+                if (kamars.length > 0) {
+                    allKamarOpts.push(`<optgroup label="${sec}">`);
+                    kamars.forEach(k => {
+                        allKamarOpts.push(`<option value="${k.nama}" data-sektor="${sec}" data-murobbi="${escapeHtml(k.murobbi)}">${k.nama} (Murobbi: ${k.murobbi})</option>`);
+                    });
+                    allKamarOpts.push(`</optgroup>`);
+                }
+            });
+
             openModal(
-                'Tentukan Jadwal Roan Baru',
+                'Jadwalkan Piket Roan Asrama',
                 `
-                <div class="space-y-3">
-                    <input id="roan-tgl" type="date" value="${getTodayIso()}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                    <input id="roan-kamar" type="text" placeholder="Kamar yang bertugas (misal: DEMAK & GRANADA)" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                    <input id="roan-area" type="text" placeholder="Area kebersihan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                <div class="space-y-3.5 text-left text-xs">
+                    <!-- Tanggal & Waktu Pelaksanaan -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block font-semibold text-slate-200 mb-1">Tanggal Pelaksanaan *</label>
+                            <input id="roan-form-tgl" type="date" value="${targetDate}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-200 mb-1">Waktu / Sesi Pelaksanaan *</label>
+                            <input id="roan-form-waktu" type="text" value="05:00 - 06:45 WIB" placeholder="Contoh: 05:00 - 06:45 WIB" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                        </div>
+                    </div>
+
+                    <!-- Pemilihan Kamar yang Bertugas -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="font-semibold text-slate-200">Kamar yang Bertugas *</label>
+                            <span class="text-[10px] text-slate-400">Bisa memilih kamar dari daftar</span>
+                        </div>
+                        <select id="roan-form-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                            ${allKamarOpts.join('')}
+                        </select>
+                    </div>
+
+                    <!-- Pemilihan / Penambahan Zona Roan -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="font-semibold text-slate-200">Zona / Area Tugas *</label>
+                            <button type="button" onclick="promptTambahZonaBaru()" class="text-[10px] text-teal-400 hover:underline font-bold flex items-center gap-1 cursor-pointer">
+                                <i class="ph-bold ph-plus"></i> + Tambah Zona Baru
+                            </button>
+                        </div>
+                        <select id="roan-form-zona" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                            ${zonaOptions}
+                            <option value="__CUSTOM__">+ Tulis Zona Custom Sendiri...</option>
+                        </select>
+                        <input id="roan-form-zona-custom" type="text" placeholder="Tulis nama zona khusus..." class="w-full border border-teal-500/50 rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400 mt-2 hidden">
+                    </div>
+
+                    <!-- Jam Pengingat Otomatis di Hari-H -->
+                    <div class="p-3 rounded-xl bg-teal-500/10 border border-teal-500/30 space-y-2">
+                        <div class="flex items-center gap-2">
+                            <i class="ph-bold ph-bell-ringing text-teal-400 text-base"></i>
+                            <label class="font-bold text-white text-xs">Pengingat Otomatis pada Hari-H</label>
+                        </div>
+                        <p class="text-[11px] text-slate-300">
+                            Atur jam berapa notifikasi pengingat dikirimkan ke HP Murobbi kamar bertugas & Divisi Kebersihan di hari tersebut:
+                        </p>
+                        <div class="flex items-center gap-2">
+                            <input id="roan-form-reminder" type="time" value="04:45" class="border border-asrama-border rounded-xl px-3 py-1.5 text-xs bg-asrama-bg text-white focus:border-teal-400">
+                            <span class="text-xs text-slate-300 font-semibold">WIB</span>
+                        </div>
+                    </div>
+
+                    <!-- Instruksi & Checkbox Template -->
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Catatan / Instruksi Peralatan</label>
+                        <textarea id="roan-form-instruksi" rows="2" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400" placeholder="Peralatan yang wajib dibawa / arahan khusus...">${escapeHtml(roanTemplateInstruksi)}</textarea>
+                        <div class="flex items-center gap-2 mt-1.5">
+                            <input id="roan-form-save-template" type="checkbox" checked class="rounded border-asrama-border text-teal-600 focus:ring-teal-500 cursor-pointer">
+                            <label for="roan-form-save-template" class="text-[11px] text-slate-300 cursor-pointer select-none">
+                                Pertahankan catatan/instruksi ini sebagai default untuk jadwal berikutnya
+                            </label>
+                        </div>
+                    </div>
                 </div>
                 `,
                 `
                 <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
-                <button onclick="saveRoan()" class="px-4 py-2 rounded-xl bg-teal-600 text-xs text-white font-bold cursor-pointer">Simpan</button>
+                <button onclick="saveJadwalRoanBaru()" class="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-xs text-white font-bold cursor-pointer shadow-lg shadow-teal-900/30">Simpan & Notifikasi</button>
                 `
             );
-        }
 
-        async function saveRoan() {
-            const tanggal = document.getElementById('roan-tgl').value;
-            const kamar = document.getElementById('roan-kamar').value.trim();
-            const area = document.getElementById('roan-area').value.trim();
-            if (!tanggal || !kamar) return;
-            await window.FB.addDoc(window.FB.collection(window.FB.db, 'roan'), {
-                tanggal,
-                hari: formatTanggalHari(tanggal),
-                sektor: toCanonicalSektor(currentUser.sektor) || SEKTOR_ASRAMA[0],
-                kamar,
-                area: area || 'Lingkungan Asrama'
-            });
-            closeModal();
-            showToast('Jadwal roan disimpan.', 'success');
-            
-            if (notifSettings.roanKebersihan !== false) {
-                await sendServerPush({
-                    eventType: 'roan_baru',
-                    sektor: toCanonicalSektor(currentUser.sektor) || 'Semua Sektor',
-                    kamar,
-                    title: 'SIAN · Tugas Roan Kebersihan Baru',
-                    body: `Kamar ${kamar} dijadwalkan Roan pada hari ${formatTanggalHari(tanggal)} (Area: ${area || 'Lingkungan Asrama'}).`,
-                    targetUrl: '/?nav=div_kebersihan_roan',
-                    dedupId: `roan_${Date.now()}`
-                });
-
-                await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
-                    santriNama: 'Kamar ' + kamar,
-                    sektor: toCanonicalSektor(currentUser.sektor) || 'Semua Sektor',
-                    kamar,
-                    tipe: 'roan',
-                    pesan: `Jadwal Roan Kebersihan: Hari ${formatTanggalHari(tanggal)} di area ${area || 'Lingkungan Asrama'}.`,
-                    targetPage: 'div_kebersihan_roan',
-                    oleh: currentUser.nama,
-                    dibaca: false,
-                    createdAt: new Date().toISOString()
+            // Listener zona custom
+            const zSelect = document.getElementById('roan-form-zona');
+            const zCustom = document.getElementById('roan-form-zona-custom');
+            if (zSelect && zCustom) {
+                zSelect.addEventListener('change', () => {
+                    if (zSelect.value === '__CUSTOM__') {
+                        zCustom.classList.remove('hidden');
+                        zCustom.focus();
+                    } else {
+                        zCustom.classList.add('hidden');
+                    }
                 });
             }
         }
 
-        function openTambahKasKebersihanModal() {
+        async function promptTambahZonaBaru() {
+            const namaZona = prompt('Masukkan nama zona kebersihan baru (contoh: Rooftop Jemuran, Taman Belakang, Koridor Lt. 2):');
+            if (!namaZona || !namaZona.trim()) return;
+            const clean = namaZona.trim();
+            if (!roanSavedZonas.includes(clean)) {
+                roanSavedZonas.push(clean);
+                try {
+                    await window.FB.setDoc(window.FB.doc(window.FB.db, 'settings', 'roan_config'), {
+                        zonas: roanSavedZonas,
+                        templateInstruksi: roanTemplateInstruksi
+                    }, { merge: true });
+                    showToast(`Zona "${clean}" berhasil ditambahkan & disimpan.`, 'success');
+                } catch (e) {
+                    console.error('Gagal simpan zona:', e);
+                }
+            }
+            // Update dropdown di modal jika sedang buka
+            const zSelect = document.getElementById('roan-form-zona');
+            if (zSelect) {
+                zSelect.innerHTML = roanSavedZonas.map(z => `<option value="${escapeHtml(z)}" ${z === clean ? 'selected' : ''}>${escapeHtml(z)}</option>`).join('') + '<option value="__CUSTOM__">+ Tulis Zona Custom Sendiri...</option>';
+            }
+        }
+
+        async function saveJadwalRoanBaru() {
+            const tanggal = document.getElementById('roan-form-tgl')?.value;
+            const waktu = (document.getElementById('roan-form-waktu')?.value || '05:00 - 06:45 WIB').trim();
+            const kamarSelect = document.getElementById('roan-form-kamar');
+            const kamar = kamarSelect?.value;
+            const opt = kamarSelect?.selectedOptions[0];
+            const sektor = opt ? opt.getAttribute('data-sektor') : SEKTOR_ASRAMA[0];
+            const murobbi = opt ? opt.getAttribute('data-murobbi') : '';
+
+            let zona = document.getElementById('roan-form-zona')?.value;
+            if (zona === '__CUSTOM__') {
+                zona = (document.getElementById('roan-form-zona-custom')?.value || '').trim() || 'Lingkungan Asrama';
+                if (!roanSavedZonas.includes(zona)) {
+                    roanSavedZonas.push(zona);
+                }
+            }
+
+            const reminderJam = document.getElementById('roan-form-reminder')?.value || '';
+            const instruksi = (document.getElementById('roan-form-instruksi')?.value || '').trim();
+            const saveTemplate = document.getElementById('roan-form-save-template')?.checked;
+
+            if (!tanggal || !kamar) {
+                showToast('Mohon pilih tanggal dan kamar yang bertugas!', 'error');
+                return;
+            }
+
+            try {
+                // Simpan template instruksi & zona jika checkbox aktif
+                if (saveTemplate && instruksi) {
+                    roanTemplateInstruksi = instruksi;
+                    await window.FB.setDoc(window.FB.doc(window.FB.db, 'settings', 'roan_config'), {
+                        zonas: roanSavedZonas,
+                        templateInstruksi: instruksi
+                    }, { merge: true });
+                }
+
+                // Tambahkan dokumen roan
+                const docRef = await window.FB.addDoc(window.FB.collection(window.FB.db, 'roan'), {
+                    tanggal,
+                    hari: formatTanggalHari(tanggal),
+                    waktu,
+                    sektor: toCanonicalSektor(sektor),
+                    kamar,
+                    murobbi,
+                    zona: zona || 'Lingkungan Asrama',
+                    area: zona || 'Lingkungan Asrama',
+                    instruksi,
+                    reminderJam,
+                    dibuatOleh: currentUser.nama,
+                    createdAt: new Date().toISOString()
+                });
+
+                closeModal();
+                roanSelectedDate = tanggal;
+                showToast(`Jadwal Roan untuk Kamar ${kamar} berhasil disimpan.`, 'success');
+
+                // Push Notifikasi ke Murobbi Kamar & Pengurus
+                if (notifSettings.roanKebersihan !== false) {
+                    await sendServerPush({
+                        eventType: 'roan_baru',
+                        sektor: toCanonicalSektor(sektor),
+                        kamar,
+                        title: 'SIAN · Jadwal Roan Kebersihan',
+                        body: `Kamar ${kamar} dijadwalkan Roan pada hari ${formatTanggalHari(tanggal)} (${waktu}) di ${zona}.`,
+                        targetUrl: '/?nav=div_kebersihan_roan',
+                        dedupId: `roan_${docRef.id}`
+                    });
+
+                    await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
+                        santriNama: 'Kamar ' + kamar,
+                        sektor: toCanonicalSektor(sektor),
+                        kamar,
+                        tipe: 'roan',
+                        pesan: `Jadwal Roan: ${formatTanggalHari(tanggal)} (${waktu}) di zona ${zona}.`,
+                        targetPage: 'div_kebersihan_roan',
+                        oleh: currentUser.nama,
+                        dibaca: false,
+                        createdAt: new Date().toISOString()
+                    });
+                }
+
+                renderCurrentPage();
+            } catch (err) {
+                console.error('Gagal menyimpan jadwal roan:', err);
+                showToast('Gagal menyimpan: ' + err.message, 'error');
+            }
+        }
+
+        function openEditRoanModal(roanId) {
+            const r = roanList.find(x => x.id === roanId);
+            if (!r) return;
+
+            const zonaOptions = roanSavedZonas.map(z => `<option value="${escapeHtml(z)}" ${(r.zona || r.area) === z ? 'selected' : ''}>${escapeHtml(z)}</option>`).join('');
+
+            // Kamar options per sektor
+            const allKamarOpts = [];
+            SEKTOR_ASRAMA.forEach(sec => {
+                const kamars = kamarBySektor[sec] || [];
+                if (kamars.length > 0) {
+                    allKamarOpts.push(`<optgroup label="${sec}">`);
+                    kamars.forEach(k => {
+                        allKamarOpts.push(`<option value="${k.nama}" data-sektor="${sec}" data-murobbi="${escapeHtml(k.murobbi)}" ${r.kamar === k.nama ? 'selected' : ''}>${k.nama} (Murobbi: ${k.murobbi})</option>`);
+                    });
+                    allKamarOpts.push(`</optgroup>`);
+                }
+            });
+
             openModal(
-                'Catat Belanja / Denda Kebersihan',
+                `Edit Jadwal Roan — Kamar ${r.kamar}`,
                 `
-                <div class="space-y-3">
-                    <select id="kas-tipe" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                        <option value="pengeluaran">Pembelian Kertas Minyak / Kresek Sampah</option>
-                        <option value="denda">Denda Uang Tidak Buang Sampah</option>
-                    </select>
-                    <input id="kas-ket" type="text" placeholder="Keterangan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                    <input id="kas-nom" type="number" placeholder="Nominal (Rp)" value="20000" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                <div class="space-y-3.5 text-left text-xs">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block font-semibold text-slate-200 mb-1">Tanggal Pelaksanaan *</label>
+                            <input id="roan-edit-tgl" type="date" value="${r.tanggal || ''}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-200 mb-1">Waktu / Sesi Pelaksanaan *</label>
+                            <input id="roan-edit-waktu" type="text" value="${escapeHtml(r.waktu || '05:00 - 06:45 WIB')}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Kamar yang Bertugas *</label>
+                        <select id="roan-edit-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                            ${allKamarOpts.join('')}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Zona / Area Tugas *</label>
+                        <select id="roan-edit-zona" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                            ${zonaOptions}
+                        </select>
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-teal-500/10 border border-teal-500/30 space-y-2">
+                        <label class="font-bold text-white text-xs block">Pengingat Otomatis di Hari-H</label>
+                        <div class="flex items-center gap-2">
+                            <input id="roan-edit-reminder" type="time" value="${r.reminderJam || '04:45'}" class="border border-asrama-border rounded-xl px-3 py-1.5 text-xs bg-asrama-bg text-white focus:border-teal-400">
+                            <span class="text-xs text-slate-300 font-semibold">WIB</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Catatan / Instruksi Peralatan</label>
+                        <textarea id="roan-edit-instruksi" rows="2" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">${escapeHtml(r.instruksi || '')}</textarea>
+                    </div>
                 </div>
                 `,
                 `
                 <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
-                <button onclick="saveKasKebersihan()" class="px-4 py-2 rounded-xl bg-emerald-600 text-xs text-white font-bold cursor-pointer">Simpan</button>
+                <button onclick="saveEditJadwalRoan('${r.id}')" class="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-xs text-white font-bold cursor-pointer shadow">Simpan Revisi</button>
+                `
+            );
+        }
+
+        async function saveEditJadwalRoan(roanId) {
+            const tanggal = document.getElementById('roan-edit-tgl')?.value;
+            const waktu = (document.getElementById('roan-edit-waktu')?.value || '05:00 - 06:45 WIB').trim();
+            const kamarSelect = document.getElementById('roan-edit-kamar');
+            const kamar = kamarSelect?.value;
+            const opt = kamarSelect?.selectedOptions[0];
+            const sektor = opt ? opt.getAttribute('data-sektor') : SEKTOR_ASRAMA[0];
+            const murobbi = opt ? opt.getAttribute('data-murobbi') : '';
+            const zona = document.getElementById('roan-edit-zona')?.value;
+            const reminderJam = document.getElementById('roan-edit-reminder')?.value || '';
+            const instruksi = (document.getElementById('roan-edit-instruksi')?.value || '').trim();
+
+            if (!tanggal || !kamar) {
+                showToast('Mohon lengkapi tanggal dan kamar!', 'error');
+                return;
+            }
+
+            try {
+                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'roan', roanId), {
+                    tanggal,
+                    hari: formatTanggalHari(tanggal),
+                    waktu,
+                    sektor: toCanonicalSektor(sektor),
+                    kamar,
+                    murobbi,
+                    zona: zona || 'Lingkungan Asrama',
+                    area: zona || 'Lingkungan Asrama',
+                    instruksi,
+                    reminderJam
+                });
+
+                closeModal();
+                showToast('Revisi jadwal roan berhasil disimpan.', 'success');
+                renderCurrentPage();
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal mengubah jadwal: ' + err.message, 'error');
+            }
+        }
+
+        async function hapusJadwalRoan(roanId) {
+            const r = roanList.find(x => x.id === roanId);
+            if (!r) return;
+            if (!confirm(`Apakah Anda yakin ingin membatalkan & menghapus jadwal roan Kamar ${r.kamar} (${formatTanggalHari(r.tanggal)})?`)) return;
+
+            try {
+                await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'roan', roanId));
+                showToast('Jadwal roan berhasil dihapus.', 'info');
+                renderCurrentPage();
+            } catch (err) {
+                console.error('Gagal hapus roan:', err);
+                showToast('Gagal menghapus: ' + err.message, 'error');
+            }
+        }
+
+        // WhatsApp Broadcast Helpers
+        function shareSingleRoanWa(roanId) {
+            const r = roanList.find(x => x.id === roanId);
+            if (!r) return;
+
+            const tglFormatted = formatTanggalHari(r.tanggal);
+            const waktuStr = r.waktu || '05:00 - 06:45 WIB';
+            const zonaStr = r.zona || r.area || 'Lingkungan Asrama';
+            const instruksiStr = r.instruksi || 'Wajib hadir tepat waktu dan membawa perlengkapan kebersihan.';
+
+            const text = 
+`🧹 *PEMBERITAHUAN JADWAL PIKET ROAN ASRAMA NUSANTARA* 🧹\n\n` +
+`Kepada Yth. Murobbi & Santri:\n` +
+`🏠 *Kamar Bertugas*: Kamar ${r.kamar} (${formatShortSektor(r.sektor)})\n` +
+`👤 *Murobbi Kamar*: ${r.murobbi || '-'}\n` +
+`📅 *Hari/Tanggal*: ${tglFormatted}\n` +
+`⏰ *Waktu*: ${waktuStr}\n` +
+`📍 *Zona / Area*: ${zonaStr}\n\n` +
+`📝 *Instruksi / Arahan*:\n${instruksiStr}\n\n` +
+`Mohon Murobbi kamar dapat mengondisikan santri binaannya agar siap tepat waktu. Terima kasih atas kerja samanya! 🙏\n\n` +
+`_Divisi Kebersihan Asrama Nusantara_`;
+
+            const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+            window.open(url, '_blank');
+        }
+
+        function shareRoanWaHarian(targetIsoDate) {
+            const items = roanList.filter(r => String(r.tanggal || '').slice(0, 10) === targetIsoDate);
+            if (items.length === 0) return;
+
+            const tglFormatted = formatTanggalHari(targetIsoDate);
+
+            let daftarTugas = '';
+            items.forEach((r, idx) => {
+                daftarTugas += `*[${idx + 1}] Kamar ${r.kamar} (${formatShortSektor(r.sektor)})*\n` +
+                               `  • Waktu: ${r.waktu || '05:00 - 06:45 WIB'}\n` +
+                               `  • Zona: ${r.zona || r.area || 'Lingkungan Asrama'}\n` +
+                               `  • Murobbi: ${r.murobbi || '-'}\n` +
+                               (r.instruksi ? `  • Catatan: ${r.instruksi}\n` : '') +
+                               `\n`;
+            });
+
+            const text = 
+`🧹 *JADWAL PIKET ROAN ASRAMA NUSANTARA* 🧹\n` +
+`📅 *Hari/Tanggal*: ${tglFormatted}\n\n` +
+`Berikut pembagian tugas kamar yang bertugas hari ini:\n\n` +
+daftarTugas +
+`Mohon seluruh Murobbi kamar terkait dapat mengarahkan santri binaannya agar hadir tepat waktu. Terima kasih! 🙏\n\n` +
+`_Divisi Kebersihan Asrama Nusantara_`;
+
+            const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+            window.open(url, '_blank');
+        }
+
+        // =========================================================================
+        // 14b. MODUL KAS KEBERSIHAN: KERTAS MINYAK, KRESEK & DENDA SAMPAH
+        // =========================================================================
+        function renderDivKebersihanKas() {
+            const totalDenda = kasKebersihanList.filter(k => k.tipe === 'denda').reduce((a, b) => a + Number(b.nominal || 0), 0);
+            const totalBelanja = kasKebersihanList.filter(k => k.tipe === 'pengeluaran').reduce((a, b) => a + Number(b.nominal || 0), 0);
+            const saldoBersih = totalDenda - totalBelanja;
+            const canEdit = !isRecordKetuaAsrama(currentUser) && (hasDivisiAccess('kebersihan') || isRecordAdmin(currentUser));
+
+            const filteredList = kasKebersihanList.filter(k => {
+                if (kasKebersihanTab === 'denda') return k.tipe === 'denda';
+                if (kasKebersihanTab === 'pengeluaran') return k.tipe === 'pengeluaran';
+                return true;
+            }).sort((a, b) => String(b.tanggal || '').localeCompare(String(a.tanggal || '')));
+
+            return `
+                <div class="space-y-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white flex items-center gap-2">
+                                <i class="ph-bold ph-wallet text-emerald-400"></i> Kas, Denda Sampah & Pembelian Perlengkapan
+                            </h2>
+                            <p class="text-xs text-slate-300">
+                                Pembukuan denda buang sampah sembarangan dan belanja perlengkapan kebersihan (kertas minyak & kresek).
+                            </p>
+                        </div>
+                        ${canEdit ? `
+                            <button onclick="openTambahKasKebersihanModal()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-900/30">
+                                <i class="ph-bold ph-plus-circle"></i> + Catat Transaksi Kas
+                            </button>
+                        ` : ''}
+                    </div>
+
+                    <!-- Ringkasan Kas -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div class="p-4 rounded-2xl bg-asrama-card border border-asrama-border">
+                            <span class="text-slate-400 text-xs block">Total Denda Masuk</span>
+                            <span class="text-lg font-black text-emerald-400">${formatRupiah(totalDenda)}</span>
+                        </div>
+                        <div class="p-4 rounded-2xl bg-asrama-card border border-asrama-border">
+                            <span class="text-slate-400 text-xs block">Pengeluaran Perlengkapan</span>
+                            <span class="text-lg font-black text-amber-400">${formatRupiah(totalBelanja)}</span>
+                        </div>
+                        <div class="p-4 rounded-2xl bg-asrama-card border border-asrama-border">
+                            <span class="text-slate-400 text-xs block">Saldo Kas Kebersihan</span>
+                            <span class="text-lg font-black ${saldoBersih >= 0 ? 'text-teal-400' : 'text-rose-400'}">${formatRupiah(saldoBersih)}</span>
+                        </div>
+                    </div>
+
+                    <!-- Filter Tab & Tabel -->
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
+                        <div class="flex items-center gap-2 border-b border-asrama-border pb-3">
+                            <button onclick="kasKebersihanTab = 'semua'; renderCurrentPage();" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${kasKebersihanTab === 'semua' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-asrama-bg border border-asrama-border text-slate-400 hover:text-white'}">
+                                Semua Riwayat (${kasKebersihanList.length})
+                            </button>
+                            <button onclick="kasKebersihanTab = 'denda'; renderCurrentPage();" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${kasKebersihanTab === 'denda' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-asrama-bg border border-asrama-border text-slate-400 hover:text-white'}">
+                                Denda Sampah
+                            </button>
+                            <button onclick="kasKebersihanTab = 'pengeluaran'; renderCurrentPage();" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${kasKebersihanTab === 'pengeluaran' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-asrama-bg border border-asrama-border text-slate-400 hover:text-white'}">
+                                Belanja Perlengkapan
+                            </button>
+                        </div>
+
+                        ${filteredList.length === 0 ? `
+                            <div class="py-12 text-center text-xs text-slate-400">Belum ada transaksi kas kebersihan yang dicatat.</div>
+                        ` : `
+                            <div class="space-y-2.5">
+                                ${filteredList.map(k => `
+                                    <div class="p-3.5 rounded-xl bg-asrama-bg border border-asrama-border flex items-center justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${k.tipe === 'denda' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">
+                                                    ${k.tipe === 'denda' ? 'Denda Sampah' : 'Belanja'}
+                                                </span>
+                                                <span class="text-xs font-bold text-white truncate">${escapeHtml(k.keterangan)}</span>
+                                            </div>
+                                            <p class="text-[11px] text-slate-400 mt-1">${formatTanggalHari(k.tanggal)} ${k.dicatatOleh ? `• Dicatat oleh: ${escapeHtml(k.dicatatOleh)}` : ''}</p>
+                                        </div>
+                                        <div class="flex items-center gap-3 shrink-0">
+                                            <span class="text-sm font-black ${k.tipe === 'denda' ? 'text-emerald-400' : 'text-amber-400'}">
+                                                ${k.tipe === 'denda' ? '+' : '-'}${formatRupiah(k.nominal)}
+                                            </span>
+                                            ${canEdit ? `
+                                                <button onclick="hapusKasKebersihan('${k.id}')" class="p-1.5 rounded-lg bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 cursor-pointer" title="Hapus Catatan">
+                                                    <i class="ph ph-trash text-sm"></i>
+                                                </button>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function openTambahKasKebersihanModal() {
+            openModal(
+                'Catat Transaksi Kas Kebersihan',
+                `
+                <div class="space-y-3 text-left text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Jenis Transaksi *</label>
+                        <select id="kas-tipe" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg text-white focus:border-emerald-400">
+                            <option value="pengeluaran">Pembelian Kertas Minyak / Kresek / Perlengkapan (Pengeluaran)</option>
+                            <option value="denda">Denda Buang Sampah Sembarangan (Pemasukan)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Tanggal Transaksi *</label>
+                        <input id="kas-tgl" type="date" value="${getTodayIso()}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg text-white focus:border-emerald-400">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Keterangan Transaksi *</label>
+                        <input id="kas-ket" type="text" placeholder="Contoh: Beli kresek hitam 5 pak / Denda Kamar Granada" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg text-white focus:border-emerald-400">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Nominal (Rp) *</label>
+                        <input id="kas-nom" type="number" placeholder="Nominal (Rp)" value="20000" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg text-white focus:border-emerald-400">
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="saveKasKebersihan()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold cursor-pointer">Simpan Transaksi</button>
                 `
             );
         }
 
         async function saveKasKebersihan() {
-            const tipe = document.getElementById('kas-tipe').value;
-            const keterangan = document.getElementById('kas-ket').value.trim();
-            const nominal = Number(document.getElementById('kas-nom').value) || 0;
-            if (!keterangan || nominal <= 0) return;
-            await window.FB.addDoc(window.FB.collection(window.FB.db, 'kas_kebersihan'), {
-                tanggal: getTodayIso(),
-                tipe,
-                keterangan,
-                nominal
-            });
-            closeModal();
-            showToast('Catatan kas kebersihan disimpan.', 'success');
+            const tipe = document.getElementById('kas-tipe')?.value;
+            const tanggal = document.getElementById('kas-tgl')?.value || getTodayIso();
+            const keterangan = (document.getElementById('kas-ket')?.value || '').trim();
+            const nominal = Number(document.getElementById('kas-nom')?.value) || 0;
+            if (!keterangan || nominal <= 0) {
+                showToast('Isi keterangan dan nominal transaksi!', 'error');
+                return;
+            }
+            try {
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'kas_kebersihan'), {
+                    tanggal,
+                    tipe,
+                    keterangan,
+                    nominal,
+                    dicatatOleh: currentUser.nama,
+                    createdAt: new Date().toISOString()
+                });
+                closeModal();
+                showToast('Catatan kas kebersihan disimpan.', 'success');
+                renderCurrentPage();
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal mencatat kas: ' + err.message, 'error');
+            }
+        }
+
+        async function hapusKasKebersihan(kasId) {
+            if (!confirm('Yakin ingin menghapus catatan kas ini?')) return;
+            try {
+                await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'kas_kebersihan', kasId));
+                showToast('Catatan kas berhasil dihapus.', 'info');
+                renderCurrentPage();
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menghapus kas: ' + err.message, 'error');
+            }
         }
 
         function renderDivKegiatan() {

@@ -145,14 +145,19 @@ function isRecipientEligible(userFields, eventPayload) {
         return false;
     }
 
-    // 3. Jadwal Roan Kebersihan -> Murobbi kamar-kamar yang bertugas roan
-    if (eventType === 'roan_baru') {
-        const targetSektor = normSektor(eventPayload.sektor);
-        const targetKamarStr = norm(eventPayload.kamar); // bisa koma atau "&", misal: "demak & granada"
-        if (targetKamarStr.includes(userKamar) || userKamar.includes(targetKamarStr)) {
-            if (!eventPayload.sektor || userSektor === targetSektor || eventPayload.sektor === 'Semua Sektor') {
-                return true;
-            }
+    // 3. Jadwal Roan Kebersihan -> Murobbi kamar-kamar yang bertugas roan & Divisi Kebersihan
+    if (eventType === 'roan_baru' || eventType === 'roan_reminder') {
+        if (isAdmin || isKetuaAsrama) return true;
+        // Divisi Kebersihan juga menerima pengingat
+        if (userDivisi.includes('kebersihan')) return true;
+        
+        // Cek kamar target (bisa string tunggal, gabungan, atau array)
+        const targetKamarArr = Array.isArray(eventPayload.kamarList) 
+            ? eventPayload.kamarList.map(k => norm(k)) 
+            : norm(eventPayload.kamar || '').split(/[,&/]/).map(k => k.trim()).filter(Boolean);
+
+        if (targetKamarArr.some(k => k === userKamar || userKamar.includes(k) || k.includes(userKamar))) {
+            return true;
         }
         return false;
     }
