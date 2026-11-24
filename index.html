@@ -1796,6 +1796,7 @@
                             ${navItem('murobbi_penilaian', 'ph-exam', 'Input & Pantau Penilaian', 'text-emerald-400')}
                             ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Izin Sakit, Pulang & Kembali', 'text-sky-400')}
                             ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Catatan Telat / Alpa', 'text-amber-400')}
+                            ${navItem('murobbi_pelanggaran_berat', 'ph-shield-warning', 'Pelanggaran Berat Kamar', 'text-rose-400')}
                         </div>
                     `;
                 } else {
@@ -1806,6 +1807,7 @@
                             ${navItem('murobbi_penilaian', 'ph-exam', 'Input & Pantau Penilaian', 'text-emerald-400')}
                             ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Izin Sakit, Pulang & Kembali', 'text-sky-400')}
                             ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Catatan Telat / Alpa', 'text-amber-400')}
+                            ${navItem('murobbi_pelanggaran_berat', 'ph-shield-warning', 'Pelanggaran Berat Kamar', 'text-rose-400')}
                         </div>
                     `;
                 }
@@ -2420,6 +2422,7 @@
                 case 'murobbi_presensi': container.innerHTML = renderMurobbiPresensi(); break;
                 case 'murobbi_izin': container.innerHTML = renderMurobbiIzin(); break;
                 case 'murobbi_pelanggaran': container.innerHTML = renderMurobbiPelanggaran(); break;
+                case 'murobbi_pelanggaran_berat': container.innerHTML = renderMurobbiPelanggaranBerat(); break;
                 case 'murobbi_penilaian': container.innerHTML = renderMurobbiPenilaian(); break;
                 case 'div_keamanan_izin': container.innerHTML = renderDivKeamananIzin(); break;
                 case 'div_keamanan_aset': container.innerHTML = renderDivKeamananAset(); break;
@@ -3092,13 +3095,29 @@
             return santriList.filter(s => isSameSektor(s.sektor, currentUser.sektor));
         }
 
+        function isPelanggaranKeamananRecord(pl) {
+            if (!pl) return false;
+            if (pl.tipe === 'pelanggaran_keamanan') return true;
+            if (pl.tipe === 'telat_kegiatan') return false;
+            // Deteksi data legacy: jika memiliki atribut tingkat, hukuman tanpa kegiatan sholat rutin, maka ini pelanggaran keamanan
+            if (pl.tingkat && pl.tingkat !== 'Ringan') return true;
+            if (pl.hukuman && !pl.kegiatan && !pl.istighfar) return true;
+            const jenis = String(pl.jenis || '').toLowerCase();
+            if (jenis.includes('hp') || jenis.includes('rokok') || jenis.includes('kabur') || jenis.includes('keluar') || jenis.includes('berkelahi') || jenis.includes('curi') || jenis.includes('sita')) return true;
+            return false;
+        }
+
         function getFilteredPelanggaranLog() {
-            const q = (pelLogSearchQuery || globalSearchQuery).toLowerCase();
+            const q = (pelLogSearchQuery || globalSearchQuery).toLowerCase().trim();
             return pelanggaranList.filter(pl => {
-                const inScope = (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser))
+                // BLOKIR 100%: jangan tampilkan pelanggaran tata tertib / keamanan di menu telat kegiatan
+                if (isPelanggaranKeamananRecord(pl)) return false;
+
+                const inScope = (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordAdminKantor(currentUser))
                     ? true
                     : isSameSektor(pl.sektor, currentUser.sektor);
                 if (!inScope) return false;
+
                 const mDate = !pelLogDateFilter || String(pl.tanggal || '').slice(0, 10) === pelLogDateFilter;
                 const mQ = !q
                     || String(pl.santriNama || '').toLowerCase().includes(q)
@@ -3358,6 +3377,7 @@
             try {
                 const promises = targets.map(s => {
                     return window.FB.addDoc(window.FB.collection(window.FB.db, 'pelanggaran'), {
+                        tipe: 'telat_kegiatan',
                         santriId: s.id,
                         santriNama: s.nama,
                         sektor: toCanonicalSektor(s.sektor),
@@ -3527,9 +3547,8 @@
             const isWideScope = isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || hasDivisiAccess('keamanan');
 
             return pelanggaranList.filter(pl => {
-                // Tampilkan catatan pelanggaran (yang memiliki atribut tingkat atau bukan telat sholat biasa)
-                const isPelanggaranRecord = !!pl.tingkat || (pl.hukuman && !pl.kegiatan) || (pl.jenis && !['Terlambat Berjamaah', 'Tidak Ikut Kegiatan'].includes(pl.jenis));
-                if (!isPelanggaranRecord) return false;
+                // BLOKIR 100%: jangan tampilkan telat kegiatan rutin/sholat di menu pelanggaran keamanan
+                if (!isPelanggaranKeamananRecord(pl)) return false;
 
                 const inScope = isWideScope ? true : isSameSektor(pl.sektor, currentUser.sektor);
                 if (!inScope) return false;
@@ -3799,6 +3818,7 @@
             try {
                 const promises = targets.map(async s => {
                     await window.FB.addDoc(window.FB.collection(window.FB.db, 'pelanggaran'), {
+                        tipe: 'pelanggaran_keamanan',
                         santriId: s.id,
                         santriNama: s.nama,
                         sektor: toCanonicalSektor(s.sektor),
@@ -4081,6 +4101,193 @@
             `;
         }
 
+
+        // ==========================================
+        // MENU MONITORING PELANGGARAN BERAT UNTUK MUROBBI KAMAR (READ-ONLY)
+        // ==========================================
+        let murobbiPelBeratSearch = '';
+        let murobbiPelBeratStatusFilter = 'ALL';
+
+        function getMurobbiKamarPelanggaranBeratList() {
+            const q = (murobbiPelBeratSearch || globalSearchQuery).toLowerCase().trim();
+            const myKamar = currentUser?.kamar;
+            const mySektor = currentUser?.sektor;
+
+            return pelanggaranList.filter(pl => {
+                // Hanya pelanggaran tata tertib/keamanan
+                if (!isPelanggaranKeamananRecord(pl)) return false;
+
+                // Khusus santri yang berada di kamar binaan Murobbi
+                const isMySantri = (myKamar && myKamar !== 'Semua Kamar')
+                    ? (pl.kamar === myKamar && isSameSektor(pl.sektor, mySektor))
+                    : isSameSektor(pl.sektor, mySektor);
+
+                if (!isMySantri && !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser)) return false;
+
+                let mStatus = true;
+                if (murobbiPelBeratStatusFilter === 'BELUM') {
+                    mStatus = !pl.selesai;
+                } else if (murobbiPelBeratStatusFilter === 'SELESAI') {
+                    mStatus = !!pl.selesai;
+                }
+
+                const mQ = !q
+                    || String(pl.santriNama || '').toLowerCase().includes(q)
+                    || String(pl.kamar || '').toLowerCase().includes(q)
+                    || String(pl.jenis || '').toLowerCase().includes(q)
+                    || String(pl.keterangan || '').toLowerCase().includes(q)
+                    || String(pl.hukuman || '').toLowerCase().includes(q)
+                    || String(pl.tingkat || '').toLowerCase().includes(q)
+                    || String(pl.dicatatOleh || '').toLowerCase().includes(q);
+
+                return mStatus && mQ;
+            });
+        }
+
+        function updateMurobbiPelBeratSearch(val) {
+            murobbiPelBeratSearch = val;
+            const list = getMurobbiKamarPelanggaranBeratList();
+            const box = document.getElementById('murobbi-pel-berat-container');
+            const cnt = document.getElementById('murobbi-pel-berat-count');
+            if (box) box.innerHTML = renderMurobbiKamarPelanggaranCards(list);
+            if (cnt) cnt.textContent = list.length;
+        }
+
+        function renderMurobbiKamarPelanggaranCards(list) {
+            if (list.length === 0) {
+                return `
+                    <div class="p-8 text-center bg-asrama-card border border-asrama-border rounded-2xl text-slate-400 space-y-2">
+                        <i class="ph-bold ph-shield-check text-4xl text-emerald-400 block"></i>
+                        <p class="text-sm font-bold text-white">Alhamdulillah, Tidak Ada Pelanggaran Berat</p>
+                        <p class="text-xs">Santri di kamar binaan Anda tidak memiliki catatan pelanggaran tata tertib / kedisiplinan di Divisi Keamanan.</p>
+                    </div>
+                `;
+            }
+
+            return list.map(pl => {
+                const isSelesai = pl.selesai === true;
+                const tingkat = pl.tingkat || 'Sedang';
+                let badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+                if (tingkat === 'Berat' || tingkat === 'Sangat Berat') {
+                    badgeColor = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+                }
+
+                return `
+                    <div class="p-4 rounded-xl bg-asrama-bg border ${isSelesai ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-rose-500/30 bg-rose-500/5'} space-y-2.5">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="space-y-1 min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="text-xs font-bold text-white">${escapeHtml(pl.santriNama)}</span>
+                                    <span class="px-2 py-0.5 rounded bg-asrama-card border border-asrama-border text-emerald-300 text-[10px] font-bold">${escapeHtml(pl.kamar)}</span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${badgeColor}">${tingkat}</span>
+                                    ${isSelesai 
+                                        ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold flex items-center gap-1"><i class="ph-bold ph-check"></i> Takzir Tuntas</span>` 
+                                        : `<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-bold flex items-center gap-1"><i class="ph-bold ph-hourglass"></i> Sedang Ditakzir</span>`}
+                                </div>
+                                <h4 class="text-xs font-bold text-rose-300">
+                                    ${escapeHtml(pl.jenis || 'Pelanggaran Kedisiplinan')}
+                                </h4>
+                            </div>
+
+                            <div class="shrink-0">
+                                <span class="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-asrama-card border border-asrama-border text-slate-400">
+                                    Wewenang: Divisi Keamanan
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- KRONOLOGI & BENTUK TAKZIRAN -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-2 border-t border-asrama-border/50">
+                            ${pl.keterangan ? `
+                                <div>
+                                    <span class="text-slate-400 text-[10px] block">Kronologi / Bukti Kasus:</span>
+                                    <p class="text-slate-300 text-[11px] leading-relaxed">${escapeHtml(pl.keterangan)}</p>
+                                </div>
+                            ` : '<div><span class="text-slate-500 text-[10px]">Tanpa catatan kronologi</span></div>'}
+
+                            <div class="bg-asrama-card/80 p-2.5 rounded-lg border border-asrama-border">
+                                <span class="text-rose-300 text-[10px] font-bold block flex items-center gap-1">
+                                    <i class="ph-bold ph-gavel"></i> Bentuk Takziran / Hukuman Pembinaan:
+                                </span>
+                                <p class="text-white text-[11px] font-semibold mt-0.5">
+                                    ${escapeHtml(pl.hukuman || 'Pembinaan Keamanan')}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400 pt-1 border-t border-asrama-border/40">
+                            <div>
+                                <span>Tanggal Kejadian: <strong class="text-slate-300">${formatTanggalHari(pl.tanggal)}</strong></span>
+                                ${pl.jam ? ` • ${pl.jam} WIB` : ''}
+                                <span> • Dicatat oleh: <strong class="text-slate-300">${escapeHtml(pl.dicatatOleh || 'Divisi Keamanan')}</strong></span>
+                            </div>
+                            ${isSelesai && pl.selesaiOleh ? `
+                                <div class="text-emerald-400 font-semibold flex items-center gap-1">
+                                    <i class="ph-bold ph-seal-check"></i> Diverifikasi tuntas oleh: ${escapeHtml(pl.selesaiOleh)}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderMurobbiPelanggaranBerat() {
+            const myKamar = currentUser?.kamar || 'Kamar Anda';
+            const list = getMurobbiKamarPelanggaranBeratList();
+            const totalAktif = list.filter(p => !p.selesai).length;
+            const totalSelesai = list.filter(p => p.selesai).length;
+
+            return `
+                <div class="space-y-5">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white">Pantau Pelanggaran Berat Anak Kamar — ${escapeHtml(myKamar)}</h2>
+                            <p class="text-xs text-slate-300">Catatan kasus pelanggaran tata tertib kedisiplinan yang ditangani Divisi Keamanan khusus untuk santri kamar binaan Anda.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="px-3 py-1 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs font-bold flex items-center gap-1.5">
+                                <i class="ph-bold ph-hourglass-high"></i> ${totalAktif} Perlu Dituntaskan
+                            </span>
+                            <span class="px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-bold flex items-center gap-1.5">
+                                <i class="ph-bold ph-check-circle"></i> ${totalSelesai} Tuntas
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-asrama-border/60 pb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="p-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                                    <i class="ph-bold ph-shield-warning text-lg"></i>
+                                </span>
+                                <div>
+                                    <h3 class="text-sm font-extrabold text-white">Daftar Kasus Santri Kamar ${escapeHtml(myKamar)}</h3>
+                                    <p class="text-[11px] text-slate-400">Dikelola dan diverifikasi penyelesaiannya oleh Divisi Keamanan</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <select onchange="murobbiPelBeratStatusFilter=this.value; renderCurrentPage();" class="px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white focus:outline-none focus:border-rose-400">
+                                    <option value="ALL" ${murobbiPelBeratStatusFilter === 'ALL' ? 'selected' : ''}>Semua Status</option>
+                                    <option value="BELUM" ${murobbiPelBeratStatusFilter === 'BELUM' ? 'selected' : ''}>Sedang Ditakzir (${totalAktif})</option>
+                                    <option value="SELESAI" ${murobbiPelBeratStatusFilter === 'SELESAI' ? 'selected' : ''}>Sudah Tuntas (${totalSelesai})</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="relative">
+                            <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                            <input type="text" oninput="updateMurobbiPelBeratSearch(this.value)" value="${escapeHtml(murobbiPelBeratSearch)}" placeholder="Cari santri, kasus pelanggaran, atau bentuk takziran..." class="w-full pl-8 pr-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white focus:outline-none focus:border-rose-400">
+                        </div>
+
+                        <div id="murobbi-pel-berat-container" class="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                            ${renderMurobbiKamarPelanggaranCards(list)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    
         function hapusPengurus(id) {
             const p = pengurusList.find(x => x.id === id);
             if (!p) return;
