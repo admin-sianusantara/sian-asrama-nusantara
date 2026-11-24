@@ -625,6 +625,7 @@
         let roanCurrentMonth = new Date().getMonth(); // 0-11
         let roanSelectedDate = getTodayIso();
         let roanViewMode = 'calendar'; // 'calendar' | 'list'
+        let roanSektorFilter = 'ALL';
         let roanSavedZonas = ['Lobi & Koridor Asrama', 'Halaman & Luar Asrama', 'Kamar Mandi & Tempat Wudhu', 'Musholla / Masjid Asrama'];
         let roanTemplateInstruksi = 'Wajib kumpul tepat waktu setelah sholat subuh di depan kantor asrama, membawa sapu lidi, kantong sampah & kain pel.';
         let kasKebersihanTab = 'semua'; // 'semua' | 'denda' | 'pengeluaran'
@@ -2358,7 +2359,8 @@
                         <select id="edit-p-divisi" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="keamanan" ${String(p.divisi).includes('keamanan') ? 'selected' : ''}>Divisi Keamanan</option>
                             <option value="kesehatan" ${String(p.divisi).includes('kesehatan') ? 'selected' : ''}>Divisi Kesehatan</option>
-                            <option value="kebersihan" ${String(p.divisi).includes('kebersihan') ? 'selected' : ''}>Divisi Kebersihan</option>
+                            <option value="kebersihan" ${String(p.divisi).includes('kebersihan') && p.ketuaUtamaDivisi !== 'kebersihan' ? 'selected' : ''}>Divisi Kebersihan (Lantai / Anggota)</option>
+                            <option value="ketua_kebersihan" ${p.ketuaUtamaDivisi === 'kebersihan' ? 'selected' : ''}>Ketua Divisi Kebersihan Asrama (Koordinator Semua Sektor)</option>
                             <option value="kegiatan" ${String(p.divisi).includes('kegiatan') ? 'selected' : ''}>Divisi Kegiatan</option>
                             <option value="semua" ${p.divisi === 'semua' ? 'selected' : ''}>Semua Divisi (Pimpinan)</option>
                         </select>
@@ -2377,8 +2379,12 @@
             const role = document.getElementById('edit-p-role').value;
             const sektor = document.getElementById('edit-p-sektor').value;
             const kamar = document.getElementById('edit-p-kamar').value;
-            const divisi = document.getElementById('edit-p-divisi').value;
+            const rawDivisi = document.getElementById('edit-p-divisi').value;
             if (!nama) return;
+
+            const isKetuaKeb = rawDivisi === 'ketua_kebersihan';
+            const finalDivisi = isKetuaKeb ? 'kebersihan' : rawDivisi;
+
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), {
                 nama,
                 role,
@@ -2386,13 +2392,15 @@
                 isKetuaLantai: role === 'ketua_sektor',
                 sektor: role === 'ketua_asrama' ? 'Semua Sektor' : sektor,
                 kamar: role === 'ketua_asrama' ? 'Semua Kamar' : kamar,
-                divisi,
+                divisi: finalDivisi,
+                ketuaUtamaDivisi: isKetuaKeb ? 'kebersihan' : '',
+                isKetuaKebersihanAsrama: isKetuaKeb,
                 status: 'approved'
             });
             closeModal();
             showToast('Perubahan role pengurus disimpan.', 'success');
         }
-        // CATATAN TELAT / ALPA (PILIH BANYAK SANTRI, KATEGORI TAKZIRAN ISTIGHFAR, 8 KEGIATAN BAKU & HAK HAPUS KEAMANAN)
+
         function getPelanggaranSantriPool() {
             if (!currentUser) return [];
             if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return santriList;
@@ -5581,7 +5589,13 @@
         // 14. DIVISI KEBERSIHAN: KALENDER & JADWAL ROAN (MULTI-KAMAR, ZONA, NOTIF & SHARE WA)
         // =========================================================================
         function renderDivKebersihanRoan() {
-            const canEdit = !isRecordKetuaAsrama(currentUser) && (hasDivisiAccess('kebersihan') || isRecordAdmin(currentUser));
+            const isKetuaKoord = isKetuaKebersihanAsrama(currentUser);
+            const mySektor = currentUser ? toCanonicalSektor(currentUser.sektor) : SEKTOR_ASRAMA[0];
+
+            // Tentukan apakah user bisa menambah jadwal:
+            // - Ketua Kebersihan Asrama / Admin / Ketua Asrama: bisa menjadwalkan semua sektor
+            // - Divisi Kebersihan Lantai: hanya bisa menjadwalkan kamar di lantainya
+            const canCreate = !isRecordKetuaAsrama(currentUser) && (hasDivisiAccess('kebersihan') || isRecordAdmin(currentUser));
 
             // Setup Data Kalender
             const year = roanCurrentYear;
@@ -5591,9 +5605,15 @@
 
             const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
+            // Filter data roan berdasarkan sektor jika dipilih filter
+            const filteredRoanList = roanList.filter(r => {
+                if (roanSektorFilter !== 'ALL' && !isSameSektor(r.sektor, roanSektorFilter)) return false;
+                return true;
+            });
+
             // Map jadwal roan berdasarkan tanggal ISO (YYYY-MM-DD)
             const roanMap = {};
-            roanList.forEach(r => {
+            filteredRoanList.forEach(r => {
                 const tgl = String(r.tanggal || '').slice(0, 10);
                 if (tgl) {
                     if (!roanMap[tgl]) roanMap[tgl] = [];
@@ -5605,21 +5625,36 @@
             const selectedList = roanMap[roanSelectedDate] || [];
 
             // Semua jadwal yang akan datang (urut tanggal)
-            const sortedRoan = [...roanList].sort((a, b) => String(a.tanggal || '').localeCompare(String(b.tanggal || '')));
+            const sortedRoan = [...filteredRoanList].sort((a, b) => String(a.tanggal || '').localeCompare(String(b.tanggal || '')));
 
             return `
                 <div class="space-y-6">
                     <!-- Header -->
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
                         <div>
-                            <h2 class="text-xl font-extrabold text-white flex items-center gap-2">
-                                <i class="ph-bold ph-calendar-check text-teal-400"></i> Kalender & Jadwal Piket Roan Asrama
-                            </h2>
-                            <p class="text-xs text-slate-300">
-                                Penjadwalan piket kebersihan santri, pembagian zona tugas, pengingat otomatis & broadcast WhatsApp.
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h2 class="text-xl font-extrabold text-white flex items-center gap-2">
+                                    <i class="ph-bold ph-calendar-check text-teal-400"></i> Kalender & Jadwal Piket Roan Asrama
+                                </h2>
+                                <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold ${isKetuaKoord ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-teal-500/20 text-teal-300 border border-teal-500/40'}">
+                                    ${isKetuaKoord ? 'Wewenang Penuh (Semua 6 Sektor)' : `Kebersihan Wilayah: ${formatShortSektor(mySektor)}`}
+                                </span>
+                            </div>
+                            <p class="text-xs text-slate-300 mt-1">
+                                ${isKetuaKoord 
+                                    ? 'Anda memiliki hak akses sebagai Koordinator/Ketua Kebersihan Asrama untuk menjadwalkan seluruh lantai & fasilitas publik.' 
+                                    : `Anda bertugas mengelola jadwal piket roan khusus wilayah <strong>${escapeHtml(mySektor)}</strong>.`}
                             </p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
+                            <!-- Filter Sektor (Jika Ketua Koordinator / Admin) -->
+                            ${isKetuaKoord ? `
+                                <select onchange="roanSektorFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-1.5 text-xs bg-asrama-card text-slate-200 focus:border-teal-400">
+                                    <option value="ALL" ${roanSektorFilter === 'ALL' ? 'selected' : ''}>Semua 6 Sektor</option>
+                                    ${SEKTOR_ASRAMA.map(s => `<option value="${s}" ${roanSektorFilter === s ? 'selected' : ''}>${s}</option>`).join('')}
+                                </select>
+                            ` : ''}
+
                             <div class="flex items-center bg-asrama-card border border-asrama-border rounded-xl p-1">
                                 <button onclick="roanViewMode = 'calendar'; renderCurrentPage();" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${roanViewMode === 'calendar' ? 'bg-teal-600 text-white shadow' : 'text-slate-400 hover:text-white'}">
                                     <i class="ph-bold ph-calendar"></i> Kalender
@@ -5628,7 +5663,7 @@
                                     <i class="ph-bold ph-list-dashes"></i> Daftar
                                 </button>
                             </div>
-                            ${canEdit ? `
+                            ${canCreate ? `
                                 <button onclick="openTambahRoanModal('${roanSelectedDate}')" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-teal-900/30 cursor-pointer">
                                     <i class="ph-bold ph-plus-circle"></i> + Buat Jadwal Roan
                                 </button>
@@ -5667,7 +5702,6 @@
                             <div class="grid grid-cols-7 gap-1.5">
                                 ${(() => {
                                     let cells = '';
-                                    // Empty cells before first day
                                     for (let i = 0; i < firstDayIndex; i++) {
                                         cells += '<div class="h-16 sm:h-20 rounded-xl bg-asrama-bg/30 border border-transparent"></div>';
                                     }
@@ -5722,7 +5756,7 @@
                                     <div class="py-12 text-center text-slate-400 space-y-2">
                                         <i class="ph ph-calendar-x text-4xl text-slate-500 block"></i>
                                         <p class="text-xs">Tidak ada jadwal roan di tanggal ini.</p>
-                                        ${canEdit ? `
+                                        ${canCreate ? `
                                             <button onclick="openTambahRoanModal('${roanSelectedDate}')" class="mt-2 text-xs font-bold text-teal-400 hover:underline">
                                                 + Tambahkan Jadwal di Tanggal Ini
                                             </button>
@@ -5730,12 +5764,12 @@
                                     </div>
                                 ` : `
                                     <div class="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-                                        ${selectedList.map(r => renderKartuRoanDetail(r, canEdit)).join('')}
+                                        ${selectedList.map(r => renderKartuRoanDetail(r)).join('')}
                                     </div>
                                 `}
                             </div>
 
-                            ${selectedList.length > 0 && canEdit ? `
+                            ${selectedList.length > 0 && canCreate ? `
                                 <div class="pt-3 border-t border-asrama-border/60">
                                     <button onclick="openTambahRoanModal('${roanSelectedDate}')" class="w-full py-2.5 rounded-xl bg-asrama-bg border border-dashed border-teal-500/40 hover:border-teal-400 text-teal-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors">
                                         <i class="ph-bold ph-plus"></i> Tambah Kamar / Sesi Lain di Tanggal Ini
@@ -5755,7 +5789,7 @@
                             <div class="p-8 text-center text-xs text-slate-400">Belum ada data jadwal roan.</div>
                         ` : `
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                                ${sortedRoan.map(r => renderKartuRoanDetail(r, canEdit)).join('')}
+                                ${sortedRoan.map(r => renderKartuRoanDetail(r)).join('')}
                             </div>
                         `}
                     </div>
@@ -5779,24 +5813,30 @@
                 roanCurrentMonth = 0;
                 roanCurrentYear++;
             } else {
-                roanCurrentMonth++;
+                roanCurrentMonth--;
             }
             renderCurrentPage();
         }
 
-        function renderKartuRoanDetail(r, canEdit) {
+        function renderKartuRoanDetail(r) {
             const isToday = String(r.tanggal || '').slice(0, 10) === getTodayIso();
-            const waktuLabel = r.waktu || '05:00 - 06:45 WIB';
-            const reminderLabel = r.reminderJam ? `Ingatkan Jam ${r.reminderJam} WIB` : 'Tanpa Pengingat Khusus';
+            const jamMulai = r.jamMulai || (r.waktu ? r.waktu.split('-')[0].trim() : '05:15');
             const zonaName = r.zona || r.area || 'Lingkungan Asrama';
+
+            // Hak Edit & Hapus:
+            // - Ketua Koordinator Asrama / Admin: bisa semua
+            // - Kebersihan Lantai: hanya jadwal di lantainya sendiri
+            const isKetuaKoord = isKetuaKebersihanAsrama(currentUser);
+            const mySektor = currentUser ? toCanonicalSektor(currentUser.sektor) : '';
+            const canModify = !isRecordKetuaAsrama(currentUser) && (isKetuaKoord || isRecordAdmin(currentUser) || (hasDivisiAccess('kebersihan') && isSameSektor(r.sektor, mySektor)));
 
             return `
                 <div class="p-4 rounded-2xl border ${isToday ? 'bg-teal-500/10 border-teal-500/50 shadow-md' : 'bg-asrama-bg border-asrama-border'} space-y-3 transition-colors">
                     <div class="flex items-start justify-between gap-2">
                         <div>
                             <div class="flex items-center gap-2 flex-wrap">
-                                <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-teal-500/20 text-teal-300 border border-teal-500/40">
-                                    <i class="ph-bold ph-clock"></i> ${escapeHtml(waktuLabel)}
+                                <span class="px-2.5 py-0.5 rounded-md text-[11px] font-extrabold bg-teal-500/20 text-teal-300 border border-teal-500/40 flex items-center gap-1">
+                                    <i class="ph-bold ph-play-circle text-teal-400"></i> Mulai Jam: ${escapeHtml(jamMulai)} WIB
                                 </span>
                                 ${isToday ? `<span class="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-500 text-slate-950 animate-pulse">HARI INI</span>` : ''}
                             </div>
@@ -5807,12 +5847,12 @@
                             ${r.murobbi ? `<p class="text-[11px] text-slate-400">Murobbi: <strong class="text-slate-200">${escapeHtml(r.murobbi)}</strong></p>` : ''}
                         </div>
 
-                        <!-- Aksi Share & Hapus -->
+                        <!-- Aksi Share, Edit & Hapus -->
                         <div class="flex items-center gap-1 shrink-0">
                             <button onclick="shareSingleRoanWa('${r.id}')" class="p-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all" title="Share Jadwal ke WhatsApp">
                                 <i class="ph-bold ph-whatsapp-logo text-base"></i>
                             </button>
-                            ${canEdit ? `
+                            ${canModify ? `
                                 <button onclick="openEditRoanModal('${r.id}')" class="p-2 rounded-xl bg-sky-500/20 hover:bg-sky-500 text-sky-300 hover:text-white border border-sky-500/30 text-xs font-bold cursor-pointer transition-all" title="Edit Jadwal">
                                     <i class="ph-bold ph-pencil-simple text-sm"></i>
                                 </button>
@@ -5838,7 +5878,7 @@
                         ${r.reminderJam ? `
                             <div class="flex items-center gap-1.5 text-[10px] text-amber-300 pt-1">
                                 <i class="ph-bold ph-bell"></i>
-                                <span>Pengingat Otomatis: Jam ${escapeHtml(r.reminderJam)} WIB</span>
+                                <span>Pengingat Otomatis di Hari-H: Jam ${escapeHtml(r.reminderJam)} WIB</span>
                             </div>
                         ` : ''}
                     </div>
@@ -5848,18 +5888,26 @@
 
         function openTambahRoanModal(defaultDate = null) {
             const targetDate = defaultDate || roanSelectedDate || getTodayIso();
+            const isKetuaKoord = isKetuaKebersihanAsrama(currentUser);
+            const mySektor = currentUser ? toCanonicalSektor(currentUser.sektor) : SEKTOR_ASRAMA[0];
+
             const zonaOptions = roanSavedZonas.map(z => `<option value="${escapeHtml(z)}">${escapeHtml(z)}</option>`).join('');
 
-            // Kamar options per sektor
+            // Filter sektor yang diizinkan untuk dijadwalkan:
+            // Jika Ketua Kebersihan Asrama / Admin: Semua sektor
+            // Jika Kebersihan Lantai: Terkunci di lantainya sendiri saja
+            const allowedSektors = isKetuaKoord ? SEKTOR_ASRAMA : [mySektor];
+
+            // Render opsi kamar sesuai sektor yang diizinkan
             const allKamarOpts = [];
-            SEKTOR_ASRAMA.forEach(sec => {
+            allowedSektors.forEach(sec => {
                 const kamars = kamarBySektor[sec] || [];
                 if (kamars.length > 0) {
-                    allKamarOpts.push(`<optgroup label="${sec}">`);
+                    if (allowedSektors.length > 1) allKamarOpts.push(`<optgroup label="${sec}">`);
                     kamars.forEach(k => {
-                        allKamarOpts.push(`<option value="${k.nama}" data-sektor="${sec}" data-murobbi="${escapeHtml(k.murobbi)}">${k.nama} (Murobbi: ${k.murobbi})</option>`);
+                        allKamarOpts.push(`<option value="${k.nama}" data-sektor="${sec}" data-murobbi="${escapeHtml(k.murobbi)}">${k.nama} (${formatShortSektor(sec)} • ${k.murobbi})</option>`);
                     });
-                    allKamarOpts.push(`</optgroup>`);
+                    if (allowedSektors.length > 1) allKamarOpts.push(`</optgroup>`);
                 }
             });
 
@@ -5867,23 +5915,36 @@
                 'Jadwalkan Piket Roan Asrama',
                 `
                 <div class="space-y-3.5 text-left text-xs">
-                    <!-- Tanggal & Waktu Pelaksanaan -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                            <label class="block font-semibold text-slate-200 mb-1">Tanggal Pelaksanaan *</label>
-                            <input id="roan-form-tgl" type="date" value="${targetDate}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                    <!-- Tanggal Pelaksanaan -->
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Tanggal Pelaksanaan *</label>
+                        <input id="roan-form-tgl" type="date" value="${targetDate}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                    </div>
+
+                    <!-- Jam Mulai Pelaksanaan (Start Time Preset & Time Picker) -->
+                    <div class="p-3 rounded-xl bg-asrama-card border border-asrama-border space-y-2">
+                        <label class="block font-bold text-white text-xs">Waktu Mulai Pelaksanaan (Start Time) *</label>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button type="button" onclick="setRoanStartHour('05:00')" class="roan-time-preset px-2.5 py-1 rounded-lg text-xs font-semibold bg-asrama-bg border border-asrama-border hover:border-teal-400 text-slate-300 cursor-pointer">05:00 WIB</button>
+                            <button type="button" onclick="setRoanStartHour('05:15')" class="roan-time-preset px-2.5 py-1 rounded-lg text-xs font-semibold bg-teal-500/20 border border-teal-500/50 text-teal-300 cursor-pointer">05:15 WIB (Default)</button>
+                            <button type="button" onclick="setRoanStartHour('05:30')" class="roan-time-preset px-2.5 py-1 rounded-lg text-xs font-semibold bg-asrama-bg border border-asrama-border hover:border-teal-400 text-slate-300 cursor-pointer">05:30 WIB</button>
+                            <button type="button" onclick="setRoanStartHour('16:00')" class="roan-time-preset px-2.5 py-1 rounded-lg text-xs font-semibold bg-asrama-bg border border-asrama-border hover:border-teal-400 text-slate-300 cursor-pointer">16:00 WIB</button>
+                            <button type="button" onclick="setRoanStartHour('16:30')" class="roan-time-preset px-2.5 py-1 rounded-lg text-xs font-semibold bg-asrama-bg border border-asrama-border hover:border-teal-400 text-slate-300 cursor-pointer">16:30 WIB</button>
                         </div>
-                        <div>
-                            <label class="block font-semibold text-slate-200 mb-1">Waktu / Sesi Pelaksanaan *</label>
-                            <input id="roan-form-waktu" type="text" value="05:00 - 06:45 WIB" placeholder="Contoh: 05:00 - 06:45 WIB" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                        <div class="flex items-center gap-2 pt-1">
+                            <span class="text-[11px] text-slate-400">Atur Jam Manual:</span>
+                            <input id="roan-form-jam-mulai" type="time" value="05:15" class="border border-asrama-border rounded-xl px-3 py-1.5 text-xs bg-asrama-bg text-white focus:border-teal-400 font-bold">
+                            <span class="text-xs text-slate-300 font-semibold">WIB</span>
                         </div>
                     </div>
 
-                    <!-- Pemilihan Kamar yang Bertugas -->
+                    <!-- Pemilihan Kamar yang Bertugas (Sesuai Hak Akses Lantai) -->
                     <div>
                         <div class="flex items-center justify-between mb-1">
                             <label class="font-semibold text-slate-200">Kamar yang Bertugas *</label>
-                            <span class="text-[10px] text-slate-400">Bisa memilih kamar dari daftar</span>
+                            <span class="text-[10px] text-teal-300 font-semibold">
+                                ${isKetuaKoord ? 'Semua Sektor Tersedia' : `Terkunci di ${formatShortSektor(mySektor)}`}
+                            </span>
                         </div>
                         <select id="roan-form-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
                             ${allKamarOpts.join('')}
@@ -5954,6 +6015,19 @@
             }
         }
 
+        function setRoanStartHour(jam) {
+            const inp = document.getElementById('roan-form-jam-mulai') || document.getElementById('roan-edit-jam-mulai');
+            if (inp) inp.value = jam;
+            // update highlight buttons
+            document.querySelectorAll('.roan-time-preset').forEach(btn => {
+                if (btn.textContent.includes(jam)) {
+                    btn.className = 'roan-time-preset px-2.5 py-1 rounded-lg text-xs font-semibold bg-teal-500/20 border border-teal-500/50 text-teal-300 cursor-pointer';
+                } else {
+                    btn.className = 'roan-time-preset px-2.5 py-1 rounded-lg text-xs font-semibold bg-asrama-bg border border-asrama-border hover:border-teal-400 text-slate-300 cursor-pointer';
+                }
+            });
+        }
+
         async function promptTambahZonaBaru() {
             const namaZona = prompt('Masukkan nama zona kebersihan baru (contoh: Rooftop Jemuran, Taman Belakang, Koridor Lt. 2):');
             if (!namaZona || !namaZona.trim()) return;
@@ -5970,7 +6044,6 @@
                     console.error('Gagal simpan zona:', e);
                 }
             }
-            // Update dropdown di modal jika sedang buka
             const zSelect = document.getElementById('roan-form-zona');
             if (zSelect) {
                 zSelect.innerHTML = roanSavedZonas.map(z => `<option value="${escapeHtml(z)}" ${z === clean ? 'selected' : ''}>${escapeHtml(z)}</option>`).join('') + '<option value="__CUSTOM__">+ Tulis Zona Custom Sendiri...</option>';
@@ -5979,7 +6052,7 @@
 
         async function saveJadwalRoanBaru() {
             const tanggal = document.getElementById('roan-form-tgl')?.value;
-            const waktu = (document.getElementById('roan-form-waktu')?.value || '05:00 - 06:45 WIB').trim();
+            const jamMulai = document.getElementById('roan-form-jam-mulai')?.value || '05:15';
             const kamarSelect = document.getElementById('roan-form-kamar');
             const kamar = kamarSelect?.value;
             const opt = kamarSelect?.selectedOptions[0];
@@ -6003,8 +6076,15 @@
                 return;
             }
 
+            // Validasi otorisasi: Jika Kebersihan Lantai, pastikan tidak menjadwalkan lantai orang lain
+            const isKetuaKoord = isKetuaKebersihanAsrama(currentUser);
+            const mySektor = currentUser ? toCanonicalSektor(currentUser.sektor) : '';
+            if (!isKetuaKoord && !isSameSektor(sektor, mySektor)) {
+                showToast(`Anda hanya berwenang menjadwalkan kamar di wilayah ${mySektor}!`, 'error');
+                return;
+            }
+
             try {
-                // Simpan template instruksi & zona jika checkbox aktif
                 if (saveTemplate && instruksi) {
                     roanTemplateInstruksi = instruksi;
                     await window.FB.setDoc(window.FB.doc(window.FB.db, 'settings', 'roan_config'), {
@@ -6013,11 +6093,11 @@
                     }, { merge: true });
                 }
 
-                // Tambahkan dokumen roan
                 const docRef = await window.FB.addDoc(window.FB.collection(window.FB.db, 'roan'), {
                     tanggal,
                     hari: formatTanggalHari(tanggal),
-                    waktu,
+                    jamMulai,
+                    waktu: `Mulai Jam ${jamMulai} WIB`,
                     sektor: toCanonicalSektor(sektor),
                     kamar,
                     murobbi,
@@ -6033,14 +6113,14 @@
                 roanSelectedDate = tanggal;
                 showToast(`Jadwal Roan untuk Kamar ${kamar} berhasil disimpan.`, 'success');
 
-                // Push Notifikasi ke Murobbi Kamar & Pengurus
+                // Push Notifikasi ke Murobbi Kamar & Divisi Kebersihan
                 if (notifSettings.roanKebersihan !== false) {
                     await sendServerPush({
                         eventType: 'roan_baru',
                         sektor: toCanonicalSektor(sektor),
                         kamar,
                         title: 'SIAN · Jadwal Roan Kebersihan',
-                        body: `Kamar ${kamar} dijadwalkan Roan pada hari ${formatTanggalHari(tanggal)} (${waktu}) di ${zona}.`,
+                        body: `Kamar ${kamar} (${formatShortSektor(sektor)}) dijadwalkan Roan hari ${formatTanggalHari(tanggal)} (Mulai Jam ${jamMulai} WIB) di ${zona}.`,
                         targetUrl: '/?nav=div_kebersihan_roan',
                         dedupId: `roan_${docRef.id}`
                     });
@@ -6050,7 +6130,7 @@
                         sektor: toCanonicalSektor(sektor),
                         kamar,
                         tipe: 'roan',
-                        pesan: `Jadwal Roan: ${formatTanggalHari(tanggal)} (${waktu}) di zona ${zona}.`,
+                        pesan: `Jadwal Roan: ${formatTanggalHari(tanggal)} (Mulai Jam ${jamMulai} WIB) di zona ${zona}.`,
                         targetPage: 'div_kebersihan_roan',
                         oleh: currentUser.nama,
                         dibaca: false,
@@ -6069,33 +6149,41 @@
             const r = roanList.find(x => x.id === roanId);
             if (!r) return;
 
+            const isKetuaKoord = isKetuaKebersihanAsrama(currentUser);
+            const mySektor = currentUser ? toCanonicalSektor(currentUser.sektor) : SEKTOR_ASRAMA[0];
+            const allowedSektors = isKetuaKoord ? SEKTOR_ASRAMA : [mySektor];
+
             const zonaOptions = roanSavedZonas.map(z => `<option value="${escapeHtml(z)}" ${(r.zona || r.area) === z ? 'selected' : ''}>${escapeHtml(z)}</option>`).join('');
 
-            // Kamar options per sektor
             const allKamarOpts = [];
-            SEKTOR_ASRAMA.forEach(sec => {
+            allowedSektors.forEach(sec => {
                 const kamars = kamarBySektor[sec] || [];
                 if (kamars.length > 0) {
-                    allKamarOpts.push(`<optgroup label="${sec}">`);
+                    if (allowedSektors.length > 1) allKamarOpts.push(`<optgroup label="${sec}">`);
                     kamars.forEach(k => {
-                        allKamarOpts.push(`<option value="${k.nama}" data-sektor="${sec}" data-murobbi="${escapeHtml(k.murobbi)}" ${r.kamar === k.nama ? 'selected' : ''}>${k.nama} (Murobbi: ${k.murobbi})</option>`);
+                        allKamarOpts.push(`<option value="${k.nama}" data-sektor="${sec}" data-murobbi="${escapeHtml(k.murobbi)}" ${r.kamar === k.nama ? 'selected' : ''}>${k.nama} (${formatShortSektor(sec)} • ${k.murobbi})</option>`);
                     });
-                    allKamarOpts.push(`</optgroup>`);
+                    if (allowedSektors.length > 1) allKamarOpts.push(`</optgroup>`);
                 }
             });
+
+            const curJamMulai = r.jamMulai || (r.waktu ? r.waktu.replace(/[^0-9:]/g, '').slice(0, 5) : '05:15') || '05:15';
 
             openModal(
                 `Edit Jadwal Roan — Kamar ${r.kamar}`,
                 `
                 <div class="space-y-3.5 text-left text-xs">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                            <label class="block font-semibold text-slate-200 mb-1">Tanggal Pelaksanaan *</label>
-                            <input id="roan-edit-tgl" type="date" value="${r.tanggal || ''}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
-                        </div>
-                        <div>
-                            <label class="block font-semibold text-slate-200 mb-1">Waktu / Sesi Pelaksanaan *</label>
-                            <input id="roan-edit-waktu" type="text" value="${escapeHtml(r.waktu || '05:00 - 06:45 WIB')}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                    <div>
+                        <label class="block font-semibold text-slate-200 mb-1">Tanggal Pelaksanaan *</label>
+                        <input id="roan-edit-tgl" type="date" value="${r.tanggal || ''}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-teal-400">
+                    </div>
+
+                    <div class="p-3 rounded-xl bg-asrama-card border border-asrama-border space-y-2">
+                        <label class="block font-bold text-white text-xs">Waktu Mulai Pelaksanaan (Start Time) *</label>
+                        <div class="flex items-center gap-2 pt-1">
+                            <span class="text-[11px] text-slate-400">Jam Mulai:</span>
+                            <input id="roan-edit-jam-mulai" type="time" value="${curJamMulai}" class="border border-asrama-border rounded-xl px-3 py-1.5 text-xs bg-asrama-bg text-white focus:border-teal-400 font-bold">
+                            <span class="text-xs text-slate-300 font-semibold">WIB</span>
                         </div>
                     </div>
 
@@ -6136,7 +6224,7 @@
 
         async function saveEditJadwalRoan(roanId) {
             const tanggal = document.getElementById('roan-edit-tgl')?.value;
-            const waktu = (document.getElementById('roan-edit-waktu')?.value || '05:00 - 06:45 WIB').trim();
+            const jamMulai = document.getElementById('roan-edit-jam-mulai')?.value || '05:15';
             const kamarSelect = document.getElementById('roan-edit-kamar');
             const kamar = kamarSelect?.value;
             const opt = kamarSelect?.selectedOptions[0];
@@ -6155,7 +6243,8 @@
                 await window.FB.updateDoc(window.FB.doc(window.FB.db, 'roan', roanId), {
                     tanggal,
                     hari: formatTanggalHari(tanggal),
-                    waktu,
+                    jamMulai,
+                    waktu: `Mulai Jam ${jamMulai} WIB`,
                     sektor: toCanonicalSektor(sektor),
                     kamar,
                     murobbi,
@@ -6195,7 +6284,7 @@
             if (!r) return;
 
             const tglFormatted = formatTanggalHari(r.tanggal);
-            const waktuStr = r.waktu || '05:00 - 06:45 WIB';
+            const jamMulai = r.jamMulai || (r.waktu ? r.waktu.split('-')[0].trim() : '05:15 WIB');
             const zonaStr = r.zona || r.area || 'Lingkungan Asrama';
             const instruksiStr = r.instruksi || 'Wajib hadir tepat waktu dan membawa perlengkapan kebersihan.';
 
@@ -6205,10 +6294,10 @@
 `🏠 *Kamar Bertugas*: Kamar ${r.kamar} (${formatShortSektor(r.sektor)})\n` +
 `👤 *Murobbi Kamar*: ${r.murobbi || '-'}\n` +
 `📅 *Hari/Tanggal*: ${tglFormatted}\n` +
-`⏰ *Waktu*: ${waktuStr}\n` +
+`⏰ *Waktu Mulai*: ${jamMulai} WIB\n` +
 `📍 *Zona / Area*: ${zonaStr}\n\n` +
 `📝 *Instruksi / Arahan*:\n${instruksiStr}\n\n` +
-`Mohon Murobbi kamar dapat mengondisikan santri binaannya agar siap tepat waktu. Terima kasih atas kerja samanya! 🙏\n\n` +
+`Mohon Murobbi kamar dapat mengondisikan santri binaannya agar hadir tepat waktu. Terima kasih atas kerja samanya! 🙏\n\n` +
 `_Divisi Kebersihan Asrama Nusantara_`;
 
             const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
@@ -6223,8 +6312,9 @@
 
             let daftarTugas = '';
             items.forEach((r, idx) => {
+                const jamMulai = r.jamMulai || (r.waktu ? r.waktu.split('-')[0].trim() : '05:15 WIB');
                 daftarTugas += `*[${idx + 1}] Kamar ${r.kamar} (${formatShortSektor(r.sektor)})*\n` +
-                               `  • Waktu: ${r.waktu || '05:00 - 06:45 WIB'}\n` +
+                               `  • Jam Mulai: ${jamMulai} WIB\n` +
                                `  • Zona: ${r.zona || r.area || 'Lingkungan Asrama'}\n` +
                                `  • Murobbi: ${r.murobbi || '-'}\n` +
                                (r.instruksi ? `  • Catatan: ${r.instruksi}\n` : '') +
@@ -6234,7 +6324,7 @@
             const text = 
 `🧹 *JADWAL PIKET ROAN ASRAMA NUSANTARA* 🧹\n` +
 `📅 *Hari/Tanggal*: ${tglFormatted}\n\n` +
-`Berikut pembagian tugas kamar yang bertugas hari ini:\n\n` +
+`Berikut pembagian tugas kamar yang bertugas:\n\n` +
 daftarTugas +
 `Mohon seluruh Murobbi kamar terkait dapat mengarahkan santri binaannya agar hadir tepat waktu. Terima kasih! 🙏\n\n` +
 `_Divisi Kebersihan Asrama Nusantara_`;
@@ -6243,9 +6333,6 @@ daftarTugas +
             window.open(url, '_blank');
         }
 
-        // =========================================================================
-        // 14b. MODUL KAS KEBERSIHAN: KERTAS MINYAK, KRESEK & DENDA SAMPAH
-        // =========================================================================
         function renderDivKebersihanKas() {
             const totalDenda = kasKebersihanList.filter(k => k.tipe === 'denda').reduce((a, b) => a + Number(b.nominal || 0), 0);
             const totalBelanja = kasKebersihanList.filter(k => k.tipe === 'pengeluaran').reduce((a, b) => a + Number(b.nominal || 0), 0);
