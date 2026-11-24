@@ -2536,6 +2536,12 @@
                                                     <span class="px-2 py-0.5 rounded bg-asrama-card border border-asrama-border text-emerald-300 text-[10px] font-bold ml-1.5">${escapeHtml(item.kamar)}</span>
                                                     <p class="text-[11px] text-slate-300 mt-0.5">Keluhan: <strong>${escapeHtml(item.keluhan)}</strong></p>
                                                     <p class="text-[10px] text-amber-400">Sesi Sebelumnya: <strong>${escapeHtml(item.sesiSebelumnya)}</strong> ➡️ Menuju: <strong class="text-amber-200 underline">${escapeHtml(item.targetSesiBerikutnya)}</strong></p>
+                                                    ${item.saranPeriksaMedis ? `
+                                                        <div class="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-[10px] text-rose-300 flex items-center gap-1.5 mt-1">
+                                                            <i class="ph-bold ph-first-aid text-rose-400 text-xs shrink-0"></i>
+                                                            <span><strong>Perhatian:</strong> Santri masih sakit hingga pagi ini. Mohon bawa santri periksa ke Poskestren / Faskes bila dirasa perlu.</span>
+                                                        </div>
+                                                    ` : ''}
                                                 </div>
                                             </div>
 
@@ -6174,11 +6180,17 @@
             const nowTime = getCurrentTimeHHMM();
             const nowMin = parseTimeToMinutes(nowTime);
 
-            // Batas waktu pergantian sesi konfirmasi:
-            // Sesi Sekolah -> Menuju Halaqoh Sore (muncul mulai jam 14:00 sampai 17:30)
-            // Sesi Halaqoh Sore -> Menuju Madin (muncul mulai jam 17:30 sampai 21:00)
+            // Tentukan jendela pergantian sesi konfirmasi:
+            // 1. Sesi Pagi Pergantian Hari (06:00 - 10:00 WIB): Santri yang kemarin masih sakit/belum sembuh -> Konfirmasi Sekolah Pagi & saran periksa medis
+            // 2. Sesi Siang/Sore (14:00 - 17:30 WIB): Sekolah -> Menuju Halaqoh Sore
+            // 3. Sesi Malam (17:30 - 22:00 WIB): Halaqoh Sore -> Menuju Madin
             let pergantianTarget = null;
-            if (nowMin >= parseTimeToMinutes('14:00') && nowMin < parseTimeToMinutes('17:30')) {
+            let isPergantianHari = false;
+
+            if (nowMin >= parseTimeToMinutes('06:00') && nowMin < parseTimeToMinutes('10:00')) {
+                pergantianTarget = { dari: 'Kemarin / Malam', ke: 'Sekolah', labelJam: '06:00 WIB' };
+                isPergantianHari = true;
+            } else if (nowMin >= parseTimeToMinutes('14:00') && nowMin < parseTimeToMinutes('17:30')) {
                 pergantianTarget = { dari: 'Sekolah', ke: 'Halaqoh Sore', labelJam: '14:30 WIB' };
             } else if (nowMin >= parseTimeToMinutes('17:30') && nowMin < parseTimeToMinutes('22:00')) {
                 pergantianTarget = { dari: 'Halaqoh Sore', ke: 'Madin', labelJam: '18:30 WIB' };
@@ -6186,34 +6198,48 @@
 
             if (!pergantianTarget) return [];
 
-            // Cari santri kamar murobbi yang izin sakit aktif hari ini
+            // Cari santri kamar murobbi yang izin sakit aktif
             return perizinanList.filter(p => {
                 if (p.jenis !== 'sakit') return false;
-                if (String(p.tanggal || '').slice(0, 10) !== today) return false;
                 if (p.status !== 'disetujui' && p.status !== 'menunggu') return false;
                 if (p.sudahSembuh) return false;
-                if (p.sakitSeharianPenuh) return false; // Sakit berat seharian penuh tidak diberondong notif per jam
+                if (p.sakitSeharianPenuh) return false;
 
                 // Cocokkan sektor & kamar murobbi
                 if (!isSameSektor(p.sektor, currentUser.sektor)) return false;
                 if (currentUser.kamar && currentUser.kamar !== 'Semua Kamar' && p.kamar !== currentUser.kamar) return false;
 
-                // Periksa apakah sesi sebelumnya sudah tercover tapi sesi berikutnya belum dikonfirmasi
+                const tglIzin = String(p.tanggal || '').slice(0, 10);
                 const sesiList = Array.isArray(p.kegiatanSakitList) ? p.kegiatanSakitList : [p.targetKegiatan || 'Sekolah'];
-                const sudahTercoverDari = sesiList.includes(pergantianTarget.dari);
-                const sudahTerkonfirmasiKe = sesiList.includes(pergantianTarget.ke);
 
-                // Perlu konfirmasi jika sesi sebelumnya aktif dan belum dikonfirmasi lanjut atau sembuh
-                return sudahTercoverDari && !sudahTerkonfirmasiKe;
-            }).map(p => ({
-                izin: p,
-                santriId: p.santriId,
-                santriNama: p.santriNama,
-                kamar: p.kamar,
-                keluhan: p.kategori,
-                targetSesiBerikutnya: pergantianTarget.ke,
-                sesiSebelumnya: pergantianTarget.dari
-            }));
+                if (isPergantianHari) {
+                    // Kasus pergantian hari: tanggal izin kemarin atau sebelum hari ini DAN santri belum ditandai sembuh
+                    // Atau tanggal izin hari ini tapi sesi Sekolah belum dikonfirmasi
+                    const isFromPreviousDay = tglIzin < today;
+                    const isTodayNotConfirmedSchool = (tglIzin === today && !sesiList.includes('Sekolah'));
+                    return isFromPreviousDay || isTodayNotConfirmedSchool;
+                } else {
+                    // Kasus siang/malam hari ini
+                    if (tglIzin !== today) return false;
+                    const sudahTercoverDari = sesiList.includes(pergantianTarget.dari);
+                    const sudahTerkonfirmasiKe = sesiList.includes(pergantianTarget.ke);
+                    return sudahTercoverDari && !sudahTerkonfirmasiKe;
+                }
+            }).map(p => {
+                const tglIzin = String(p.tanggal || '').slice(0, 10);
+                const lamaHari = tglIzin < today ? ' (Lanjutan Kemarin)' : '';
+                return {
+                    izin: p,
+                    santriId: p.santriId,
+                    santriNama: p.santriNama,
+                    kamar: p.kamar,
+                    keluhan: p.kategori,
+                    targetSesiBerikutnya: pergantianTarget.ke,
+                    sesiSebelumnya: pergantianTarget.dari + lamaHari,
+                    isPagiHari: isPergantianHari,
+                    saranPeriksaMedis: isPergantianHari // Jika sakit berlanjut dari kemarin, sangat disarankan periksa
+                };
+            });
         }
 
         async function konfirmasiSantriSudahSehat(izinId, santriId) {
@@ -6264,6 +6290,7 @@
 
         async function konfirmasiLanjutSakitKeSesi(izinId, sesiBerikutnya) {
             const nowTime = getCurrentTimeHHMM();
+            const today = getTodayIso();
             showLoading(`Memperpanjang izin sakit ke sesi ${sesiBerikutnya}...`);
             try {
                 const izin = perizinanList.find(x => x.id === izinId);
@@ -6275,16 +6302,17 @@
                 }
 
                 const updatedTarget = currentList.join(', ');
+                const isCrossDay = String(izin.tanggal || '').slice(0, 10) < today;
 
                 // Update data izin parent (anti dobel, 1 rekor terpadu)
                 await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), {
                     kegiatanSakitList: currentList,
                     targetKegiatan: updatedTarget,
                     terakhirDiperpanjangKe: sesiBerikutnya,
-                    statusPerkembangan: `Masih Sakit (Diperpanjang ke ${sesiBerikutnya} pk ${nowTime})`,
+                    statusPerkembangan: `Masih Sakit (Diperpanjang ke ${sesiBerikutnya} pk ${nowTime}${isCrossDay ? ', hari berikutnya' : ''})`,
                     riwayatTimeline: [
                         ...(izin.riwayatTimeline || []),
-                        { jam: nowTime, status: `Diperpanjang ke sesi ${sesiBerikutnya}`, oleh: currentUser.nama }
+                        { tanggal: today, jam: nowTime, status: `Diperpanjang ke sesi ${sesiBerikutnya}${isCrossDay ? ' (Lanjutan Pagi)' : ''}`, oleh: currentUser.nama }
                     ]
                 });
 
