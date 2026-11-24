@@ -939,8 +939,13 @@
             return u.isKetuaAsrama === true || u.role === 'ketua_asrama';
         }
 
+        function isRecordAdminKantor(u) {
+            if (!u || isRecordAdmin(u)) return false;
+            return u.isAdminKantor === true || u.role === 'admin_kantor' || String(u.divisi || '').toLowerCase() === 'kantor';
+        }
+
         function isRecordKetuaLantai(u) {
-            if (!u || isRecordAdmin(u) || isRecordKetuaAsrama(u)) return false;
+            if (!u || isRecordAdmin(u) || isRecordKetuaAsrama(u) || isRecordAdminKantor(u)) return false;
             return u.isKetuaLantai === true || u.role === 'ketua_sektor';
         }
 
@@ -1050,6 +1055,9 @@
             } else if (isRecordKetuaAsrama(currentUser)) {
                 count += perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangKeluarga(p)).length;
                 count += pindahKamarList.filter(p => p.status === 'menunggu').length;
+            } else if (isRecordAdminKantor(currentUser)) {
+                // Santri yang izin pulang disetujui tapi belum distempel kantor
+                count += perizinanList.filter(p => isIzinPulangRecord(p) && p.status === 'disetujui' && !p.stempelKantor && !p.sudahKembali).length;
             } else if (isRecordKetuaLantai(currentUser)) {
                 count += perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangKeluarga(p) && isIzinInSektor(p, currentUser.sektor)).length;
                 count += pindahKamarList.filter(p => p.status === 'menunggu' && (isSameSektor(p.sektorAsal, currentUser.sektor) || isSameSektor(p.sektorTujuan, currentUser.sektor))).length;
@@ -1432,8 +1440,9 @@
             if (!u) return '-';
             if (isRecordAdmin(u)) return 'Administrator Pusat';
             if (isRecordKetuaAsrama(u)) return 'Ketua Asrama Nusantara';
+            if (isRecordAdminKantor(u)) return 'Admin Kantor Asrama';
             const isKetua = isRecordKetuaLantai(u);
-            const kmr = (u.kamar && u.kamar !== 'Semua Kamar') ? u.kamar : '';
+            const kmr = (u.kamar && u.kamar !== 'Semua Kamar' && u.kamar !== 'Tanpa Kamar Binaan') ? u.kamar : '';
             if (isKetua) {
                 return kmr ? `Ketua Sektor & Murobbi (${kmr})` : `Ketua Sektor (${formatShortSektor(u.sektor)})`;
             }
@@ -1441,7 +1450,10 @@
                 keamanan: 'Divisi Keamanan',
                 kesehatan: 'Divisi Kesehatan',
                 kebersihan: 'Divisi Kebersihan',
-                kegiatan: 'Divisi Kegiatan'
+                kegiatan: 'Divisi Kegiatan',
+                pimpinan: 'Pimpinan Asrama',
+                kantor: 'Admin Kantor Asrama',
+                semua: 'Pimpinan Asrama'
             };
             const dLow = String(u.divisi || '').toLowerCase();
             return divMap[dLow] || u.divisi || 'Murobbi Kamar';
@@ -1458,9 +1470,11 @@
                 ? 'Administrator Pusat • 6 Sektor'
                 : isRecordKetuaAsrama(currentUser)
                     ? 'Ketua Asrama • Seluruh 6 Sektor'
-                    : isRecordKetuaLantai(currentUser)
-                        ? `${formatShortSektor(currentUser.sektor)} • Ketua Sektor${currentUser.kamar && currentUser.kamar !== 'Semua Kamar' ? ` • ${currentUser.kamar}` : ''}`
-                        : `${formatShortSektor(currentUser.sektor)} • ${currentUser.kamar}`;
+                    : isRecordAdminKantor(currentUser)
+                        ? 'Admin Kantor Asrama • Seluruh 6 Sektor'
+                        : isRecordKetuaLantai(currentUser)
+                            ? `${formatShortSektor(currentUser.sektor)} • Ketua Sektor${currentUser.kamar && currentUser.kamar !== 'Semua Kamar' && currentUser.kamar !== 'Tanpa Kamar Binaan' ? ` • ${currentUser.kamar}` : ''}`
+                            : `${formatShortSektor(currentUser.sektor)} • ${currentUser.kamar}`;
 
             document.getElementById('mobile-role-subtitle').textContent = roleLabel;
             document.getElementById('user-avatar').textContent = inisial;
@@ -1469,9 +1483,11 @@
                 ? `<span class="text-amber-400 font-semibold">${roleLabel}</span> • Asrama Nusantara`
                 : isRecordKetuaAsrama(currentUser)
                     ? `<span class="text-emerald-400 font-semibold">${roleLabel}</span> • Semua Sektor`
-                    : isRecordKetuaLantai(currentUser)
-                        ? `${currentUser.kamar && currentUser.kamar !== 'Semua Kamar' ? `${currentUser.kamar} • ` : ''}<span class="text-emerald-400 font-semibold">${roleLabel}</span>`
-                        : `${currentUser.kamar} • <span class="text-emerald-400 font-semibold">${roleLabel}</span>`;
+                    : isRecordAdminKantor(currentUser)
+                        ? `<span class="text-cyan-400 font-semibold">${roleLabel}</span> • Kantor Asrama`
+                        : isRecordKetuaLantai(currentUser)
+                            ? `${currentUser.kamar && currentUser.kamar !== 'Semua Kamar' && currentUser.kamar !== 'Tanpa Kamar Binaan' ? `${currentUser.kamar} • ` : ''}<span class="text-emerald-400 font-semibold">${roleLabel}</span>`
+                            : `${currentUser.kamar} • <span class="text-emerald-400 font-semibold">${roleLabel}</span>`;
 
             updatePendingBadge();
         }
@@ -1579,8 +1595,8 @@
                 cachePerizinanMain = snap.docs.map(d => ({ id: d.id, _col: 'perizinan', ...d.data() }));
                 if (initialSyncDone.perizinan && currentUser) {
                     snap.docChanges().forEach(chg => {
+                        const p = { id: chg.doc.id, ...chg.doc.data() };
                         if (chg.type === 'added') {
-                            const p = { id: chg.doc.id, ...chg.doc.data() };
                             const key = `izin_${p.id}`;
                             if (p.status === 'menunggu' && !notifiedRecordIds.has(key)) {
                                 notifiedRecordIds.add(key);
@@ -1588,6 +1604,7 @@
                                 const isKeluarga = isIzinPulangKeluarga(p);
                                 let shouldNotify = false;
                                 if (isRecordAdmin(currentUser)) shouldNotify = true;
+                                else if (isRecordAdminKantor(currentUser)) shouldNotify = false;
                                 else if (isSakit) shouldNotify = !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) && hasDivisiAccess('kesehatan');
                                 else if (isKeluarga) shouldNotify = isRecordKetuaAsrama(currentUser) || (isRecordKetuaLantai(currentUser) && isIzinInSektor(p, currentUser.sektor));
                                 else shouldNotify = !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) && hasDivisiAccess('keamanan');
@@ -1596,6 +1613,20 @@
                                     triggerSystemNotification(
                                         isSakit ? 'Pengajuan Izin Sakit Baru' : (isKeluarga ? 'Izin Pulang (Acara Keluarga)' : 'Izin Pulang (Sakit)'),
                                         `${p.santriNama} (${p.kamar}) — ${p.kategori}`
+                                    );
+                                }
+                            }
+                        }
+
+                        // Notifikasi ke Admin Kantor Asrama saat izin pulang telah di-ACC (disetujui) dan siap distempel
+                        if (chg.type === 'added' || chg.type === 'modified') {
+                            if (isIzinPulangRecord(p) && p.status === 'disetujui' && !p.stempelKantor && !p.sudahKembali) {
+                                const accKey = `izin_acc_kantor_${p.id}`;
+                                if ((isRecordAdminKantor(currentUser) || isRecordAdmin(currentUser)) && !notifiedRecordIds.has(accKey)) {
+                                    notifiedRecordIds.add(accKey);
+                                    triggerSystemNotification(
+                                        'Izin Pulang Telah di-ACC · Siap Distempel',
+                                        `${p.santriNama} (${p.kamar}): Telah di-ACC ${p.diprosesOleh ? `oleh ${p.diprosesOleh}` : ''}. Santri siap mengurus stempel izin di kantor.`
                                     );
                                 }
                             }
@@ -1732,6 +1763,18 @@
                         ${navItem('div_kebersihan_roan', 'ph-calendar-check', 'Kalender & Jadwal Roan', 'text-teal-400')}
                         ${navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400')}
                         ${navItem('div_penilaian', 'ph-exam', 'Pantau Hasil Penilaian', 'text-emerald-400')}</div>
+                `;
+            } else if (isRecordAdminKantor(currentUser)) {
+                html += `
+                    <div class="space-y-1">
+                        <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-cyan-400 mb-1.5">Admin Kantor Asrama</p>
+                        ${navItem('admin_pulang', 'ph-stamp', 'Stempel & Monitoring Pulang', 'text-cyan-400')}
+                        ${navItem('admin_izin', 'ph-file-xls', 'Semua Izin Sakit & Pulang', 'text-sky-400')}
+                        ${navItem('admin_santri', 'ph-users-three', 'Data Santri (Semua Sektor)', 'text-emerald-400')}
+                        ${navItem('admin_info', 'ph-buildings', 'Info Kamar & Murobbi', 'text-emerald-400')}
+                        ${navItem('laporan_absen', 'ph-clipboard-text', 'Laporan Absen Semua Santri', 'text-teal-400')}
+                        ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Rekap Telat & Alpa', 'text-amber-400')}
+                    </div>
                 `;
             } else {
                 if (isRecordKetuaLantai(currentUser)) {
@@ -2310,6 +2353,8 @@
             if (isRecordAdmin(currentUser)) {
                 const pendingPengurus = pengurusList.filter(p => p.status === 'pending').length;
                 navigate(pendingPengurus > 0 ? 'admin_pengurus' : 'admin_izin');
+            } else if (isRecordAdminKantor(currentUser)) {
+                navigate('admin_pulang');
             } else if (isRecordKetuaAsrama(currentUser) || isRecordKetuaLantai(currentUser)) {
                 navigate('pimpinan_acc_pulang');
             } else if (hasDivisiAccess('keamanan')) {
@@ -2593,7 +2638,7 @@
                     || String(p.sektor || '').toLowerCase().includes(q)
                     || String(p.divisi || '').toLowerCase().includes(q))
                 .sort((a, b) => {
-                    const rank = u => isRecordKetuaAsrama(u) ? 1 : (isRecordKetuaLantai(u) ? 2 : 3);
+                    const rank = u => isRecordKetuaAsrama(u) ? 1 : (isRecordAdminKantor(u) ? 2 : (isRecordKetuaLantai(u) ? 3 : 4));
                     if (rank(a) !== rank(b)) return rank(a) - rank(b);
                     return String(a.nama || '').localeCompare(String(b.nama || ''));
                 });
@@ -2711,20 +2756,27 @@
                         <p class="text-[11px] text-slate-400">${escapeHtml(p.email)}</p>
                     </td>
                     <td class="py-3 px-4">
-                        ${p.noHp ? `
-                            <a href="https://wa.me/${cleanWaNumber(p.noHp)}" target="_blank" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-bold transition-colors">
-                                <i class="ph-bold ph-whatsapp-logo text-sm text-emerald-400"></i>
-                                <span>${formatDisplayPhone(p.noHp)}</span>
-                            </a>
-                        ` : `<span class="text-[11px] text-slate-500 italic">Belum diisi</span>`}
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            ${p.noHp ? `
+                                <a href="https://wa.me/${cleanWaNumber(p.noHp)}" target="_blank" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-bold transition-colors">
+                                    <i class="ph-bold ph-whatsapp-logo text-sm text-emerald-400"></i>
+                                    <span>${formatDisplayPhone(p.noHp)}</span>
+                                </a>
+                            ` : `
+                                <span class="text-[11px] text-slate-500 italic">Belum diisi</span>
+                            `}
+                            <button onclick="openQuickEditPengurusWaModal('${p.id}')" class="p-1 rounded-md text-slate-400 hover:text-emerald-300 hover:bg-emerald-500/10 cursor-pointer" title="Edit Nomor WhatsApp">
+                                <i class="ph-bold ph-pencil-simple text-xs"></i>
+                            </button>
+                        </div>
                     </td>
                     <td class="py-3 px-4">
-                        <span class="px-2.5 py-1 rounded-lg text-[11px] font-bold ${isRecordKetuaAsrama(p) ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : isRecordKetuaLantai(p) ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'}">
+                        <span class="px-2.5 py-1 rounded-lg text-[11px] font-bold ${isRecordKetuaAsrama(p) ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : isRecordAdminKantor(p) ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : isRecordKetuaLantai(p) ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'}">
                             ${getRoleBadgeLabel(p)}
                         </span>
                     </td>
-                    <td class="py-3 px-4 text-slate-300">${isRecordKetuaAsrama(p) ? 'Semua 6 Sektor' : `${formatShortSektor(p.sektor)} • ${escapeHtml(p.kamar || '-')}`}</td>
-                    <td class="py-3 px-4 text-slate-300 capitalize">${escapeHtml(p.divisi || '-')}</td>
+                    <td class="py-3 px-4 text-slate-300">${(isRecordKetuaAsrama(p) || isRecordAdminKantor(p)) ? 'Semua 6 Sektor (Kantor)' : `${formatShortSektor(p.sektor)} • ${escapeHtml(p.kamar || '-')}`}</td>
+                    <td class="py-3 px-4 text-slate-300 capitalize">${p.divisi === 'pimpinan' ? 'Pimpinan Asrama' : (p.divisi === 'kantor' ? 'Admin Kantor Asrama' : escapeHtml(p.divisi || '-'))}</td>
                     <td class="py-3 px-4 text-right space-x-1">
                         <button onclick="openEditPengurusModal('${p.id}')" class="px-2.5 py-1 rounded-lg bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[11px] font-semibold cursor-pointer">Edit Role</button>
                         <button onclick="hapusPengurus('${p.id}')" class="px-2.5 py-1 rounded-lg bg-red-500/15 text-red-300 border border-red-500/30 text-[11px] font-semibold cursor-pointer">Hapus</button>
@@ -2745,7 +2797,7 @@
                     || String(p.sektor || '').toLowerCase().includes(q)
                     || String(p.divisi || '').toLowerCase().includes(q))
                 .sort((a, b) => {
-                    const rank = u => isRecordKetuaAsrama(u) ? 1 : (isRecordKetuaLantai(u) ? 2 : 3);
+                    const rank = u => isRecordKetuaAsrama(u) ? 1 : (isRecordAdminKantor(u) ? 2 : (isRecordKetuaLantai(u) ? 3 : 4));
                     if (rank(a) !== rank(b)) return rank(a) - rank(b);
                     return String(a.nama || '').localeCompare(String(b.nama || ''));
                 });
@@ -2759,7 +2811,7 @@
             const p = pengurusList.find(x => x.id === id);
             if (!p) return;
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), { status });
-            if (status === 'approved' && !isRecordKetuaAsrama(p) && p.kamar && p.kamar !== 'Semua Kamar') {
+            if (status === 'approved' && !isRecordKetuaAsrama(p) && !isRecordAdminKantor(p) && p.kamar && p.kamar !== 'Semua Kamar' && p.kamar !== 'Tanpa Kamar Binaan') {
                 const canon = toCanonicalSektor(p.sektor);
                 if (kamarBySektor[canon]) {
                     const idx = kamarBySektor[canon].findIndex(k => k.nama === p.kamar);
@@ -2771,6 +2823,38 @@
                 }
             }
             showToast(`Status ${p.nama} diperbarui menjadi ${status}.`, 'success');
+        }
+
+        function handleRoleSelectionChange(prefix) {
+            const roleEl = document.getElementById(`${prefix}-role`);
+            const secWrap = document.getElementById(`${prefix}-sektor-kamar-wrap`);
+            const divEl = document.getElementById(`${prefix}-divisi`);
+            const noteEl = document.getElementById(`${prefix}-role-note`);
+            if (!roleEl) return;
+            const val = roleEl.value;
+
+            if (val === 'ketua_asrama') {
+                if (secWrap) secWrap.classList.add('hidden');
+                if (divEl) {
+                    divEl.value = 'pimpinan';
+                    divEl.disabled = true;
+                }
+                if (noteEl) noteEl.textContent = 'Ketua Asrama Nusantara berwenang atas seluruh 6 sektor, tanpa kamar binaan spesifik dan berstatus Pimpinan Asrama.';
+            } else if (val === 'admin_kantor') {
+                if (secWrap) secWrap.classList.add('hidden');
+                if (divEl) {
+                    divEl.value = 'kantor';
+                    divEl.disabled = true;
+                }
+                if (noteEl) noteEl.textContent = 'Admin Kantor Asrama bertugas di kantor pusat, menangani administrasi, stempel izin pulang, dan pemantauan tanpa mengampu kamar binaan.';
+            } else {
+                if (secWrap) secWrap.classList.remove('hidden');
+                if (divEl) {
+                    divEl.disabled = false;
+                    if (divEl.value === 'pimpinan' || divEl.value === 'kantor') divEl.value = 'keamanan';
+                }
+                if (noteEl) noteEl.textContent = val === 'ketua_sektor' ? 'Ketua Sektor tetap memegang kamar binaan sebagai Murobbi kamar dan koordinator 1 lantai.' : 'Murobbi bertugas membina kamar dan santri di lantainya.';
+            }
         }
 
         function openTambahPengurusModal() {
@@ -2788,15 +2872,20 @@
                         <input id="add-p-nama" type="text" placeholder="Ust. Ahmad Fauzi" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jabatan Utama / Tambahan *</label>
-                        <select id="add-p-role" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Nomor WhatsApp / HP *</label>
+                        <input id="add-p-no-hp" type="tel" placeholder="Contoh: 08123456789" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jabatan / Role *</label>
+                        <select id="add-p-role" onchange="handleRoleSelectionChange('add-p')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="murobbi">Murobbi Kamar</option>
                             <option value="ketua_sektor">Murobbi Kamar + Ketua Sektor (1 Lantai)</option>
                             <option value="ketua_asrama">Ketua Asrama Nusantara (Keseluruhan 6 Sektor)</option>
+                            <option value="admin_kantor">Admin Kantor Asrama (Pusat / Stempel Izin)</option>
                         </select>
-                        <p class="text-[10px] text-emerald-300/80 mt-1">Ketua Asrama Nusantara tidak memegang kamar binaan spesifik (fokus koordinasi 6 sektor). Ketua Sektor tetap memegang kamar binaan.</p>
+                        <p id="add-p-role-note" class="text-[10px] text-emerald-300/80 mt-1">Murobbi bertugas membina kamar dan santri di lantainya.</p>
                     </div>
-                    <div class="grid grid-cols-2 gap-2">
+                    <div id="add-p-sektor-kamar-wrap" class="grid grid-cols-2 gap-2">
                         <div>
                             <label class="block text-xs font-semibold text-slate-200 mb-1">Sektor Lantai</label>
                             <select id="add-p-sektor" onchange="updateKamarDropdown('add-p-sektor', 'add-p-kamar')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
@@ -2815,7 +2904,8 @@
                             <option value="kesehatan">Divisi Kesehatan</option>
                             <option value="kebersihan">Divisi Kebersihan</option>
                             <option value="kegiatan">Divisi Kegiatan</option>
-                            <option value="semua">Semua Divisi (Pimpinan)</option>
+                            <option value="pimpinan">Pimpinan Asrama</option>
+                            <option value="kantor">Admin Kantor Asrama</option>
                         </select>
                     </div>
                 </div>
@@ -2830,25 +2920,30 @@
         async function saveTambahPengurus() {
             const email = document.getElementById('add-p-email').value.trim().toLowerCase();
             const nama = document.getElementById('add-p-nama').value.trim();
+            const noHp = cleanWaNumber(document.getElementById('add-p-no-hp')?.value || '');
             const role = document.getElementById('add-p-role').value;
-            const sektor = document.getElementById('add-p-sektor').value;
-            const kamar = document.getElementById('add-p-kamar').value;
+            const sektor = document.getElementById('add-p-sektor')?.value || 'Semua Sektor';
+            const kamar = document.getElementById('add-p-kamar')?.value || 'Tanpa Kamar Binaan';
             const divisi = document.getElementById('add-p-divisi').value;
             if (!email || !nama) {
                 showToast('Email dan nama wajib diisi!', 'error');
                 return;
             }
+            const isKa = role === 'ketua_asrama';
+            const isAk = role === 'admin_kantor';
             const docId = email.replace(/[^a-z0-9]/g, '_');
             await window.FB.setDoc(window.FB.doc(window.FB.db, 'pengurus', docId), {
                 email,
                 nama,
+                noHp,
                 role,
                 isAdmin: false,
-                isKetuaAsrama: role === 'ketua_asrama',
+                isKetuaAsrama: isKa,
+                isAdminKantor: isAk,
                 isKetuaLantai: role === 'ketua_sektor',
-                sektor: role === 'ketua_asrama' ? 'Semua Sektor' : sektor,
-                kamar: role === 'ketua_asrama' ? 'Semua Kamar' : kamar,
-                divisi,
+                sektor: (isKa || isAk) ? 'Semua Sektor' : sektor,
+                kamar: (isKa || isAk) ? 'Tanpa Kamar Binaan' : kamar,
+                divisi: isKa ? 'pimpinan' : (isAk ? 'kantor' : divisi),
                 status: 'approved',
                 createdAt: new Date().toISOString()
             }, { merge: true });
@@ -2859,11 +2954,13 @@
         function openEditPengurusModal(id) {
             const p = pengurusList.find(x => x.id === id);
             if (!p) return;
-            const curRole = isRecordKetuaAsrama(p) ? 'ketua_asrama' : isRecordKetuaLantai(p) ? 'ketua_sektor' : 'murobbi';
+            const curRole = isRecordKetuaAsrama(p) ? 'ketua_asrama' : isRecordAdminKantor(p) ? 'admin_kantor' : isRecordKetuaLantai(p) ? 'ketua_sektor' : 'murobbi';
             const curSec = SEKTOR_ASRAMA.includes(toCanonicalSektor(p.sektor)) ? toCanonicalSektor(p.sektor) : SEKTOR_ASRAMA[0];
             const kamarOpts = (kamarBySektor[curSec] || []).map(k => `<option value="${k.nama}" ${k.nama === p.kamar ? 'selected' : ''}>${k.nama}</option>`).join('');
+            const curWa = p.noHp ? formatDisplayPhone(p.noHp) : '';
+
             openModal(
-                `Edit Role & Tugas — ${p.nama}`,
+                `Edit Akun & Role — ${p.nama}`,
                 `
                 <div class="space-y-3">
                     <div>
@@ -2871,15 +2968,21 @@
                         <input id="edit-p-nama" type="text" value="${escapeHtml(p.nama)}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jabatan Utama / Tambahan</label>
-                        <select id="edit-p-role" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Nomor WhatsApp / HP Pengurus</label>
+                        <input id="edit-p-no-hp" type="tel" value="${escapeHtml(curWa)}" placeholder="Contoh: 08123456789" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        <p class="text-[10px] text-slate-400 mt-1">Nomor WA ini terhubung langsung ke tombol kontak cepat dan informasi kamar.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Jabatan / Role</label>
+                        <select id="edit-p-role" onchange="handleRoleSelectionChange('edit-p')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="murobbi" ${curRole === 'murobbi' ? 'selected' : ''}>Murobbi Kamar</option>
                             <option value="ketua_sektor" ${curRole === 'ketua_sektor' ? 'selected' : ''}>Murobbi Kamar + Ketua Sektor (1 Lantai)</option>
                             <option value="ketua_asrama" ${curRole === 'ketua_asrama' ? 'selected' : ''}>Ketua Asrama Nusantara (Keseluruhan 6 Sektor)</option>
+                            <option value="admin_kantor" ${curRole === 'admin_kantor' ? 'selected' : ''}>Admin Kantor Asrama (Pusat / Stempel Izin)</option>
                         </select>
-                        <p class="text-[10px] text-emerald-300/80 mt-1">Ketua Sektor tetap memegang kamar binaan sebagai Murobbi kamar.</p>
+                        <p id="edit-p-role-note" class="text-[10px] text-emerald-300/80 mt-1">Ketua Sektor tetap memegang kamar binaan sebagai Murobbi kamar.</p>
                     </div>
-                    <div class="grid grid-cols-2 gap-2">
+                    <div id="edit-p-sektor-kamar-wrap" class="grid grid-cols-2 gap-2 ${(curRole === 'ketua_asrama' || curRole === 'admin_kantor') ? 'hidden' : ''}">
                         <div>
                             <label class="block text-xs font-semibold text-slate-200 mb-1">Sektor Lantai</label>
                             <select id="edit-p-sektor" onchange="updateKamarDropdown('edit-p-sektor', 'edit-p-kamar')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
@@ -2893,13 +2996,14 @@
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-200 mb-1">Divisi Tugas</label>
-                        <select id="edit-p-divisi" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        <select id="edit-p-divisi" ${(curRole === 'ketua_asrama' || curRole === 'admin_kantor') ? 'disabled' : ''} class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="keamanan" ${String(p.divisi).includes('keamanan') ? 'selected' : ''}>Divisi Keamanan</option>
                             <option value="kesehatan" ${String(p.divisi).includes('kesehatan') ? 'selected' : ''}>Divisi Kesehatan</option>
                             <option value="kebersihan" ${String(p.divisi).includes('kebersihan') && p.ketuaUtamaDivisi !== 'kebersihan' ? 'selected' : ''}>Divisi Kebersihan (Lantai / Anggota)</option>
                             <option value="ketua_kebersihan" ${p.ketuaUtamaDivisi === 'kebersihan' ? 'selected' : ''}>Ketua Divisi Kebersihan Asrama (Koordinator Semua Sektor)</option>
                             <option value="kegiatan" ${String(p.divisi).includes('kegiatan') ? 'selected' : ''}>Divisi Kegiatan</option>
-                            <option value="semua" ${p.divisi === 'semua' ? 'selected' : ''}>Semua Divisi (Pimpinan)</option>
+                            <option value="pimpinan" ${p.divisi === 'pimpinan' || curRole === 'ketua_asrama' ? 'selected' : ''}>Pimpinan Asrama</option>
+                            <option value="kantor" ${p.divisi === 'kantor' || curRole === 'admin_kantor' ? 'selected' : ''}>Admin Kantor Asrama</option>
                         </select>
                     </div>
                 </div>
@@ -2909,35 +3013,39 @@
                 <button onclick="saveEditPengurus('${id}')" class="px-4 py-2 rounded-xl bg-emerald-600 text-xs text-white font-bold cursor-pointer">Simpan Perubahan</button>
                 `
             );
+            handleRoleSelectionChange('edit-p');
         }
 
         async function saveEditPengurus(id) {
             const nama = document.getElementById('edit-p-nama').value.trim();
             const noHp = cleanWaNumber(document.getElementById('edit-p-no-hp')?.value || '');
             const role = document.getElementById('edit-p-role').value;
-            const sektor = document.getElementById('edit-p-sektor').value;
-            const kamar = document.getElementById('edit-p-kamar').value;
+            const sektor = document.getElementById('edit-p-sektor')?.value || 'Semua Sektor';
+            const kamar = document.getElementById('edit-p-kamar')?.value || 'Tanpa Kamar Binaan';
             const rawDivisi = document.getElementById('edit-p-divisi').value;
             if (!nama) return;
 
+            const isKa = role === 'ketua_asrama';
+            const isAk = role === 'admin_kantor';
             const isKetuaKeb = rawDivisi === 'ketua_kebersihan';
-            const finalDivisi = isKetuaKeb ? 'kebersihan' : rawDivisi;
+            const finalDivisi = isKa ? 'pimpinan' : (isAk ? 'kantor' : (isKetuaKeb ? 'kebersihan' : rawDivisi));
 
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), {
                 nama,
                 noHp,
                 role,
-                isKetuaAsrama: role === 'ketua_asrama',
+                isKetuaAsrama: isKa,
+                isAdminKantor: isAk,
                 isKetuaLantai: role === 'ketua_sektor',
-                sektor: role === 'ketua_asrama' ? 'Semua Sektor' : sektor,
-                kamar: role === 'ketua_asrama' ? 'Tanpa Kamar Binaan' : kamar,
+                sektor: (isKa || isAk) ? 'Semua Sektor' : sektor,
+                kamar: (isKa || isAk) ? 'Tanpa Kamar Binaan' : kamar,
                 divisi: finalDivisi,
                 ketuaUtamaDivisi: isKetuaKeb ? 'kebersihan' : '',
                 isKetuaKebersihanAsrama: isKetuaKeb,
                 status: 'approved'
             });
             closeModal();
-            showToast('Perubahan role pengurus disimpan.', 'success');
+            showToast('Perubahan role & nomor WhatsApp pengurus disimpan.', 'success');
         }
 
         function getPelanggaranSantriPool() {
@@ -3346,6 +3454,55 @@
             });
             navigator.clipboard?.writeText(teks);
             showToast('Rekap WA keterlambatan berhasil disalin!', 'success');
+        }
+
+        function hapusPengurus(id) {
+            const p = pengurusList.find(x => x.id === id);
+            if (!p) return;
+            openModal(
+                'Konfirmasi Hapus Akun Pengurus',
+                `
+                <div class="space-y-3">
+                    <p class="text-xs text-slate-300">Apakah Anda yakin ingin menghapus akun pengurus <strong>${escapeHtml(p.nama)}</strong> (${escapeHtml(p.email)})?</p>
+                    <p class="text-[11px] text-amber-300">Akun yang dihapus tidak akan dapat login lagi ke dalam SIAN kecuali didaftarkan kembali.</p>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="confirmHapusPengurus('${id}')" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs text-white font-bold cursor-pointer">Ya, Hapus Pengurus</button>
+                `
+            );
+        }
+
+        function openQuickEditPengurusWaModal(id) {
+            const p = pengurusList.find(x => x.id === id);
+            if (!p) return;
+            const curWa = p.noHp ? formatDisplayPhone(p.noHp) : '';
+            openModal(
+                `Kelola WhatsApp — ${p.nama}`,
+                `
+                <div class="space-y-3">
+                    <p class="text-xs text-slate-300">Pengurus: <strong class="text-white">${escapeHtml(p.nama)}</strong> (${getRoleBadgeLabel(p)})</p>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Nomor WhatsApp / HP Aktif</label>
+                        <input id="quick-p-no-hp" type="tel" value="${escapeHtml(curWa)}" placeholder="Contoh: 08123456789" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                        <p class="text-[10px] text-slate-400 mt-1">Nomor ini otomatis aktif pada tombol kontak WhatsApp di seluruh sistem.</p>
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="saveQuickEditPengurusWa('${id}')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold cursor-pointer">Simpan WhatsApp</button>
+                `
+            );
+        }
+
+        async function saveQuickEditPengurusWa(id) {
+            const raw = document.getElementById('quick-p-no-hp')?.value || '';
+            const noHp = cleanWaNumber(raw);
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), { noHp });
+            closeModal();
+            showToast('Nomor WhatsApp pengurus berhasil diperbarui.', 'success');
         }
 
         async function confirmHapusPengurus(id) {
@@ -5360,10 +5517,33 @@
                         ` : ''}
                     </div>
 
+                    <!-- Info Stempel Kantor Asrama -->
+                    ${p.stempelKantor ? `
+                        <div class="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between gap-2 text-xs text-cyan-200">
+                            <div class="flex items-center gap-2">
+                                <i class="ph-bold ph-stamp text-cyan-400 text-base"></i>
+                                <span>Distempel Kantor oleh <strong>${escapeHtml(p.stempelOleh || 'Admin Kantor')}</strong> pada ${formatTanggalHari(p.stempelTanggal || p.tanggal)} (${escapeHtml(p.stempelJam || '-')})</span>
+                            </div>
+                            ${isRecordAdminKantor(currentUser) || isRecordAdmin(currentUser) ? `
+                                <button onclick="batalStempelKantor('${p.id}')" class="text-[10px] text-slate-400 hover:text-red-300 cursor-pointer underline">Batal Stempel</button>
+                            ` : ''}
+                        </div>
+                    ` : (p.status === 'disetujui' && !sudahKembali ? `
+                        <div class="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-[11px] text-amber-300">
+                            <i class="ph-bold ph-hourglass-medium"></i>
+                            <span>Menunggu pengurusan stempel fisik di kantor asrama.</span>
+                        </div>
+                    ` : '')}
+
                     <div class="flex flex-wrap items-center gap-2 pt-1">
                         ${showPimpinanAccButtons && p.status === 'menunggu' ? `
                             <button onclick="prosesApprovalIzin('${p.id}', 'disetujui')" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Setujui (ACC)</button>
                             <button onclick="prosesApprovalIzin('${p.id}', 'ditolak')" class="px-3.5 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-bold cursor-pointer">Tolak</button>
+                        ` : ''}
+                        ${(p.status === 'disetujui' && !p.stempelKantor && !sudahKembali && (isRecordAdminKantor(currentUser) || isRecordAdmin(currentUser))) ? `
+                            <button onclick="prosesStempelKantor('${p.id}')" class="px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow">
+                                <i class="ph-bold ph-stamp text-sm"></i> Sudah Stempel Kantor
+                            </button>
                         ` : ''}
                         ${canKonfirmasiKembali ? `
                             <button onclick="openKonfirmasiKembaliModal('${p.id}')" class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
@@ -5373,6 +5553,73 @@
                     </div>
                 </div>
             `;
+        }
+
+        async function prosesStempelKantor(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            const colName = p._col || 'perizinan';
+            const now = new Date();
+            const jamNow = getCurrentTimeHHMM();
+            const tglNow = getTodayIso();
+
+            showLoading('Memproses stempel kantor & mengirim notifikasi ke Murobbi...');
+            try {
+                await window.FB.updateDoc(window.FB.doc(window.FB.db, colName, p.id), {
+                    stempelKantor: true,
+                    stempelOleh: currentUser.nama,
+                    stempelTanggal: tglNow,
+                    stempelJam: jamNow
+                });
+
+                // Notifikasi ke (HANYA) Murobbi kamar santri yang bersangkutan
+                const canonSec = toCanonicalSektor(p.sektor);
+                const pesanNotif = `Santri ${p.santriNama} (${p.kamar}) telah selesai melakukan stempel surat izin pulang di kantor asrama pada pukul ${jamNow} WIB oleh ${currentUser.nama}.`;
+
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
+                    santriNama: p.santriNama,
+                    sektor: canonSec,
+                    kamar: p.kamar,
+                    tipe: 'stempel_izin',
+                    pesan: pesanNotif,
+                    targetPage: 'murobbi_izin',
+                    oleh: currentUser.nama,
+                    dibaca: false,
+                    createdAt: now.toISOString()
+                });
+
+                // Server Push hanya ke sektor & kamar murobbi tersebut
+                await sendServerPush({
+                    eventType: 'stempel_izin_selesai',
+                    sektor: canonSec,
+                    kamar: p.kamar,
+                    title: 'SIAN · Santri Sudah Stempel Izin Pulang',
+                    body: pesanNotif,
+                    targetUrl: '/?nav=murobbi_izin',
+                    dedupId: `stempel_${p.id}_${Date.now()}`
+                });
+
+                hideLoading();
+                showToast(`Izin pulang ${p.santriNama} berhasil distempel. Notifikasi terkirim ke Murobbi Kamar.`, 'success');
+                renderCurrentPage();
+            } catch (err) {
+                hideLoading();
+                showToast('Gagal memproses stempel: ' + err.message, 'error');
+            }
+        }
+
+        async function batalStempelKantor(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            const colName = p._col || 'perizinan';
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, colName, p.id), {
+                stempelKantor: false,
+                stempelOleh: '',
+                stempelTanggal: '',
+                stempelJam: ''
+            });
+            showToast('Stempel kantor dibatalkan.', 'info');
+            renderCurrentPage();
         }
 
         async function submitPengajuanIzin() {
