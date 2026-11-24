@@ -177,16 +177,22 @@ function isRecipientEligible(userFields, eventPayload) {
         return false;
     }
 
-    if (eventType === 'pindah_kamar') {
+    if (eventType === 'pindah_kamar' || eventType === 'pengajuan_santri_baru') {
         if (isAdmin || isKetuaAsrama) return true;
-        const dariSektor = normSektor(eventPayload.dariSektor);
+        const dariSektor = normSektor(eventPayload.dariSektor || eventPayload.sektor);
         const keSektor = normSektor(eventPayload.keSektor);
-        const keKamar = norm(eventPayload.keKamar);
-        if (isKetuaLantai && (userSektor === dariSektor || userSektor === keSektor)) return true;
-        if (userSektor === keSektor && userKamar === keKamar) return true;
+        if (isKetuaLantai && (userSektor === dariSektor || (keSektor && userSektor === keSektor))) return true;
         return false;
     }
 
+    if (eventType === 'pengajuan_santri_acc') {
+        if (isAdmin || isKetuaAsrama) return true;
+        const targetSektor = normSektor(eventPayload.sektor);
+        const targetKamar = norm(eventPayload.kamar);
+        if (isKetuaLantai && userSektor === targetSektor) return true;
+        if (userSektor === targetSektor && userKamar === targetKamar) return true;
+        return false;
+    }
     return false;
 }
 

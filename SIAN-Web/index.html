@@ -618,6 +618,9 @@
         let adminIzinKamarFilter = 'ALL';
         let adminIzinKegiatanFilter = 'ALL';
         let adminIzinDateFilter = '';
+        let mutasiSantriTab = 'pindah'; // 'pindah' | 'hapus'
+        let mutasiSantriStatusFilter = 'ALL';
+        let mutasiSantriSearchQuery = '';
         let adminIzinStatusFilter = 'ALL';
         let adminIzinSearchQuery = '';
 
@@ -980,10 +983,13 @@
             if (isRecordAdmin(currentUser)) {
                 count += pengurusList.filter(p => isPengurusPending(p)).length;
                 count += perizinanList.filter(p => p.status === 'menunggu').length;
+                count += pindahKamarList.filter(p => p.status === 'menunggu').length;
             } else if (isRecordKetuaAsrama(currentUser)) {
                 count += perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangKeluarga(p)).length;
+                count += pindahKamarList.filter(p => p.status === 'menunggu').length;
             } else if (isRecordKetuaLantai(currentUser)) {
                 count += perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangKeluarga(p) && isIzinInSektor(p, currentUser.sektor)).length;
+                count += pindahKamarList.filter(p => p.status === 'menunggu' && (isSameSektor(p.sektorAsal, currentUser.sektor) || isSameSektor(p.sektorTujuan, currentUser.sektor))).length;
             } else {
                 if (hasDivisiAccess('keamanan')) {
                     count += perizinanList.filter(p => p.status === 'menunggu' && isIzinPulangRecord(p) && !isIzinPulangKeluarga(p)).length;
@@ -1638,6 +1644,7 @@
                         ${navItem('admin_info', 'ph-buildings', 'Info Kamar & Murobbi', 'text-emerald-400')}
                         ${navItem('admin_santri', 'ph-users-three', 'Data Santri & Import Excel', 'text-sky-400')}
                         ${navItem('laporan_absen', 'ph-clipboard-text', 'Laporan Absen Semua Santri', 'text-teal-400')}
+                        ${navItem('ketua_acc_santri', 'ph-user-switch', 'ACC Pindah & Hapus Santri', 'text-rose-400')}
                         ${navItem('pimpinan_acc_pulang', 'ph-seal-check', 'ACC Izin Pulang (Keluarga)', 'text-amber-400')}
                         ${navItem('admin_izin', 'ph-file-xls', 'Semua Izin Sakit & Pulang', 'text-sky-400')}
                         ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
@@ -1648,6 +1655,7 @@
                 html += `
                     <div class="space-y-1">
                         <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">Ketua Asrama Nusantara</p>
+                        ${navItem('ketua_acc_santri', 'ph-user-switch', 'ACC Pindah & Hapus Santri', 'text-rose-400')}
                         ${navItem('pimpinan_acc_pulang', 'ph-seal-check', 'ACC Izin Pulang (Keluarga)', 'text-amber-400')}
                         ${navItem('laporan_absen', 'ph-clipboard-text', 'Laporan Absen Semua Santri', 'text-emerald-400')}
                         ${navItem('admin_izin', 'ph-file-xls', 'Monitor Izin Sakit & Pulang', 'text-sky-400')}
@@ -1662,6 +1670,7 @@
                     html += `
                         <div class="space-y-1">
                             <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1.5">Wewenang Ketua Sektor</p>
+                            ${navItem('ketua_acc_santri', 'ph-user-switch', 'ACC Pindah & Hapus Santri', 'text-rose-400')}
                             ${navItem('pimpinan_acc_pulang', 'ph-seal-check', 'ACC Izin Pulang (Keluarga)', 'text-amber-400')}
                         </div>
                         <div class="space-y-1 pt-2 border-t border-asrama-border/60">
@@ -1792,6 +1801,7 @@
                 case 'admin_info': container.innerHTML = renderAdminInfoAsrama(); break;
                 case 'admin_santri': container.innerHTML = renderAdminSantri(); break;
                 case 'laporan_absen': container.innerHTML = renderLaporanAbsenSemua(); break;
+                case 'ketua_acc_santri': container.innerHTML = renderKetuaAccSantri(); break;
                 case 'pimpinan_acc_pulang': container.innerHTML = renderPimpinanAccPulang(); break;
                 case 'admin_izin': container.innerHTML = renderAdminIzin(); break;
                 case 'admin_pulang': container.innerHTML = renderAdminPulang(); break;
@@ -3538,28 +3548,108 @@
         function openHapusSantriModal(santriId) {
             const s = santriList.find(x => x.id === santriId);
             if (!s) return;
+            const isAdmin = isRecordAdmin(currentUser);
+
             openModal(
-                'Hapus Data Santri',
+                `Pengajuan Hapus Santri — ${s.nama}`,
                 `
-                <div class="space-y-3">
-                    <p class="text-xs text-slate-300">Apakah Anda yakin ingin menghapus data santri berikut secara permanen?</p>
-                    <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/35 text-xs text-red-200">
-                        <strong class="text-white text-sm block">${escapeHtml(s.nama)}</strong>
-                        <span>Kelas ${escapeHtml(s.kelas || '-')} • ${formatShortSektor(s.sektor)} • ${escapeHtml(s.kamar)}</span>
+                <div class="space-y-3 text-left">
+                    <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs">
+                        <p class="font-extrabold text-sm text-white">${escapeHtml(s.nama)}</p>
+                        <p class="text-rose-300 mt-0.5">Kelas ${escapeHtml(s.kelas || '-')} • ${formatShortSektor(s.sektor)} • ${escapeHtml(s.kamar)}</p>
+                    </div>
+
+                    <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 flex items-start gap-2">
+                        <i class="ph-bold ph-shield-warning text-base text-amber-400 shrink-0 mt-0.5"></i>
+                        <div>
+                            ${isAdmin ? 'Anda adalah Administrator. Anda dapat langsung menghapus santri secara permanen, atau mencatat pengajuan.' : 'Pengajuan hapus santri ini akan dikirimkan kepada <strong>Ketua Sektor</strong> atau <strong>Ketua Asrama / Admin</strong> untuk diverifikasi dan disetujui (ACC).'}
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Alasan Hapus / Keluar *</label>
+                        <select id="hapus-santri-alasan" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg text-slate-200 focus:border-rose-400">
+                            <option value="Berhenti / Mengundurkan Diri">Berhenti / Mengundurkan Diri</option>
+                            <option value="Pindah Sekolah / Pondok Lain">Pindah Sekolah / Pondok Lain</option>
+                            <option value="Lulus / Tamat Belajar">Lulus / Tamat Belajar</option>
+                            <option value="Data Ganda / Salah Input">Data Ganda / Salah Input</option>
+                            <option value="Pelanggaran Berat / Dikeluarkan">Pelanggaran Berat / Dikeluarkan</option>
+                            <option value="Lainnya">Lainnya</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-200 mb-1">Catatan Tambahan (Opsional)</label>
+                        <input id="hapus-santri-catatan" type="text" placeholder="Contoh: Sudah konfirmasi wali santri / mutasi per semester" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-rose-400">
                     </div>
                 </div>
                 `,
                 `
                 <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
-                <button onclick="confirmHapusSantri('${s.id}')" class="px-4 py-2 rounded-xl bg-red-600 text-xs text-white font-bold cursor-pointer">Ya, Hapus Santri</button>
+                ${isAdmin ? `
+                    <button onclick="confirmHapusSantriDirect('${s.id}')" class="px-3.5 py-2 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/40 text-xs font-bold cursor-pointer">Hapus Langsung (Admin)</button>
+                ` : ''}
+                <button onclick="submitPengajuanHapusSantri('${s.id}')" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs text-white font-bold cursor-pointer">Ajukan Hapus ke Ketua</button>
                 `
             );
         }
 
-        async function confirmHapusSantri(santriId) {
-            await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'santri', santriId));
-            closeModal();
-            showToast('Data santri berhasil dihapus.', 'info');
+        async function confirmHapusSantriDirect(santriId) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            if (!confirm(`Apakah Anda benar-benar yakin ingin menghapus santri ${s.nama} secara langsung?`)) return;
+            try {
+                await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'santri', santriId));
+                closeModal();
+                showToast(`Data santri ${s.nama} telah dihapus permanen.`, 'info');
+                renderCurrentPage();
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menghapus santri: ' + err.message, 'error');
+            }
+        }
+
+        async function submitPengajuanHapusSantri(santriId) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            const alasan = document.getElementById('hapus-santri-alasan')?.value || 'Berhenti / Mengundurkan Diri';
+            const catatan = (document.getElementById('hapus-santri-catatan')?.value || '').trim();
+
+            try {
+                const docRef = await window.FB.addDoc(window.FB.collection(window.FB.db, 'pengajuan_santri'), {
+                    tipe: 'hapus',
+                    santriId: s.id,
+                    santriNama: s.nama,
+                    kelas: s.kelas || '-',
+                    sektorAsal: toCanonicalSektor(s.sektor),
+                    kamarAsal: s.kamar,
+                    alasan: alasan,
+                    catatan: catatan,
+                    status: 'menunggu', // menunggu | disetujui | ditolak
+                    diajukanOlehEmail: currentUser.email,
+                    diajukanOlehNama: currentUser.nama,
+                    diajukanOlehRole: currentUser.role || 'murobbi',
+                    createdAt: new Date().toISOString()
+                });
+
+                closeModal();
+                showToast(`Pengajuan hapus ${s.nama} berhasil dikirim ke Ketua Sektor / Admin.`, 'success');
+
+                // Push Notification ke Ketua Sektor & Admin
+                await sendServerPush({
+                    eventType: 'pengajuan_santri_baru',
+                    sektor: toCanonicalSektor(s.sektor),
+                    title: 'SIAN · Pengajuan Hapus Santri',
+                    body: `${currentUser.nama} mengajukan hapus santri ${s.nama} (${s.kamar}) - Alasan: ${alasan}.`,
+                    targetUrl: '/?nav=ketua_acc_santri',
+                    dedupId: `pengajuan_hapus_${docRef.id}`
+                });
+
+                renderCurrentPage();
+            } catch (err) {
+                console.error('Gagal mengajukan hapus santri:', err);
+                showToast('Gagal mengajukan: ' + err.message, 'error');
+            }
         }
 
         function openPindahKamarModal(santriId) {
@@ -3567,29 +3657,338 @@
             if (!s) return;
             const canon = toCanonicalSektor(s.sektor) || SEKTOR_ASRAMA[0];
             const kamarOpts = (kamarBySektor[canon] || []).map(k => `<option value="${k.nama}" ${k.nama === s.kamar ? 'selected' : ''}>${k.nama} (${k.murobbi})</option>`).join('');
+            const isAdmin = isRecordAdmin(currentUser);
+
             openModal(
-                `Pindah Kamar — ${s.nama}`,
+                `Ajukan Pindah Kamar — ${s.nama}`,
                 `
-                <div class="space-y-3">
-                    <select id="move-santri-sektor" onchange="updateKamarDropdown('move-santri-sektor', 'move-santri-kamar')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                        ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${sec === canon ? 'selected' : ''}>${sec}</option>`).join('')}
-                    </select>
-                    <select id="move-santri-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">${kamarOpts}</select>
+                <div class="space-y-3 text-left">
+                    <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs">
+                        <p class="font-extrabold text-sm text-white">${escapeHtml(s.nama)}</p>
+                        <p class="text-amber-300 mt-0.5">Kamar Saat Ini: <strong>${escapeHtml(s.kamar)}</strong> (${formatShortSektor(s.sektor)})</p>
+                    </div>
+
+                    <p class="text-xs text-slate-300">Pilih sektor lantai dan kamar tujuan yang baru:</p>
+
+                    <div class="space-y-2">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-200 mb-1">Sektor Lantai Tujuan</label>
+                            <select id="move-santri-sektor" onchange="updateKamarDropdown('move-santri-sektor', 'move-santri-kamar')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-amber-400">
+                                ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${sec === canon ? 'selected' : ''}>${sec}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-200 mb-1">Kamar Tujuan</label>
+                            <select id="move-santri-kamar" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-amber-400">${kamarOpts}</select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-200 mb-1">Alasan Pindah Kamar (Opsional)</label>
+                            <input id="move-santri-alasan" type="text" placeholder="Contoh: Rekomendasi pembinaan / kesepakatan murobbi" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-amber-400">
+                        </div>
+                    </div>
+
+                    <div class="p-2.5 rounded-xl bg-asrama-card border border-asrama-border text-[11px] text-slate-300 flex items-start gap-2">
+                        <i class="ph-bold ph-info text-base text-sky-400 shrink-0 mt-0.5"></i>
+                        <span>Pengajuan pindah kamar memerlukan verifikasi dan persetujuan dari <strong>Ketua Sektor</strong> atau <strong>Ketua Asrama / Admin</strong>.</span>
+                    </div>
                 </div>
                 `,
                 `
                 <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
-                <button onclick="savePindahKamar('${s.id}')" class="px-4 py-2 rounded-xl bg-emerald-600 text-xs text-white font-bold cursor-pointer">Pindahkan</button>
+                ${isAdmin ? `
+                    <button onclick="savePindahKamarDirect('${s.id}')" class="px-3.5 py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 text-xs font-bold cursor-pointer">Pindahkan Langsung (Admin)</button>
+                ` : ''}
+                <button onclick="submitPengajuanPindahKamar('${s.id}')" class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-xs text-white font-bold cursor-pointer">Ajukan Pindah ke Ketua</button>
                 `
             );
         }
 
-        async function savePindahKamar(santriId) {
+        async function savePindahKamarDirect(santriId) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
             const sektor = document.getElementById('move-santri-sektor').value;
             const kamar = document.getElementById('move-santri-kamar').value;
-            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), { sektor, kamar });
-            closeModal();
-            showToast('Santri berhasil dipindahkan.', 'success');
+            try {
+                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', santriId), { sektor, kamar });
+                closeModal();
+                showToast(`Santri ${s.nama} berhasil dipindahkan ke ${kamar}.`, 'success');
+                renderCurrentPage();
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal memindahkan santri: ' + err.message, 'error');
+            }
+        }
+
+        async function submitPengajuanPindahKamar(santriId) {
+            const s = santriList.find(x => x.id === santriId);
+            if (!s) return;
+            const keSektor = document.getElementById('move-santri-sektor')?.value;
+            const keKamar = document.getElementById('move-santri-kamar')?.value;
+            const alasan = (document.getElementById('move-santri-alasan')?.value || '').trim();
+
+            if (!keSektor || !keKamar) {
+                showToast('Pilih sektor dan kamar tujuan!', 'error');
+                return;
+            }
+            if (isSameSektor(s.sektor, keSektor) && s.kamar === keKamar) {
+                showToast('Kamar tujuan sama dengan kamar saat ini!', 'error');
+                return;
+            }
+
+            try {
+                const docRef = await window.FB.addDoc(window.FB.collection(window.FB.db, 'pengajuan_santri'), {
+                    tipe: 'pindah',
+                    santriId: s.id,
+                    santriNama: s.nama,
+                    kelas: s.kelas || '-',
+                    sektorAsal: toCanonicalSektor(s.sektor),
+                    kamarAsal: s.kamar,
+                    sektorTujuan: toCanonicalSektor(keSektor),
+                    kamarTujuan: keKamar,
+                    alasan: alasan || 'Pengajuan pindah kamar oleh murobbi',
+                    status: 'menunggu', // menunggu | disetujui | ditolak
+                    diajukanOlehEmail: currentUser.email,
+                    diajukanOlehNama: currentUser.nama,
+                    diajukanOlehRole: currentUser.role || 'murobbi',
+                    createdAt: new Date().toISOString()
+                });
+
+                closeModal();
+                showToast(`Pengajuan pindah kamar untuk ${s.nama} berhasil dikirim ke Ketua Sektor / Admin.`, 'success');
+
+                // Push Notification ke Ketua Sektor & Admin
+                await sendServerPush({
+                    eventType: 'pengajuan_santri_baru',
+                    dariSektor: toCanonicalSektor(s.sektor),
+                    keSektor: toCanonicalSektor(keSektor),
+                    title: 'SIAN · Pengajuan Pindah Kamar',
+                    body: `${currentUser.nama} mengajukan pindah kamar ${s.nama}: ${s.kamar} -> ${keKamar}.`,
+                    targetUrl: '/?nav=ketua_acc_santri',
+                    dedupId: `pengajuan_pindah_${docRef.id}`
+                });
+
+                renderCurrentPage();
+            } catch (err) {
+                console.error('Gagal mengajukan pindah kamar:', err);
+                showToast('Gagal mengajukan: ' + err.message, 'error');
+            }
+        }
+
+        // =========================================================================
+        // 10b. MODUL OTORITAS & ACC PINDAH / HAPUS SANTRI (KETUA SEKTOR, KETUA ASRAMA & ADMIN)
+        // =========================================================================
+        function renderKetuaAccSantri() {
+            const isKetua = isRecordKetuaLantai(currentUser);
+            const isKa = isRecordKetuaAsrama(currentUser);
+            const isAdm = isRecordAdmin(currentUser);
+
+            const filteredList = pindahKamarList.filter(item => {
+                if (item.tipe !== mutasiSantriTab) return false;
+                if (mutasiSantriStatusFilter !== 'ALL' && item.status !== mutasiSantriStatusFilter) return false;
+
+                // Scope wilayah jika Ketua Sektor
+                if (isKetua) {
+                    const matchAsal = isSameSektor(item.sektorAsal, currentUser.sektor);
+                    const matchTujuan = isSameSektor(item.sektorTujuan, currentUser.sektor);
+                    if (!matchAsal && !matchTujuan) return false;
+                }
+
+                if (mutasiSantriSearchQuery) {
+                    const q = mutasiSantriSearchQuery.toLowerCase();
+                    const matchNama = String(item.santriNama || '').toLowerCase().includes(q);
+                    const matchKamar = String(item.kamarAsal || '').toLowerCase().includes(q) || String(item.kamarTujuan || '').toLowerCase().includes(q);
+                    const matchOleh = String(item.diajukanOlehNama || '').toLowerCase().includes(q);
+                    if (!matchNama && !matchKamar && !matchOleh) return false;
+                }
+                return true;
+            });
+
+            const pendingPindahCount = pindahKamarList.filter(p => p.tipe === 'pindah' && p.status === 'menunggu' && (!isKetua || (isSameSektor(p.sektorAsal, currentUser.sektor) || isSameSektor(p.sektorTujuan, currentUser.sektor)))).length;
+            const pendingHapusCount = pindahKamarList.filter(p => p.tipe === 'hapus' && p.status === 'menunggu' && (!isKetua || isSameSektor(p.sektorAsal, currentUser.sektor))).length;
+
+            return `
+                <div class="space-y-5">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white flex items-center gap-2">
+                                <i class="ph-bold ph-shield-check text-rose-400"></i> ACC & Otoritas Perubahan Santri
+                            </h2>
+                            <p class="text-xs text-slate-300">
+                                Verifikasi dan persetujuan pengajuan mutasi kamar dan penghapusan data santri oleh Murobbi.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Tabs: Pindah Kamar vs Hapus Santri -->
+                    <div class="flex items-center gap-2 border-b border-asrama-border pb-2">
+                        <button onclick="mutasiSantriTab = 'pindah'; renderCurrentPage();" class="px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-2 ${mutasiSantriTab === 'pindah' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-asrama-card border border-asrama-border text-slate-400 hover:text-white'}">
+                            <i class="ph-bold ph-arrows-left-right"></i> Pengajuan Pindah Kamar
+                            ${pendingPindahCount > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-extrabold">${pendingPindahCount}</span>` : ''}
+                        </button>
+                        <button onclick="mutasiSantriTab = 'hapus'; renderCurrentPage();" class="px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-2 ${mutasiSantriTab === 'hapus' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' : 'bg-asrama-card border border-asrama-border text-slate-400 hover:text-white'}">
+                            <i class="ph-bold ph-user-minus"></i> Pengajuan Hapus Santri
+                            ${pendingHapusCount > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-extrabold">${pendingHapusCount}</span>` : ''}
+                        </button>
+                    </div>
+
+                    <!-- Filter & Search Bar -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                        <input type="text" value="${escapeHtml(mutasiSantriSearchQuery)}" oninput="mutasiSantriSearchQuery = this.value; renderCurrentPage();" placeholder="Cari nama santri / kamar / murobbi..." class="border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-emerald-400">
+                        <select onchange="mutasiSantriStatusFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-emerald-400">
+                            <option value="ALL" ${mutasiSantriStatusFilter === 'ALL' ? 'selected' : ''}>Semua Status</option>
+                            <option value="menunggu" ${mutasiSantriStatusFilter === 'menunggu' ? 'selected' : ''}>Menunggu Persetujuan (ACC)</option>
+                            <option value="disetujui" ${mutasiSantriStatusFilter === 'disetujui' ? 'selected' : ''}>Disetujui</option>
+                            <option value="ditolak" ${mutasiSantriStatusFilter === 'ditolak' ? 'selected' : ''}>Ditolak</option>
+                        </select>
+                    </div>
+
+                    <!-- List Card Pengajuan -->
+                    <div class="space-y-3">
+                        ${filteredList.length === 0 ? `
+                            <div class="p-8 bg-asrama-card border border-asrama-border rounded-2xl text-center text-xs text-slate-400">
+                                <i class="ph ph-folder-open text-3xl text-slate-500 mb-2 block"></i>
+                                Belum ada pengajuan ${mutasiSantriTab === 'pindah' ? 'pindah kamar' : 'hapus santri'} dalam antrean.
+                            </div>
+                        ` : filteredList.map(item => renderKartuMutasiSantri(item)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderKartuMutasiSantri(item) {
+            const isHapus = item.tipe === 'hapus';
+            const isMenunggu = item.status === 'menunggu';
+            const statusBadge = item.status === 'disetujui'
+                ? `<span class="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold">Disetujui</span>`
+                : (item.status === 'ditolak'
+                    ? `<span class="px-2.5 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/40 text-[11px] font-bold">Ditolak</span>`
+                    : `<span class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-bold">Menunggu ACC</span>`);
+
+            const cardBorder = isMenunggu ? (isHapus ? 'border-rose-500/40 bg-rose-500/5' : 'border-amber-500/40 bg-amber-500/5') : 'border-asrama-border bg-asrama-card';
+
+            return `
+                <div class="p-4 rounded-2xl border ${cardBorder} space-y-3">
+                    <div class="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <p class="text-sm font-extrabold text-white">${escapeHtml(item.santriNama)}</p>
+                                ${statusBadge}
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${isHapus ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'}">
+                                    ${isHapus ? 'Pengajuan Hapus Santri' : 'Pengajuan Pindah Kamar'}
+                                </span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-1">
+                                Diajukan oleh: <strong class="text-slate-200">${escapeHtml(item.diajukanOlehNama || '-')}</strong> (${item.diajukanOlehRole || 'Murobbi'}) • ${item.createdAt ? formatTanggalHari(String(item.createdAt).slice(0, 10)) : ''}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="text-xs space-y-1.5 p-3 rounded-xl bg-asrama-bg border border-asrama-border">
+                        ${isHapus ? `
+                            <p><span class="text-slate-400">Kamar & Sektor Asal:</span> <strong class="text-white">${escapeHtml(item.kamarAsal)}</strong> (${formatShortSektor(item.sektorAsal)})</p>
+                            <p><span class="text-slate-400">Alasan Penghapusan:</span> <strong class="text-rose-300">${escapeHtml(item.alasan || '-')}</strong></p>
+                            ${item.catatan ? `<p><span class="text-slate-400">Catatan:</span> <span class="text-slate-200">${escapeHtml(item.catatan)}</span></p>` : ''}
+                        ` : `
+                            <div class="flex items-center gap-2">
+                                <div>
+                                    <span class="text-slate-400 block text-[10px]">Kamar Asal</span>
+                                    <strong class="text-white">${escapeHtml(item.kamarAsal)}</strong> (${formatShortSektor(item.sektorAsal)})
+                                </div>
+                                <i class="ph-bold ph-arrow-right text-amber-400 mx-2 text-base"></i>
+                                <div>
+                                    <span class="text-slate-400 block text-[10px]">Kamar Tujuan Baru</span>
+                                    <strong class="text-emerald-300">${escapeHtml(item.kamarTujuan)}</strong> (${formatShortSektor(item.sektorTujuan)})
+                                </div>
+                            </div>
+                            <p class="pt-1"><span class="text-slate-400">Alasan Pindah:</span> <span class="text-slate-200">${escapeHtml(item.alasan || '-')}</span></p>
+                        `}
+                        ${item.diprosesOleh ? `
+                            <p class="text-[11px] text-slate-400 pt-1 border-t border-asrama-border/50">
+                                Diproses oleh: <strong class="text-slate-200">${escapeHtml(item.diprosesOleh)}</strong> (${item.status === 'disetujui' ? 'Disetujui' : 'Ditolak'})
+                            </p>
+                        ` : ''}
+                    </div>
+
+                    ${isMenunggu ? `
+                        <div class="flex flex-wrap items-center gap-2 pt-1">
+                            <button onclick="prosesApprovalMutasiSantri('${item.id}', 'disetujui')" class="px-4 py-2 rounded-xl ${isHapus ? 'bg-rose-600 hover:bg-rose-500' : 'bg-emerald-600 hover:bg-emerald-500'} text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                <i class="ph-bold ph-check"></i> ${isHapus ? 'Setujui Hapus Santri' : 'Setujui Pindah Kamar'}
+                            </button>
+                            <button onclick="prosesApprovalMutasiSantri('${item.id}', 'ditolak')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-asrama-border text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                <i class="ph-bold ph-x"></i> Tolak Pengajuan
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        async function prosesApprovalMutasiSantri(pengajuanId, keputusan) {
+            const item = pindahKamarList.find(x => x.id === pengajuanId);
+            if (!item) return;
+
+            if (keputusan === 'disetujui') {
+                if (item.tipe === 'hapus') {
+                    if (!confirm(`Konfirmasi Keamanan: Anda yakin menyetujui penghapusan data santri "${item.santriNama}" secara permanen?`)) return;
+                } else if (item.tipe === 'pindah') {
+                    if (!confirm(`Konfirmasi: Setujui pemindahan santri "${item.santriNama}" ke ${item.kamarTujuan} (${formatShortSektor(item.sektorTujuan)})?`)) return;
+                }
+            }
+
+            try {
+                // Update status di pengajuan_santri
+                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengajuan_santri', item.id), {
+                    status: keputusan,
+                    diprosesOleh: currentUser.nama,
+                    diprosesAt: new Date().toISOString()
+                });
+
+                if (keputusan === 'disetujui') {
+                    if (item.tipe === 'hapus') {
+                        // Hapus dokumen santri dari koleksi santri
+                        await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'santri', item.santriId));
+                        showToast(`Santri ${item.santriNama} telah disetujui untuk dihapus dari asrama.`, 'info');
+                    } else if (item.tipe === 'pindah') {
+                        // Update kamar & sektor santri di koleksi santri
+                        await window.FB.updateDoc(window.FB.doc(window.FB.db, 'santri', item.santriId), {
+                            sektor: item.sektorTujuan,
+                            kamar: item.kamarTujuan
+                        });
+                        showToast(`Santri ${item.santriNama} berhasil dipindahkan ke ${item.kamarTujuan}.`, 'success');
+                    }
+                } else {
+                    showToast(`Pengajuan ${item.tipe === 'hapus' ? 'hapus' : 'pindah'} santri ${item.santriNama} telah DITOLAK.`, 'info');
+                }
+
+                // Kirim notifikasi in-app & push ke Murobbi pengaju
+                const statusLabel = keputusan === 'disetujui' ? 'DISETUJUI (ACC)' : 'DITOLAK';
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
+                    santriNama: item.santriNama,
+                    sektor: item.sektorAsal,
+                    kamar: item.kamarAsal,
+                    tipe: item.tipe === 'hapus' ? 'hapus_santri' : 'pindah_kamar',
+                    pesan: `Pengajuan ${item.tipe === 'hapus' ? 'hapus santri' : 'pindah kamar'} untuk ${item.santriNama} telah ${statusLabel} oleh ${currentUser.nama}.`,
+                    targetPage: 'murobbi_presensi',
+                    oleh: currentUser.nama,
+                    dibaca: false,
+                    createdAt: new Date().toISOString()
+                });
+
+                await sendServerPush({
+                    eventType: 'pengajuan_santri_acc',
+                    sektor: item.sektorAsal,
+                    kamar: item.kamarAsal,
+                    title: `SIAN · Pengajuan ${item.tipe === 'hapus' ? 'Hapus' : 'Pindah'} ${statusLabel}`,
+                    body: `${item.santriNama}: Pengajuan ${item.tipe === 'hapus' ? 'hapus' : 'pindah'} telah ${statusLabel.toLowerCase()} oleh ${currentUser.nama}.`,
+                    targetUrl: '/?nav=murobbi_presensi',
+                    dedupId: `mutasi_acc_${item.id}_${Date.now()}`
+                });
+
+                renderCurrentPage();
+            } catch (err) {
+                console.error('Gagal memproses approval mutasi santri:', err);
+                showToast('Terjadi kesalahan: ' + err.message, 'error');
+            }
         }
 
         // LAPORAN ABSEN SEMUA SANTRI (KETUA ASRAMA & ADMIN)
@@ -4008,6 +4407,9 @@
                                                 </button>
                                                 <button onclick="openPindahKamarModal('${s.id}')" class="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 font-semibold flex items-center gap-1 cursor-pointer" title="Ajukan Pindah Kamar">
                                                     <i class="ph-bold ph-arrows-left-right"></i> Ajukan Pindah
+                                                </button>
+                                                <button onclick="openHapusSantriModal('${s.id}')" class="text-[10px] px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-300 hover:bg-rose-500/25 font-semibold flex items-center gap-1 cursor-pointer" title="Ajukan Hapus Santri">
+                                                    <i class="ph-bold ph-user-minus"></i> Hapus Santri
                                                 </button>
                                             </div>
                                         </div>
@@ -6220,6 +6622,30 @@
                     navTarget
                 });
             });
+
+            // 1b. Antrean ACC Mutasi Santri (Pindah & Hapus) untuk Ketua & Admin
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordKetuaLantai(currentUser)) {
+                const pendingMutasi = pindahKamarList.filter(p => {
+                    if (p.status !== 'menunggu') return false;
+                    if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return true;
+                    if (isRecordKetuaLantai(currentUser)) {
+                        return isSameSektor(p.sektorAsal, currentUser.sektor) || isSameSektor(p.sektorTujuan, currentUser.sektor);
+                    }
+                    return false;
+                });
+                pendingMutasi.forEach(p => {
+                    const isHapus = p.tipe === 'hapus';
+                    notifItems.push({
+                        id: 'mutasi_' + p.id,
+                        title: isHapus ? `ACC Hapus Santri: ${p.santriNama}` : `ACC Pindah Kamar: ${p.santriNama}`,
+                        body: isHapus ? `Diajukan hapus dari ${p.kamarAsal} (${p.alasan || '-'})` : `Pindah ke ${p.kamarTujuan} (${formatShortSektor(p.sektorTujuan)})`,
+                        icon: isHapus ? 'ph-user-minus text-rose-400' : 'ph-arrows-left-right text-amber-400',
+                        dibaca: false,
+                        time: p.createdAt,
+                        navTarget: 'ketua_acc_santri'
+                    });
+                });
+            }
 
             // 2. Antrean ACC Perizinan untuk role berwenang
             if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordKetuaLantai(currentUser) || hasDivisiAccess('keamanan') || hasDivisiAccess('kesehatan')) {
