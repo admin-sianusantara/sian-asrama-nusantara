@@ -4766,6 +4766,116 @@
             showToast('Pengumuman global diperbarui.', 'success');
         }
 
+        function openDownloadDataSantriModal() {
+            openModal(
+                'Download Data Santri, Kamar & Murobbi (.xlsx)',
+                `
+                <div class="space-y-4">
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        Pilih cakupan data yang ingin diunduh. File Excel akan berisi <strong>2 lembar (sheet)</strong> otomatis: <strong>Data Santri</strong> dan <strong>Daftar Kamar & Murobbi</strong> terbaru.
+                    </p>
+
+                    <div class="space-y-2.5">
+                        <button onclick="exportDataSantriDanKamarExcel('ALL', 'Se-Asrama')" class="w-full p-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center justify-between cursor-pointer shadow-lg transition-all">
+                            <span class="flex items-center gap-2"><i class="ph-bold ph-buildings text-base"></i> Semua Asrama (6 Sektor Lengkap)</span>
+                            <span class="px-2 py-0.5 rounded bg-black/20 text-[10px]">${santriList.length} Santri</span>
+                        </button>
+
+                        <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-2">
+                            <p class="text-[11px] font-bold text-sky-300 uppercase tracking-wider">Download Per Lantai (Utara + Selatan)</p>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button onclick="exportDataSantriDanKamarExcel('LANTAI', '1')" class="py-2 px-3 rounded-lg bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-xs font-bold text-white cursor-pointer">Lantai 1</button>
+                                <button onclick="exportDataSantriDanKamarExcel('LANTAI', '2')" class="py-2 px-3 rounded-lg bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-xs font-bold text-white cursor-pointer">Lantai 2</button>
+                                <button onclick="exportDataSantriDanKamarExcel('LANTAI', '3')" class="py-2 px-3 rounded-lg bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-xs font-bold text-white cursor-pointer">Lantai 3</button>
+                            </div>
+                        </div>
+
+                        <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border space-y-2">
+                            <p class="text-[11px] font-bold text-amber-300 uppercase tracking-wider">Download Per Sektor</p>
+                            <div class="grid grid-cols-2 gap-2">
+                                ${SEKTOR_ASRAMA.map(sec => `
+                                    <button onclick="exportDataSantriDanKamarExcel('SEKTOR', '${sec}')" class="py-2 px-2.5 rounded-lg bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-[11px] font-semibold text-slate-200 hover:text-white text-left truncate cursor-pointer">
+                                        ${formatShortSektor(sec)}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                `,
+                `<button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Tutup</button>`
+            );
+        }
+
+        function exportDataSantriDanKamarExcel(scopeType, scopeValue) {
+            if (typeof XLSX === 'undefined') {
+                showToast('Library Excel belum siap, coba beberapa detik lagi.', 'error');
+                return;
+            }
+
+            let targetSektors = [...SEKTOR_ASRAMA];
+            let labelFile = 'SeAsrama';
+
+            if (scopeType === 'LANTAI') {
+                targetSektors = SEKTOR_ASRAMA.filter(sec => sec.includes('Lt. ' + scopeValue));
+                labelFile = 'Lantai_' + scopeValue;
+            } else if (scopeType === 'SEKTOR') {
+                targetSektors = [scopeValue];
+                labelFile = formatShortSektor(scopeValue).replace(/[^a-zA-Z0-9]/g, '_');
+            }
+
+            const filteredSantri = santriList.filter(s => targetSektors.some(sec => isSameSektor(s.sektor, sec)));
+
+            // Sheet 1: Data Santri
+            const santriRows = filteredSantri.map((s, idx) => {
+                const canon = toCanonicalSektor(s.sektor);
+                const kObj = getKamarObj(canon, s.kamar);
+                const waHp = getMurobbiPhone(canon, s.kamar);
+                const statusMap = { H: 'Hadir', S: 'Sakit', P: 'Pulang' };
+                return {
+                    No: idx + 1,
+                    'Nama Santri': s.nama || '-',
+                    Kelas: s.kelas || '-',
+                    Sektor: canon,
+                    Kamar: s.kamar || '-',
+                    'Murobbi Kamar': kObj ? kObj.murobbi : '-',
+                    'No. WA Murobbi': waHp ? formatDisplayPhone(waHp) : '-',
+                    Status: statusMap[s.status || 'H'] || 'Hadir'
+                };
+            });
+
+            // Sheet 2: Daftar Kamar & Murobbi
+            const kamarRows = [];
+            let noKamar = 1;
+            targetSektors.forEach(sec => {
+                const listKamar = kamarBySektor[sec] || [];
+                listKamar.forEach(k => {
+                    const waHp = getMurobbiPhone(sec, k.nama);
+                    const jmlPenghuni = filteredSantri.filter(s => isSameSektor(s.sektor, sec) && s.kamar === k.nama).length;
+                    kamarRows.push({
+                        No: noKamar++,
+                        Sektor: sec,
+                        'Nama Kamar': k.nama,
+                        'Murobbi Pengampu': k.murobbi || 'Belum Ada Murobbi',
+                        'No. WA Murobbi': waHp ? formatDisplayPhone(waHp) : '-',
+                        'Jumlah Santri': jmlPenghuni
+                    });
+                });
+            });
+
+            const wb = XLSX.utils.book_new();
+            const wsSantri = XLSX.utils.json_to_sheet(santriRows.length > 0 ? santriRows : [{ Info: 'Tidak ada data santri pada cakupan ini' }]);
+            const wsKamar = XLSX.utils.json_to_sheet(kamarRows.length > 0 ? kamarRows : [{ Info: 'Tidak ada data kamar pada cakupan ini' }]);
+
+            XLSX.utils.book_append_sheet(wb, wsSantri, 'Data Santri');
+            XLSX.utils.book_append_sheet(wb, wsKamar, 'Kamar & Murobbi');
+
+            const fileName = `SIAN_Data_Santri_${labelFile}_${getTodayIso()}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+            closeModal();
+            showToast(`Berhasil mengunduh ${fileName} (${filteredSantri.length} santri, ${kamarRows.length} kamar).`, 'success');
+        }
+
         function renderAdminSantri() {
             const kamarOpts = adminSantriSektorFilter !== 'ALL' ? (kamarBySektor[adminSantriSektorFilter] || []) : [];
             const filtered = santriList.filter(s => {
@@ -4783,6 +4893,9 @@
                             <p class="text-xs text-slate-300">Total ${santriList.length} santri terdaftar (${filtered.length} ditampilkan).</p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
+                            <button onclick="openDownloadDataSantriModal()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow" title="Download data santri, kamar & murobbi ke Excel">
+                                <i class="ph-bold ph-file-xls text-sm"></i> Download Data (.xlsx)
+                            </button>
                             <button onclick="downloadTemplateSantriExcel()" class="px-3.5 py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Unduh format template santri Excel">
                                 <i class="ph-bold ph-download-simple"></i> Download Template
                             </button>
