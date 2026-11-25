@@ -2813,7 +2813,7 @@
                 ? "Laporan Absen 6 Sektor"
                 : (isRecordAdminKantor(currentUser) ? "Stempel & Monitoring Pulang" : "Buka Presensi Cepat");
 
-            const kegiatanAktif = getKegiatanHarianAktif();
+            const kegiatanAktif = Array.isArray(kegiatanList) ? kegiatanList : [];
             const nowHHMM = getCurrentTimeHHMM();
 
             return `
