@@ -194,6 +194,10 @@
                         <input id="signup-nama" type="text" placeholder="Contoh: Muhammad Hanif" class="w-full px-3 py-2 text-xs focus:outline-none">
                     </div>
                 </div>
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Nomor WhatsApp Aktif *</label>
+                    <input id="signup-no-hp" type="tel" inputmode="numeric" placeholder="Contoh: 081234567890" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs focus:border-emerald-500 focus:outline-none">
+                </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                         <label class="block text-[11px] font-semibold text-slate-300 mb-1">Sektor Lantai *</label>
@@ -1310,6 +1314,33 @@
             updateSignupKamarOptions();
         };
 
+        async function loadPublicKamarMapForSignup() {
+            if (!window.FB || !window.FB.ready) return;
+            try {
+                const snap = await window.FB.getDocs(window.FB.collection(window.FB.db, 'settings'));
+                const normalizedMap = {};
+                snap.docs.forEach(d => {
+                    const data = d.data() || {};
+                    const candidateMap = data.map || data.kamarBySektor || data.kamarMap;
+                    if (candidateMap && typeof candidateMap === 'object') {
+                        Object.keys(candidateMap).forEach(rawKey => {
+                            const canonKey = toCanonicalSektor(rawKey);
+                            if (SEKTOR_ASRAMA.includes(canonKey) && Array.isArray(candidateMap[rawKey])) {
+                                normalizedMap[canonKey] = candidateMap[rawKey];
+                            }
+                        });
+                    }
+                });
+                if (Object.keys(normalizedMap).length > 0) {
+                    rawFirestoreKamarMap = normalizedMap;
+                    syncKamarMapFromAllSources();
+                    updateSignupKamarOptions();
+                }
+            } catch (e) {
+                console.warn('Info kamar publik belum termuat:', e.message);
+            }
+        }
+
         function updateSignupKamarOptions() {
             const secEl = document.getElementById('signup-sektor');
             const kamEl = document.getElementById('signup-kamar');
@@ -1320,6 +1351,7 @@
         }
 
         function switchAuthTab(tab) {
+            if (tab === 'signup') loadPublicKamarMapForSignup();
             const isLogin = tab === 'login';
             document.getElementById('auth-panel-login').classList.toggle('hidden', !isLogin);
             document.getElementById('auth-panel-signup').classList.toggle('hidden', isLogin);
