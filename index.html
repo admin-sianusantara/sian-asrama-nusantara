@@ -1090,23 +1090,104 @@
             return count;
         }
 
-        function playNotificationChime() {
+        // DAFTAR NADA SUARA NOTIFIKASI SIAN (LANTANG & NYARING)
+        function getSavedNotificationTone() {
+            try {
+                return localStorage.getItem('sian_notif_tone') || 'dingdong';
+            } catch (_) {
+                return 'dingdong';
+            }
+        }
+
+        function setSavedNotificationTone(toneKey) {
+            try {
+                localStorage.setItem('sian_notif_tone', toneKey);
+                showToast('Nada notifikasi berhasil disimpan!', 'success');
+            } catch (_) {}
+        }
+
+        function playToneByKey(toneKey) {
             try {
                 const AudioCtx = window.AudioContext || window.webkitAudioContext;
                 if (!AudioCtx) return;
                 const ctx = new AudioCtx();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(880, ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(1174.66, ctx.currentTime + 0.16);
-                gain.gain.setValueAtTime(0.15, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                osc.stop(ctx.currentTime + 0.45);
+                const t = ctx.currentTime;
+
+                if (toneKey === 'dingdong') {
+                    // Nada Ding-Dong Nyaring (2 Nada Harmoni Lantang: 880Hz -> 1320Hz)
+                    const osc1 = ctx.createOscillator();
+                    const osc2 = ctx.createOscillator();
+                    const gain1 = ctx.createGain();
+                    const gain2 = ctx.createGain();
+
+                    osc1.type = 'triangle';
+                    osc1.frequency.setValueAtTime(783.99, t); // Sol (G5)
+                    gain1.gain.setValueAtTime(0.65, t);
+                    gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+                    osc1.connect(gain1);
+                    gain1.connect(ctx.destination);
+                    osc1.start(t);
+                    osc1.stop(t + 0.35);
+
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(1046.50, t + 0.18); // Do Tinggi (C6)
+                    gain2.gain.setValueAtTime(0.75, t + 0.18);
+                    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+                    osc2.connect(gain2);
+                    gain2.connect(ctx.destination);
+                    osc2.start(t + 0.18);
+                    osc2.stop(t + 0.65);
+                } else if (toneKey === 'chime_triad') {
+                    // Nada Triad Akor Ceria (Do - Mi - Sol Naik Cepat)
+                    const freqs = [523.25, 659.25, 783.99, 1046.50];
+                    freqs.forEach((freq, idx) => {
+                        const start = t + (idx * 0.10);
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(freq, start);
+                        gain.gain.setValueAtTime(0.60, start);
+                        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.30);
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(start);
+                        osc.stop(start + 0.30);
+                    });
+                } else if (toneKey === 'peringatan_tegas') {
+                    // Nada Perhatian / Alarm Peringatan Tegas (Two-Tone Alert: 1100Hz -> 880Hz)
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(1174.66, t);
+                    osc.frequency.setValueAtTime(880, t + 0.15);
+                    gain.gain.setValueAtTime(0.50, t);
+                    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(t);
+                    osc.stop(t + 0.45);
+                } else if (toneKey === 'triple_beep') {
+                    // Nada Triple Beep Cepat (Tit-Tit-Tit)
+                    [0, 0.12, 0.24].forEach(offset => {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(987.77, t + offset);
+                        gain.gain.setValueAtTime(0.65, t + offset);
+                        gain.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.09);
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(t + offset);
+                        osc.stop(t + offset + 0.09);
+                    });
+                }
             } catch (_) {}
+        }
+
+        function playNotificationChime() {
+            const tone = getSavedNotificationTone();
+            if (tone === 'silent') return;
+            playToneByKey(tone);
         }
 
         function triggerSystemNotification(title, body) {
@@ -9387,8 +9468,55 @@ daftarTugas +
                         <button onclick="kirimTesNotifikasiKeHpSaya()" class="w-full py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer mt-1.5">
                             <i class="ph-bold ph-paper-plane-tilt"></i> Kirim Tes Notifikasi ke HP Saya
                         </button>
-                            Aktifkan Notif di HP Ini (1 Ketuk)
-                        </button>
+                    </div>
+
+                    <!-- PENGATURAN PILIHAN NADA SUARA NOTIFIKASI -->
+                    <div class="p-3.5 rounded-2xl bg-asrama-bg border border-amber-500/30 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <p class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                                <i class="ph-bold ph-speaker-high text-base text-amber-400"></i> Pilihan Nada Suara Notifikasi
+                            </p>
+                            <span class="text-[10px] text-emerald-400 font-bold">Tersimpan di HP Ini</span>
+                        </div>
+                        <p class="text-[11px] text-slate-300 leading-relaxed">
+                            Pilih suara nada dering notifikasi yang paling terdengar jelas saat aplikasi digunakan di HP Anda:
+                        </p>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            ${(() => {
+                                const currentTone = getSavedNotificationTone();
+                                const tones = [
+                                    { key: 'dingdong', name: 'Ding-Dong Nyaring (Default)', desc: 'Dua nada harmoni lantang' },
+                                    { key: 'chime_triad', name: 'Akor Do-Mi-Sol (Ceria)', desc: 'Empat tangga nada naik berulang' },
+                                    { key: 'peringatan_tegas', name: 'Alarm Tegas (Peringatan)', desc: 'Nada saw tegas dan kontras' },
+                                    { key: 'triple_beep', name: 'Triple Beep Cepat', desc: 'Bunyi bip tiga kali pendek' },
+                                    { key: 'silent', name: 'Hening / Tanpa Suara', desc: 'Hanya getar tanpa bunyi speaker' }
+                                ];
+                                return tones.map(t => `
+                                    <div class="p-2.5 rounded-xl border flex items-center justify-between gap-2 ${currentTone === t.key ? 'bg-amber-500/15 border-amber-500 text-white' : 'bg-asrama-card border-asrama-border text-slate-300'}">
+                                        <div class="min-w-0">
+                                            <p class="text-xs font-bold truncate">${t.name}</p>
+                                            <p class="text-[10px] text-slate-400">${t.desc}</p>
+                                        </div>
+                                        <div class="flex items-center gap-1 shrink-0">
+                                            ${t.key !== 'silent' ? `
+                                                <button onclick="playToneByKey('${t.key}')" class="p-1.5 rounded-lg bg-asrama-bg border border-asrama-border text-amber-300 hover:text-white cursor-pointer" title="Dengarkan Suara">
+                                                    <i class="ph-bold ph-play text-xs"></i>
+                                                </button>
+                                            ` : ''}
+                                            <button onclick="setSavedNotificationTone('${t.key}'); openPwaInstallAndNotifModal();" class="px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer ${currentTone === t.key ? 'bg-amber-500 text-slate-950' : 'bg-asrama-bg border border-asrama-border text-slate-300 hover:border-slate-500'}">
+                                                ${currentTone === t.key ? 'Dipakai ✓' : 'Pilih'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('');
+                            })()}
+                        </div>
+
+                        <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-700/60 text-[10px] text-slate-400 space-y-1">
+                            <span class="font-bold text-slate-200 block"><i class="ph-bold ph-info"></i> Tips Mengubah Nada Saat Layar HP Mati:</span>
+                            <p>Buka <strong>Pengaturan HP ➡️ Aplikasi ➡️ SIAN ➡️ Notifikasi ➡️ Suara</strong>, lalu pilih nada dering nyaring bawaan HP Anda agar berbunyi khas saat layar HP mati.</p>
+                        </div>
                     </div>
 
                     <div class="p-3.5 rounded-2xl bg-asrama-bg border border-asrama-border space-y-2.5">

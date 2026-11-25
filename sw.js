@@ -1,5 +1,5 @@
 // Service Worker SIAN · Sistem Informasi Asrama Nusantara
-const CACHE_NAME = 'sian-pwa-v3';
+const CACHE_NAME = 'sian-pwa-v4';
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();
@@ -29,7 +29,8 @@ self.addEventListener('push', (event) => {
             body,
             icon: '/icon-192.png',
             badge: '/icon-192.png',
-            vibrate: [300, 120, 300, 120, 300],
+            // Pola getar kuat & berulang agar terasa jelas di saku HP (500ms getar, 200ms jeda, berulang 3x)
+            vibrate: [500, 200, 500, 200, 500],
             requireInteraction: true,
             tag: 'sian-push-' + Date.now(),
             data: { url: targetUrl }
