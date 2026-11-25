@@ -1,5 +1,5 @@
 // Service Worker SIAN · Sistem Informasi Asrama Nusantara
-const CACHE_NAME = 'sian-pwa-v4';
+const CACHE_NAME = 'sian-pwa-v5';
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();
