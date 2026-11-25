@@ -9444,38 +9444,70 @@ daftarTugas +
             const activeVapid = cloudVapidKey || window.DEFAULT_VAPID_KEY || '';
             const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
             const statusText = perm === 'granted'
-                ? '<span class="text-emerald-400 font-bold">Aktif & Terdaftar Otomatis ✅</span>'
-                : (perm === 'denied' ? '<span class="text-red-400 font-bold">Diblokir Browser (Aktifkan di Pengaturan Situs)</span>' : '<span class="text-amber-300 font-bold">Belum Diaktifkan (Ketuk Tombol di Bawah)</span>');
+                ? '<span class="text-emerald-400 font-bold">Aktif & Siap Menerima Notif ✅</span>'
+                : (perm === 'denied' ? '<span class="text-red-400 font-bold">Diblokir Browser (Aktifkan di Setelan Situs)</span>' : '<span class="text-amber-300 font-bold">Belum Diizinkan (Ketuk Tombol di Bawah)</span>');
 
             openModal(
-                'Pasang Logo SIAN & Aktifkan Notifikasi HP',
+                'Panduan Pasang Aplikasi & Notifikasi HP',
                 `
                 <div class="space-y-4">
-                    <div class="flex items-center gap-3 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
-                        <img src="${window.SIAN_LOGO_PREVIEW_URL}" alt="Logo SIAN" class="w-12 h-12 rounded-xl shadow">
+                    <!-- Banner Header -->
+                    <div class="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                        <img src="${window.SIAN_LOGO_PREVIEW_URL}" alt="Logo SIAN" class="w-12 h-12 rounded-xl shadow shrink-0">
                         <div>
-                            <p class="text-xs font-extrabold text-white">SIAN · Asrama Nusantara</p>
-                            <p class="text-[11px] text-emerald-300">Aplikasi Layar Depan HP & Notifikasi Real-Time</p>
+                            <p class="text-xs font-extrabold text-white">Aplikasi SIAN Asrama Nusantara</p>
+                            <p class="text-[11px] text-emerald-300">Ikuti 3 langkah mudah di bawah agar aplikasi siap dipakai di HP Anda</p>
                         </div>
                     </div>
 
-                    <div class="p-3.5 rounded-2xl bg-asrama-bg border border-asrama-border space-y-2.5">
-                        <p class="text-xs font-bold text-amber-300">1. Notifikasi Real-Time HP</p>
-                        <p class="text-[11px] text-slate-300">Status HP ini: ${statusText}</p>
-                        <button onclick="aktifkanPushFcmHpIni()" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold cursor-pointer">
-                            Aktifkan Notif di HP Ini (1 Ketuk)
+                    <!-- LANGKAH 1: PASANG LOGO / INSTALL APLIKASI DI LAYAR HP (PALING UTAMA) -->
+                    <div class="p-4 rounded-2xl bg-asrama-bg border border-emerald-500/40 space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold text-emerald-400 flex items-center gap-1.5">
+                                <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[11px]">1</span>
+                                Pasang Aplikasi ke Layar Depan HP
+                            </span>
+                            <span class="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">Langkah Utama</span>
+                        </div>
+                        <p class="text-[11px] text-slate-300 leading-relaxed">
+                            Pasang ikon SIAN di layar beranda HP Anda agar mudah dibuka sewaktu-waktu layaknya aplikasi Play Store:
+                        </p>
+                        <button onclick="triggerPwaInstall()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 transition-all">
+                            <i class="ph-bold ph-download-simple text-base"></i> Pasang / Install Aplikasi Sekarang
                         </button>
-                        <button onclick="kirimTesNotifikasiKeHpSaya()" class="w-full py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer mt-1.5">
-                            <i class="ph-bold ph-paper-plane-tilt"></i> Kirim Tes Notifikasi ke HP Saya
+                        <div class="p-2.5 rounded-xl bg-asrama-card/80 border border-asrama-border text-[10px] text-slate-400 space-y-1">
+                            <span class="font-bold text-slate-300 block"><i class="ph-bold ph-info"></i> Jika tombol pasang di atas tidak merespons:</span>
+                            <p>Ketuk ikon <strong>titik tiga (⋮)</strong> di pojok kanan atas browser Chrome HP Anda, lalu pilih menu <strong>"Tambahkan ke Layar Utama"</strong> atau <strong>"Install Aplikasi"</strong>.</p>
+                        </div>
+                    </div>
+
+                    <!-- LANGKAH 2: AKTIFKAN NOTIFIKASI REAL-TIME & TES -->
+                    <div class="p-4 rounded-2xl bg-asrama-bg border border-asrama-border space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold text-amber-400 flex items-center gap-1.5">
+                                <span class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[11px]">2</span>
+                                Aktifkan Izin Notifikasi HP
+                            </span>
+                            <span class="text-[10px] text-slate-400">Status: ${statusText}</span>
+                        </div>
+                        <p class="text-[11px] text-slate-300 leading-relaxed">
+                            Aktifkan agar HP Anda berbunyi/bergetar saat ada santri izin sakit, konfirmasi jam 06:00, atau stempel kepulangan:
+                        </p>
+                        <button onclick="aktifkanPushFcmHpIni()" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-600/20 transition-all">
+                            <i class="ph-bold ph-bell-ringing text-base"></i> Izinkan & Aktifkan Notifikasi (1 Ketuk)
+                        </button>
+                        <button onclick="kirimTesNotifikasiKeHpSaya()" class="w-full py-2 rounded-xl bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border text-slate-200 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer mt-1">
+                            <i class="ph-bold ph-paper-plane-tilt text-emerald-400"></i> Kirim Tes Notifikasi ke HP Saya
                         </button>
                     </div>
 
-                    <!-- PENGATURAN PILIHAN NADA SUARA NOTIFIKASI -->
-                    <div class="p-3.5 rounded-2xl bg-asrama-bg border border-amber-500/30 space-y-3">
+                    <!-- LANGKAH 3: PILIHAN NADA SUARA NOTIFIKASI -->
+                    <div class="p-4 rounded-2xl bg-asrama-bg border border-asrama-border space-y-3">
                         <div class="flex items-center justify-between">
-                            <p class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                                <i class="ph-bold ph-speaker-high text-base text-amber-400"></i> Pilihan Nada Suara Notifikasi
-                            </p>
+                            <span class="text-xs font-extrabold text-sky-400 flex items-center gap-1.5">
+                                <span class="w-5 h-5 rounded-full bg-sky-500/20 text-sky-300 flex items-center justify-center text-[11px]">3</span>
+                                Pilihan Nada Suara Notifikasi
+                            </span>
                             <span class="text-[10px] text-emerald-400 font-bold">Tersimpan di HP Ini</span>
                         </div>
                         <p class="text-[11px] text-slate-300 leading-relaxed">
@@ -9514,17 +9546,9 @@ daftarTugas +
                         </div>
 
                         <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-700/60 text-[10px] text-slate-400 space-y-1">
-                            <span class="font-bold text-slate-200 block"><i class="ph-bold ph-info"></i> Tips Mengubah Nada Saat Layar HP Mati:</span>
-                            <p>Buka <strong>Pengaturan HP ➡️ Aplikasi ➡️ SIAN ➡️ Notifikasi ➡️ Suara</strong>, lalu pilih nada dering nyaring bawaan HP Anda agar berbunyi khas saat layar HP mati.</p>
+                            <span class="font-bold text-slate-200 block"><i class="ph-bold ph-info"></i> Mengubah Nada Saat Layar HP Mati:</span>
+                            <p>Buka <strong>Pengaturan HP ➡️ Aplikasi ➡️ SIAN ➡️ Notifikasi ➡️ Suara</strong>, lalu pilih nada dering bawaan HP Anda agar berbunyi khas saat layar HP mati.</p>
                         </div>
-                    </div>
-
-                    <div class="p-3.5 rounded-2xl bg-asrama-bg border border-asrama-border space-y-2.5">
-                        <p class="text-xs font-bold text-emerald-300">2. Pasang Logo SIAN ke Layar Depan HP</p>
-                        <button onclick="triggerPwaInstall()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">
-                            Install Aplikasi SIAN Sekarang
-                        </button>
-                        <p class="text-[11px] text-slate-400">Jika tombol install otomatis tidak muncul di HP, ketuk menu titik tiga (⋮) di browser Chrome lalu pilih <strong>Tambahkan ke Layar Utama / Install App</strong>.</p>
                     </div>
                 </div>
                 `,
