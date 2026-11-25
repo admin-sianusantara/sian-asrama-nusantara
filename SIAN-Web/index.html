@@ -3193,8 +3193,9 @@
                                             const parts = String(k.jam || '').split('-');
                                             const startMin = parts[0] ? parseTimeToMinutes(parts[0].trim()) : 0;
                                             const endMin = parts[1] ? parseTimeToMinutes(parts[1].trim()) : (startMin + 60);
-                                            const isSelesai = nowMin > endMin;
-                                            const isBerlangsung = !isSelesai && nowMin >= startMin && nowMin <= endMin;
+                                            const isCrossMidnight = endMin < startMin;
+                                            const isBerlangsung = isCrossMidnight ? (nowMin >= startMin || nowMin <= endMin) : (nowMin >= startMin && nowMin <= endMin);
+                                            const isSelesai = !isBerlangsung && !isCrossMidnight && (nowMin > endMin);
 
                                             const cardCls = isBerlangsung
                                                 ? 'bg-sky-500/15 border-sky-400/60 shadow-md'
