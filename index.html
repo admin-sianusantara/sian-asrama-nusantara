@@ -613,6 +613,29 @@
         let sitaanList = [];
         let roanList = [];
         let kasKebersihanList = [];
+        let kebersihanNilaiList = [];
+        let kebNilaiTab = 'input'; // 'input' | 'rekap' | 'riwayat'
+        let kebNilaiSektor = SEKTOR_ASRAMA[0];
+        let kebNilaiKamar = '';
+        let kebNilaiJenis = 'Tetap - Kamis';
+        let kebNilaiTanggal = '';
+        let kebNilaiSkor = [7, 7, 7, 7, 7, 7, 7, 7, 7, 7];
+        let kebNilaiCatatan = '';
+        let kebNilaiFilterSektor = 'ALL';
+        let kebNilaiFilterPeriode = 'BULAN_INI';
+
+        const INDIKATOR_KEBERSIHAN_KAMAR = [
+            'Ranjang',
+            'Lantai & Plafon',
+            'Rak Buku',
+            'Tempat Tas',
+            'Pakaian',
+            'Sepatu & Sandal',
+            'Kamar Mandi',
+            'Tempat Sabun',
+            'Alat Kebersihan',
+            'Jendela & Stop Kontak'
+        ];
         let kegiatanList = [];
         let rubrikList = [];
         let penilaianMap = {};
@@ -1820,6 +1843,12 @@
                 renderCurrentPage();
             }));
 
+            unsubscribeListeners.push(onSnapshot(collection(db, 'kebersihan_nilai'), (snap) => {
+                kebersihanNilaiList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                    .sort((a, b) => toSortableTime(b.createdAt || b.tanggal).localeCompare(toSortableTime(a.createdAt || a.tanggal)));
+                renderCurrentPage();
+            }));
+
             // 9. Kegiatan Harian (Presensi Otomatis Real-Time Mengikuti Jam Sekarang)
             unsubscribeListeners.push(onSnapshot(collection(db, 'kegiatan'), (snap) => {
                 kegiatanList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -1878,6 +1907,7 @@
                         ${navItem('admin_pulang', 'ph-airplane-takeoff', 'Monitoring Santri Pulang', 'text-purple-400')}
                         ${navItem('div_keamanan_pelanggaran', 'ph-warning-octagon', 'Pelanggaran & Takziran (Keamanan)', 'text-purple-400')}
                         ${navItem('div_penilaian', 'ph-exam', 'Rubrik & Hasil Penilaian', 'text-emerald-400')}
+                        ${navItem('div_kebersihan_nilai', 'ph-sparkle', 'Penilaian Kebersihan Kamar', 'text-teal-400')}
                     </div>
                 `;
             } else if (isRecordKetuaAsrama(currentUser)) {
@@ -1895,6 +1925,7 @@
                         ${navItem('div_keamanan_pelanggaran', 'ph-warning-octagon', 'Pelanggaran & Takziran (Keamanan)', 'text-purple-400')}
                         ${navItem('div_kebersihan_roan', 'ph-calendar-check', 'Kalender & Jadwal Roan', 'text-teal-400')}
                         ${navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400')}
+                        ${navItem('div_kebersihan_nilai', 'ph-sparkle', 'Penilaian Kebersihan Kamar', 'text-teal-400')}
                         ${navItem('div_penilaian', 'ph-exam', 'Pantau Hasil Penilaian', 'text-emerald-400')}</div>
                 `;
             } else if (isRecordAdminKantor(currentUser)) {
@@ -1924,6 +1955,7 @@
                             ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Izin Sakit, Pulang & Kembali', 'text-sky-400')}
                             ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Catatan Telat / Alpa', 'text-amber-400')}
                             ${navItem('murobbi_pelanggaran_berat', 'ph-shield-warning', 'Pelanggaran Berat Kamar', 'text-rose-400')}
+                            ${navItem('div_kebersihan_nilai', 'ph-sparkle', 'Nilai Kebersihan Kamar', 'text-teal-400')}
                         </div>
                     `;
                 } else {
@@ -1935,6 +1967,7 @@
                             ${navItem('murobbi_izin', 'ph-paper-plane-tilt', 'Izin Sakit, Pulang & Kembali', 'text-sky-400')}
                             ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Catatan Telat / Alpa', 'text-amber-400')}
                             ${navItem('murobbi_pelanggaran_berat', 'ph-shield-warning', 'Pelanggaran Berat Kamar', 'text-rose-400')}
+                            ${navItem('div_kebersihan_nilai', 'ph-sparkle', 'Nilai Kebersihan Kamar', 'text-teal-400')}
                         </div>
                     `;
                 }
@@ -1965,6 +1998,7 @@
                             <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-teal-400 mb-1.5">Divisi Kebersihan</p>
                             ${navItem('div_kebersihan_roan', 'ph-calendar-check', 'Kalender & Jadwal Roan', 'text-teal-400')}
                             ${navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400')}
+                        ${navItem('div_kebersihan_nilai', 'ph-sparkle', 'Penilaian Kebersihan Kamar', 'text-teal-400')}
                         </div>
                     `;
                 }
@@ -2669,6 +2703,7 @@
                 case 'div_kebersihan':
                 case 'div_kebersihan_roan': container.innerHTML = renderDivKebersihanRoan(); break;
                 case 'div_kebersihan_kas': container.innerHTML = renderDivKebersihanKas(); break;
+                case 'div_kebersihan_nilai': container.innerHTML = renderDivKebersihanNilai(); break;
                 case 'div_kegiatan': container.innerHTML = renderDivKegiatan(); break;
                 case 'div_penilaian': container.innerHTML = renderDivPenilaian(); break;
                 default: container.innerHTML = renderBeranda();
@@ -8756,6 +8791,465 @@ daftarTugas +
 
             const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
             window.open(url, '_blank');
+        }
+
+        // ==========================================
+        // MODUL PENILAIAN KEBERSIHAN KAMAR (10 INDIKATOR, SKALA 1-7, LINTAS SEKTOR)
+        // ==========================================
+        function canInputKebersihanNilai() {
+            if (!currentUser) return false;
+            return hasDivisiAccess('kebersihan') || isRecordAdmin(currentUser);
+        }
+
+        function canDeleteKebersihanNilai() {
+            if (!currentUser) return false;
+            return hasDivisiAccess('kebersihan') || isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser);
+        }
+
+        function setKebNilaiSkor(idx, val) {
+            kebNilaiSkor[idx] = Number(val);
+            const total = kebNilaiSkor.reduce((a, b) => a + Number(b || 0), 0);
+            const totalEl = document.getElementById('keb-nilai-total-skor');
+            if (totalEl) totalEl.textContent = total;
+            for (let v = 1; v <= 7; v++) {
+                const btn = document.getElementById(`keb-btn-${idx}-${v}`);
+                if (!btn) continue;
+                if (v === Number(val)) {
+                    btn.className = 'w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs font-extrabold cursor-pointer transition-all bg-teal-500 text-slate-950 shadow';
+                } else {
+                    btn.className = 'w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs font-bold cursor-pointer transition-all bg-asrama-bg border border-asrama-border text-slate-300 hover:border-teal-500/50';
+                }
+            }
+        }
+
+        function resetKebNilaiForm() {
+            kebNilaiSkor = [7, 7, 7, 7, 7, 7, 7, 7, 7, 7];
+            kebNilaiCatatan = '';
+            renderCurrentPage();
+        }
+
+        async function simpanPenilaianKebersihanKamar() {
+            if (!canInputKebersihanNilai()) {
+                showToast('Hanya Divisi Kebersihan & Admin yang dapat menginput nilai.', 'error');
+                return;
+            }
+            const sektor = document.getElementById('keb-nilai-sektor')?.value || kebNilaiSektor;
+            const kamar = document.getElementById('keb-nilai-kamar')?.value || kebNilaiKamar;
+            const jenis = document.getElementById('keb-nilai-jenis')?.value || kebNilaiJenis;
+            const tanggal = document.getElementById('keb-nilai-tanggal')?.value || getTodayIso();
+            const catatan = document.getElementById('keb-nilai-catatan')?.value.trim() || '';
+
+            if (!sektor || !kamar) {
+                showToast('Pilih sektor dan kamar terlebih dahulu!', 'error');
+                return;
+            }
+
+            const totalSkor = kebNilaiSkor.reduce((a, b) => a + Number(b || 0), 0);
+            const kategoriWaktu = jenis.startsWith('Tetap') ? 'Tetap' : 'Acak';
+
+            try {
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'kebersihan_nilai'), {
+                    sektor: toCanonicalSektor(sektor),
+                    kamar,
+                    jenis,
+                    kategoriWaktu,
+                    tanggal,
+                    skorPerIndikator: [...kebNilaiSkor],
+                    totalSkor,
+                    maksSkor: 70,
+                    catatan,
+                    penilaiNama: currentUser.nama,
+                    penilaiSektor: toCanonicalSektor(currentUser.sektor || ''),
+                    createdAt: new Date().toISOString()
+                });
+
+                showToast(`Nilai kebersihan ${kamar} (${totalSkor}/70) berhasil disimpan!`, 'success');
+                kebNilaiSkor = [7, 7, 7, 7, 7, 7, 7, 7, 7, 7];
+                kebNilaiCatatan = '';
+                renderCurrentPage();
+            } catch (err) {
+                console.error('Gagal simpan nilai kebersihan:', err);
+                showToast('Gagal menyimpan: ' + err.message, 'error');
+            }
+        }
+
+        async function hapusPenilaianKebersihan(id) {
+            if (!canDeleteKebersihanNilai()) return;
+            try {
+                await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'kebersihan_nilai', id));
+                showToast('Catatan penilaian kebersihan dihapus.', 'info');
+            } catch (err) {
+                showToast('Gagal menghapus: ' + err.message, 'error');
+            }
+        }
+
+        function getFilteredKebersihanNilaiList() {
+            const today = getTodayIso();
+            const curMonth = today.slice(0, 7);
+            const isMurobbiOnly = !canInputKebersihanNilai() && !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) && !isRecordAdminKantor(currentUser);
+
+            return kebersihanNilaiList.filter(item => {
+                if (isMurobbiOnly) {
+                    if (!isSameSektor(item.sektor, currentUser.sektor) || item.kamar !== currentUser.kamar) return false;
+                } else if (kebNilaiFilterSektor !== 'ALL') {
+                    if (!isSameSektor(item.sektor, kebNilaiFilterSektor)) return false;
+                }
+
+                const tgl = String(item.tanggal || '').slice(0, 10);
+                if (kebNilaiFilterPeriode === 'BULAN_INI') {
+                    if (tgl.slice(0, 7) !== curMonth) return false;
+                } else if (kebNilaiFilterPeriode === '7_HARI') {
+                    const diffDays = (new Date(today) - new Date(tgl)) / (1000 * 60 * 60 * 24);
+                    if (diffDays > 7 || diffDays < 0) return false;
+                }
+                return true;
+            });
+        }
+
+        function buildRekapKebersihanPerKamar(list) {
+            const map = {};
+            list.forEach(item => {
+                const key = `${toCanonicalSektor(item.sektor)}||${item.kamar}`;
+                if (!map[key]) {
+                    map[key] = {
+                        sektor: toCanonicalSektor(item.sektor),
+                        kamar: item.kamar,
+                        totalTetap: 0,
+                        totalAcak: 0,
+                        jumlahSesi: 0,
+                        totalAkhir: 0
+                    };
+                }
+                const skor = Number(item.totalSkor || 0);
+                if (item.kategoriWaktu === 'Acak' || String(item.jenis || '').includes('Acak')) {
+                    map[key].totalAcak += skor;
+                } else {
+                    map[key].totalTetap += skor;
+                }
+                map[key].totalAkhir += skor;
+                map[key].jumlahSesi += 1;
+            });
+
+            return Object.values(map).sort((a, b) => b.totalAkhir - a.totalAkhir);
+        }
+
+        function exportRekapKebersihanExcel() {
+            if (typeof XLSX === 'undefined') return;
+            const list = getFilteredKebersihanNilaiList();
+            const rekap = buildRekapKebersihanPerKamar(list);
+
+            if (list.length === 0) {
+                showToast('Belum ada data penilaian kebersihan untuk diekspor.', 'info');
+                return;
+            }
+
+            const rekapRows = rekap.map((r, idx) => ({
+                Peringkat: idx + 1,
+                Sektor: r.sektor,
+                'Nama Kamar': r.kamar,
+                'Total Penilaian Tetap': r.totalTetap,
+                'Total Penilaian Acak': r.totalAcak,
+                'Total Akhir': r.totalAkhir,
+                'Jumlah Sesi': r.jumlahSesi,
+                'Rata-Rata per Sesi': r.jumlahSesi > 0 ? Number((r.totalAkhir / r.jumlahSesi).toFixed(1)) : 0
+            }));
+
+            const detailRows = list.map((item, idx) => {
+                const row = {
+                    No: idx + 1,
+                    Tanggal: formatTanggalHari(item.tanggal),
+                    Sektor: item.sektor,
+                    Kamar: item.kamar,
+                    'Jenis Penilaian': item.jenis,
+                    'Total Skor': item.totalSkor,
+                    Penilai: item.penilaiNama || '-',
+                    Catatan: item.catatan || '-'
+                };
+                INDIKATOR_KEBERSIHAN_KAMAR.forEach((ind, i) => {
+                    row[ind] = Array.isArray(item.skorPerIndikator) ? (item.skorPerIndikator[i] ?? '-') : '-';
+                });
+                return row;
+            });
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rekapRows), 'Rekap & Peringkat');
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), 'Riwayat Harian');
+            XLSX.writeFile(wb, `SIAN_Penilaian_Kebersihan_${getTodayIso()}.xlsx`);
+            showToast('File Excel penilaian kebersihan berhasil diunduh.', 'success');
+        }
+
+        function salinRekapKebersihanWa() {
+            const list = getFilteredKebersihanNilaiList();
+            const rekap = buildRekapKebersihanPerKamar(list);
+            if (rekap.length === 0) {
+                showToast('Belum ada data rekap untuk disalin.', 'info');
+                return;
+            }
+            let teks = `*REKAP PENILAIAN KEBERSIHAN KAMAR*
+`;
+            teks += `Periode: ${kebNilaiFilterPeriode === '7_HARI' ? '7 Hari Terakhir' : (kebNilaiFilterPeriode === 'BULAN_INI' ? 'Bulan Ini' : 'Semua Data')}
+`;
+            teks += `------------------------------------
+`;
+            rekap.forEach((r, idx) => {
+                const medal = idx === 0 ? '🥇 ' : (idx === 1 ? '🥈 ' : (idx === 2 ? '🥉 ' : `${idx + 1}. `));
+                teks += `${medal}*${r.kamar}* (${formatShortSektor(r.sektor)}) — Total: *${r.totalAkhir}* (Tetap: ${r.totalTetap} + Acak: ${r.totalAcak})
+`;
+            });
+            navigator.clipboard?.writeText(teks);
+            showToast('Rekap WA penilaian kebersihan berhasil disalin!', 'success');
+        }
+
+        function renderDivKebersihanNilai() {
+            const canInput = canInputKebersihanNilai();
+            const canDelete = canDeleteKebersihanNilai();
+            const isMurobbiOnly = !canInput && !isRecordKetuaAsrama(currentUser) && !isRecordKetuaLantai(currentUser) && !isRecordAdminKantor(currentUser);
+
+            if (!canInput && kebNilaiTab === 'input') {
+                kebNilaiTab = isMurobbiOnly ? 'riwayat' : 'rekap';
+            }
+
+            if (!kebNilaiTanggal) kebNilaiTanggal = getTodayIso();
+            const kamarOpts = kamarBySektor[kebNilaiSektor] || [];
+            if (!kebNilaiKamar || !kamarOpts.some(k => k.nama === kebNilaiKamar)) {
+                kebNilaiKamar = kamarOpts[0]?.nama || '';
+            }
+
+            const filteredList = getFilteredKebersihanNilaiList();
+            const rekapKamar = buildRekapKebersihanPerKamar(filteredList);
+            const totalSkorSaatIni = kebNilaiSkor.reduce((a, b) => a + Number(b || 0), 0);
+
+            return `
+                <div class="space-y-5">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-white">Penilaian Kebersihan Kamar</h2>
+                            <p class="text-xs text-slate-300">
+                                ${isMurobbiOnly
+                                    ? `Pantau nilai kebersihan dan catatan evaluasi untuk kamar binaan Anda (${escapeHtml(currentUser?.kamar || '-')}).`
+                                    : 'Penilaian 10 indikator kebersihan (skala 1–7, maks 70/sesi) lintas sektor untuk Divisi Kebersihan.'}
+                            </p>
+                        </div>
+                        <div class="flex items-center gap-1.5 bg-asrama-card border border-asrama-border p-1 rounded-xl text-xs self-start">
+                            ${canInput ? `
+                                <button onclick="kebNilaiTab='input'; renderCurrentPage();" class="px-3 py-1.5 rounded-lg font-bold cursor-pointer transition-colors ${kebNilaiTab === 'input' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}">Input Nilai</button>
+                            ` : ''}
+                            ${!isMurobbiOnly ? `
+                                <button onclick="kebNilaiTab='rekap'; renderCurrentPage();" class="px-3 py-1.5 rounded-lg font-bold cursor-pointer transition-colors ${kebNilaiTab === 'rekap' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}">Rekap & Peringkat</button>
+                            ` : ''}
+                            <button onclick="kebNilaiTab='riwayat'; renderCurrentPage();" class="px-3 py-1.5 rounded-lg font-bold cursor-pointer transition-colors ${kebNilaiTab === 'riwayat' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}">Riwayat (${filteredList.length})</button>
+                        </div>
+                    </div>
+
+                    ${kebNilaiTab === 'input' && canInput ? `
+                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                            <div class="lg:col-span-4 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-4 self-start">
+                                <div class="border-b border-asrama-border/60 pb-3">
+                                    <h3 class="text-sm font-extrabold text-white flex items-center gap-1.5">
+                                        <i class="ph-bold ph-sliders text-teal-400"></i> Target Kamar & Waktu
+                                    </h3>
+                                    <p class="text-[11px] text-slate-400 mt-0.5">Bebas memilih semua 6 sektor (lintas sektor)</p>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-300 mb-1">Pilih Sektor (Semua 6 Sektor)</label>
+                                        <select id="keb-nilai-sektor" onchange="kebNilaiSektor=this.value; kebNilaiKamar=''; renderCurrentPage();" class="w-full px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">
+                                            ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${kebNilaiSektor === sec ? 'selected' : ''}>${sec}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-300 mb-1">Pilih Nama Kamar</label>
+                                        <select id="keb-nilai-kamar" onchange="kebNilaiKamar=this.value;" class="w-full px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">
+                                            ${kamarOpts.map(k => `<option value="${escapeHtml(k.nama)}" ${kebNilaiKamar === k.nama ? 'selected' : ''}>${escapeHtml(k.nama)} (${escapeHtml(k.murobbi)})</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-300 mb-1">Jenis Penilaian</label>
+                                        <select id="keb-nilai-jenis" onchange="kebNilaiJenis=this.value;" class="w-full px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">
+                                            <option value="Tetap - Kamis" ${kebNilaiJenis === 'Tetap - Kamis' ? 'selected' : ''}>Penilaian Tetap — Kamis</option>
+                                            <option value="Tetap - Jum'at" ${kebNilaiJenis === "Tetap - Jum'at" ? 'selected' : ''}>Penilaian Tetap — Jum'at</option>
+                                            <option value="Tetap - Sabtu" ${kebNilaiJenis === 'Tetap - Sabtu' ? 'selected' : ''}>Penilaian Tetap — Sabtu</option>
+                                            <option value="Penilaian Acak" ${kebNilaiJenis === 'Penilaian Acak' ? 'selected' : ''}>Penilaian Acak</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-300 mb-1">Tanggal Penilaian</label>
+                                        <input type="date" id="keb-nilai-tanggal" value="${kebNilaiTanggal}" onchange="kebNilaiTanggal=this.value;" class="w-full px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-300 mb-1">Catatan Kekurangan (Opsional)</label>
+                                        <textarea id="keb-nilai-catatan" rows="2" oninput="kebNilaiCatatan=this.value;" placeholder="Misal: Kamar mandi agak licin, tempat sabun berantakan..." class="w-full px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">${escapeHtml(kebNilaiCatatan)}</textarea>
+                                    </div>
+                                </div>
+
+                                <div class="p-3.5 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-between">
+                                    <span class="text-xs font-bold text-teal-300">Total Skor Kamar:</span>
+                                    <span class="text-xl font-extrabold text-white"><span id="keb-nilai-total-skor">${totalSkorSaatIni}</span> <span class="text-xs font-normal text-slate-400">/ 70</span></span>
+                                </div>
+
+                                <div class="flex items-center gap-2">
+                                    <button onclick="resetKebNilaiForm()" class="px-3 py-2.5 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 font-bold cursor-pointer">Reset (7)</button>
+                                    <button onclick="simpanPenilaianKebersihanKamar()" class="flex-1 py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-extrabold cursor-pointer shadow-lg">
+                                        Simpan Nilai Kamar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="lg:col-span-8 bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-3">
+                                <div class="flex items-center justify-between border-b border-asrama-border/60 pb-2.5">
+                                    <h3 class="text-sm font-extrabold text-white">10 Indikator Penilaian Kebersihan (Skala 1 – 7)</h3>
+                                    <span class="text-[11px] text-teal-300 font-semibold">Default nilai: 7 (Ketuk angka lain jika kurang)</span>
+                                </div>
+                                <div class="space-y-2">
+                                    ${INDIKATOR_KEBERSIHAN_KAMAR.map((namaInd, idx) => `
+                                        <div class="p-3 rounded-xl bg-asrama-bg border border-asrama-border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                            <div class="flex items-center gap-2.5">
+                                                <span class="w-6 h-6 rounded-full bg-asrama-card border border-asrama-border text-[11px] font-bold text-teal-400 flex items-center justify-center shrink-0">${idx + 1}</span>
+                                                <span class="text-xs font-bold text-white">${namaInd}</span>
+                                            </div>
+                                            <div class="flex items-center gap-1 flex-wrap">
+                                                ${[1, 2, 3, 4, 5, 6, 7].map(v => `
+                                                    <button type="button" id="keb-btn-${idx}-${v}" onclick="setKebNilaiSkor(${idx}, ${v})" class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs cursor-pointer transition-all ${Number(kebNilaiSkor[idx]) === v ? 'font-extrabold bg-teal-500 text-slate-950 shadow' : 'font-bold bg-asrama-bg border border-asrama-border text-slate-300 hover:border-teal-500/50'}">${v}</button>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    ` : kebNilaiTab === 'rekap' && !isMurobbiOnly ? `
+                        <div class="space-y-4">
+                            <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <select onchange="kebNilaiFilterSektor=this.value; renderCurrentPage();" class="px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">
+                                        <option value="ALL" ${kebNilaiFilterSektor === 'ALL' ? 'selected' : ''}>Semua 6 Sektor</option>
+                                        ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${kebNilaiFilterSektor === sec ? 'selected' : ''}>${formatShortSektor(sec)}</option>`).join('')}
+                                    </select>
+                                    <select onchange="kebNilaiFilterPeriode=this.value; renderCurrentPage();" class="px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">
+                                        <option value="BULAN_INI" ${kebNilaiFilterPeriode === 'BULAN_INI' ? 'selected' : ''}>Bulan Ini</option>
+                                        <option value="7_HARI" ${kebNilaiFilterPeriode === '7_HARI' ? 'selected' : ''}>7 Hari Terakhir</option>
+                                        <option value="SEMUA" ${kebNilaiFilterPeriode === 'SEMUA' ? 'selected' : ''}>Semua Waktu</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="exportRekapKebersihanExcel()" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                        <i class="ph-bold ph-file-xls text-sm"></i> Ekspor Excel
+                                    </button>
+                                    <button onclick="salinRekapKebersihanWa()" class="px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                                        <i class="ph-bold ph-whatsapp-logo text-sm"></i> Salin WA
+                                    </button>
+                                </div>
+                            </div>
+
+                            ${rekapKamar.length > 0 ? `
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    ${rekapKamar.slice(0, 3).map((r, i) => `
+                                        <div class="p-4 rounded-2xl bg-gradient-to-br from-teal-950/60 to-asrama-card border border-teal-500/30 flex items-center justify-between">
+                                            <div>
+                                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-teal-400">${i === 0 ? '🥇 Terbersih #1' : (i === 1 ? '🥈 Terbersih #2' : '🥉 Terbersih #3')}</span>
+                                                <h4 class="text-base font-extrabold text-white mt-0.5">${escapeHtml(r.kamar)}</h4>
+                                                <p class="text-[11px] text-slate-400">${formatShortSektor(r.sektor)} • ${r.jumlahSesi} sesi</p>
+                                            </div>
+                                            <div class="text-right">
+                                                <span class="text-xl font-extrabold text-teal-300">${r.totalAkhir}</span>
+                                                <span class="block text-[10px] text-slate-400">Tetap ${r.totalTetap} + Acak ${r.totalAcak}</span>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+
+                            <div class="bg-asrama-card border border-asrama-border rounded-2xl overflow-hidden">
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-left border-collapse text-xs">
+                                        <thead>
+                                            <tr class="bg-asrama-bg/80 border-b border-asrama-border text-[11px] text-slate-400 uppercase">
+                                                <th class="py-3 px-4">Rank</th>
+                                                <th class="py-3 px-4">Kamar</th>
+                                                <th class="py-3 px-4">Sektor</th>
+                                                <th class="py-3 px-4 text-center">Total Tetap</th>
+                                                <th class="py-3 px-4 text-center">Total Acak</th>
+                                                <th class="py-3 px-4 text-center">Total Akhir</th>
+                                                <th class="py-3 px-4 text-center">Sesi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-asrama-border/60">
+                                            ${rekapKamar.length === 0 ? `
+                                                <tr><td colspan="7" class="py-8 text-center text-slate-400">Belum ada data penilaian pada periode ini.</td></tr>
+                                            ` : rekapKamar.map((r, idx) => `
+                                                <tr class="hover:bg-asrama-bg/40">
+                                                    <td class="py-3 px-4 font-extrabold text-teal-400">#${idx + 1}</td>
+                                                    <td class="py-3 px-4 font-bold text-white">${escapeHtml(r.kamar)}</td>
+                                                    <td class="py-3 px-4 text-slate-300">${formatShortSektor(r.sektor)}</td>
+                                                    <td class="py-3 px-4 text-center text-slate-200">${r.totalTetap}</td>
+                                                    <td class="py-3 px-4 text-center text-amber-300">${r.totalAcak}</td>
+                                                    <td class="py-3 px-4 text-center font-extrabold text-teal-300">${r.totalAkhir}</td>
+                                                    <td class="py-3 px-4 text-center text-slate-400">${r.jumlahSesi}x</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="bg-asrama-card border border-asrama-border rounded-2xl p-5 space-y-3">
+                            ${!isMurobbiOnly ? `
+                                <div class="flex flex-wrap items-center gap-2 pb-2 border-b border-asrama-border/60">
+                                    <select onchange="kebNilaiFilterSektor=this.value; renderCurrentPage();" class="px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">
+                                        <option value="ALL" ${kebNilaiFilterSektor === 'ALL' ? 'selected' : ''}>Semua 6 Sektor</option>
+                                        ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${kebNilaiFilterSektor === sec ? 'selected' : ''}>${formatShortSektor(sec)}</option>`).join('')}
+                                    </select>
+                                    <select onchange="kebNilaiFilterPeriode=this.value; renderCurrentPage();" class="px-3 py-2 bg-asrama-bg border border-asrama-border rounded-xl text-xs text-white">
+                                        <option value="BULAN_INI" ${kebNilaiFilterPeriode === 'BULAN_INI' ? 'selected' : ''}>Bulan Ini</option>
+                                        <option value="7_HARI" ${kebNilaiFilterPeriode === '7_HARI' ? 'selected' : ''}>7 Hari Terakhir</option>
+                                        <option value="SEMUA" ${kebNilaiFilterPeriode === 'SEMUA' ? 'selected' : ''}>Semua Waktu</option>
+                                    </select>
+                                </div>
+                            ` : ''}
+
+                            ${filteredList.length === 0 ? `
+                                <p class="text-xs text-slate-400 text-center py-8">Belum ada riwayat penilaian kebersihan kamar.</p>
+                            ` : `
+                                <div class="space-y-3">
+                                    ${filteredList.map(item => `
+                                        <div class="p-4 rounded-xl bg-asrama-bg border border-asrama-border space-y-2.5">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div>
+                                                    <div class="flex flex-wrap items-center gap-2">
+                                                        <span class="text-xs font-extrabold text-white">${escapeHtml(item.kamar)}</span>
+                                                        <span class="text-[11px] text-slate-400">(${formatShortSektor(item.sektor)})</span>
+                                                        <span class="px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 text-[10px] font-bold">${escapeHtml(item.jenis)}</span>
+                                                    </div>
+                                                    <p class="text-[11px] text-slate-400 mt-0.5">${formatTanggalHari(item.tanggal)} • Penilai: <strong class="text-slate-300">${escapeHtml(item.penilaiNama || '-')}</strong></p>
+                                                </div>
+                                                <div class="flex items-center gap-2 shrink-0">
+                                                    <span class="px-3 py-1 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 text-xs font-extrabold">${item.totalSkor} / 70</span>
+                                                    ${canDelete ? `
+                                                        <button onclick="hapusPenilaianKebersihan('${item.id}')" class="p-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/30 text-red-300 cursor-pointer" title="Hapus">
+                                                            <i class="ph ph-trash text-sm"></i>
+                                                        </button>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                            ${Array.isArray(item.skorPerIndikator) ? `
+                                                <div class="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px]">
+                                                    ${INDIKATOR_KEBERSIHAN_KAMAR.map((ind, idx) => {
+                                                        const v = item.skorPerIndikator[idx] ?? 7;
+                                                        return `<div class="px-2 py-1 rounded bg-asrama-card border border-asrama-border flex items-center justify-between"><span class="text-slate-400 truncate">${ind}</span><strong class="${v < 6 ? 'text-rose-400' : (v === 6 ? 'text-amber-300' : 'text-emerald-400')}">${v}</strong></div>`;
+                                                    }).join('')}
+                                                </div>
+                                            ` : ''}
+                                            ${item.catatan ? `<p class="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 rounded-lg">Catatan: ${escapeHtml(item.catatan)}</p>` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `}
+                        </div>
+                    `}
+                </div>
+            `;
         }
 
         function renderDivKebersihanKas() {
