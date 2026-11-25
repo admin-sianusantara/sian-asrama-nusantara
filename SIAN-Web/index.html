@@ -614,6 +614,19 @@
         let penilaianMap = {};
 
         let unsubscribeListeners = [];
+        if (typeof window !== 'undefined') {
+            if (window._sianHealthInterval) clearInterval(window._sianHealthInterval);
+            window._sianHealthInterval = setInterval(() => {
+                if (typeof checkAndTriggerKonfirmasiSakitNotif === 'function') {
+                    checkAndTriggerKonfirmasiSakitNotif();
+                }
+            }, 60000);
+            setTimeout(() => {
+                if (typeof checkAndTriggerKonfirmasiSakitNotif === 'function') {
+                    checkAndTriggerKonfirmasiSakitNotif();
+                }
+            }, 3000);
+        }
         let initialSyncDone = {
             pengurus: false,
             perizinan: false,
@@ -1072,6 +1085,7 @@
                     count += perizinanList.filter(p => p.status === 'menunggu' && isIzinSakitRecord(p)).length;
                 }
                 count += murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && n.kamar === currentUser.kamar).length;
+                count += getDaftarSantriPerluKonfirmasiSakit().length;
             }
             return count;
         }
@@ -6180,19 +6194,20 @@
             const nowTime = getCurrentTimeHHMM();
             const nowMin = parseTimeToMinutes(nowTime);
 
-            // Tentukan jendela pergantian sesi konfirmasi:
-            // 1. Sesi Pagi Pergantian Hari (06:00 - 10:00 WIB): Santri yang kemarin masih sakit/belum sembuh -> Konfirmasi Sekolah Pagi & saran periksa medis
+            // Deteksi pergantian sesi:
+            // 1. Sesi Pagi Pergantian Hari (06:00 WIB ke atas):
+            //    Santri yang sakit kemarin/sebelumnya dan belum sembuh HARUS selalu tampil di pagi hari sampai jam 14:00 (menuju Sekolah)
             // 2. Sesi Siang/Sore (14:00 - 17:30 WIB): Sekolah -> Menuju Halaqoh Sore
-            // 3. Sesi Malam (17:30 - 22:00 WIB): Halaqoh Sore -> Menuju Madin
+            // 3. Sesi Malam (17:30 - 23:59 WIB): Halaqoh Sore -> Menuju Madin
             let pergantianTarget = null;
             let isPergantianHari = false;
 
-            if (nowMin >= parseTimeToMinutes('06:00') && nowMin < parseTimeToMinutes('10:00')) {
+            if (nowMin >= parseTimeToMinutes('06:00') && nowMin < parseTimeToMinutes('14:00')) {
                 pergantianTarget = { dari: 'Kemarin / Malam', ke: 'Sekolah', labelJam: '06:00 WIB' };
                 isPergantianHari = true;
             } else if (nowMin >= parseTimeToMinutes('14:00') && nowMin < parseTimeToMinutes('17:30')) {
                 pergantianTarget = { dari: 'Sekolah', ke: 'Halaqoh Sore', labelJam: '14:30 WIB' };
-            } else if (nowMin >= parseTimeToMinutes('17:30') && nowMin < parseTimeToMinutes('22:00')) {
+            } else if (nowMin >= parseTimeToMinutes('17:30')) {
                 pergantianTarget = { dari: 'Halaqoh Sore', ke: 'Madin', labelJam: '18:30 WIB' };
             }
 
@@ -6212,19 +6227,30 @@
                 const tglIzin = String(p.tanggal || '').slice(0, 10);
                 const sesiList = Array.isArray(p.kegiatanSakitList) ? p.kegiatanSakitList : [p.targetKegiatan || 'Sekolah'];
 
-                if (isPergantianHari) {
-                    // Kasus pergantian hari: tanggal izin kemarin atau sebelum hari ini DAN santri belum ditandai sembuh
-                    // Atau tanggal izin hari ini tapi sesi Sekolah belum dikonfirmasi
-                    const isFromPreviousDay = tglIzin < today;
-                    const isTodayNotConfirmedSchool = (tglIzin === today && !sesiList.includes('Sekolah'));
-                    return isFromPreviousDay || isTodayNotConfirmedSchool;
-                } else {
-                    // Kasus siang/malam hari ini
-                    if (tglIzin !== today) return false;
-                    const sudahTercoverDari = sesiList.includes(pergantianTarget.dari);
-                    const sudahTerkonfirmasiKe = sesiList.includes(pergantianTarget.ke);
-                    return sudahTercoverDari && !sudahTerkonfirmasiKe;
+                // Kasus A: Santri sakit dari hari kemarin atau sebelumnya dan belum ditandai sembuh
+                if (tglIzin < today) {
+                    // Jika sekarang sesi pagi (< 14:00), konfirmasi Sekolah
+                    if (isPergantianHari) {
+                        return true;
+                    }
+                    // Jika sekarang sore/malam, periksa apakah sesi target sudah dikonfirmasi hari ini
+                    const timelineHariIni = Array.isArray(p.riwayatTimeline) ? p.riwayatTimeline.filter(t => t.tanggal === today) : [];
+                    const sudahDikonfirmasiHariIni = timelineHariIni.some(t => String(t.status || '').includes(pergantianTarget.ke));
+                    return !sudahDikonfirmasiHariIni;
                 }
+
+                // Kasus B: Santri izin hari ini
+                if (tglIzin === today) {
+                    if (isPergantianHari) {
+                        return !sesiList.includes('Sekolah');
+                    } else {
+                        const sudahTercoverDari = sesiList.includes(pergantianTarget.dari);
+                        const sudahTerkonfirmasiKe = sesiList.includes(pergantianTarget.ke);
+                        return sudahTercoverDari && !sudahTerkonfirmasiKe;
+                    }
+                }
+
+                return false;
             }).map(p => {
                 const tglIzin = String(p.tanggal || '').slice(0, 10);
                 const lamaHari = tglIzin < today ? ' (Lanjutan Kemarin)' : '';
@@ -6237,9 +6263,68 @@
                     targetSesiBerikutnya: pergantianTarget.ke,
                     sesiSebelumnya: pergantianTarget.dari + lamaHari,
                     isPagiHari: isPergantianHari,
-                    saranPeriksaMedis: isPergantianHari // Jika sakit berlanjut dari kemarin, sangat disarankan periksa
+                    saranPeriksaMedis: tglIzin < today || isPergantianHari
                 };
             });
+        }
+
+        // FUNGSI CEK & GENERATE NOTIFIKASI OTOMATIS (FIRESTORE & PUSH) SETIAP PERGANTIAN SESI / JAM 06:00
+        async function checkAndTriggerKonfirmasiSakitNotif() {
+            if (!currentUser || !window.FB || !window.FB.ready) return;
+            const isMurobbi = !isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser) && !isRecordAdminKantor(currentUser);
+            if (!isMurobbi) return;
+
+            const daftar = getDaftarSantriPerluKonfirmasiSakit();
+            if (daftar.length === 0) return;
+
+            const today = getTodayIso();
+            const nowTime = getCurrentTimeHHMM();
+            const nowMin = parseTimeToMinutes(nowTime);
+
+            let sesiKey = 'pagi_0600';
+            if (nowMin >= parseTimeToMinutes('14:00') && nowMin < parseTimeToMinutes('17:30')) sesiKey = 'sore_1430';
+            if (nowMin >= parseTimeToMinutes('17:30')) sesiKey = 'malam_1830';
+
+            for (const item of daftar) {
+                const p = item.izin;
+                const dedupKey = `notif_sakit_cek_${p.id}_${today}_${sesiKey}`;
+
+                // Cek apakah sudah pernah dibuat di murobbiNotifList
+                const alreadyExists = murobbiNotifList.some(n => n.dedupKey === dedupKey);
+                if (alreadyExists) continue;
+
+                const saranMedisTeks = item.saranPeriksaMedis ? ' Santri masih sakit dari kemarin, mohon bawa periksa ke Poskestren/Faskes jika dirasa perlu.' : '';
+                const pesan = `Konfirmasi Kesehatan: Santri ${item.santriNama} (${item.kamar}) memerlukan konfirmasi untuk sesi ${item.targetSesiBerikutnya}.${saranMedisTeks}`;
+
+                try {
+                    await window.FB.addDoc(window.FB.collection(window.FB.db, 'murobbi_notif'), {
+                        dedupKey,
+                        santriNama: item.santriNama,
+                        sektor: toCanonicalSektor(p.sektor),
+                        kamar: p.kamar,
+                        tipe: 'konfirmasi_sakit',
+                        targetPage: 'beranda',
+                        pesan: pesan,
+                        dibaca: false,
+                        oleh: 'Sistem Kesehatan SIAN',
+                        createdAt: new Date().toISOString()
+                    });
+
+                    // Picu audio chime dan browser notification
+                    triggerSystemNotification('Konfirmasi Kesehatan Santri', pesan);
+
+                    // Kirim web push notification jika PWA / background
+                    await sendServerPush({
+                        eventType: 'konfirmasi_sakit_sesi',
+                        sektor: toCanonicalSektor(p.sektor),
+                        title: 'SIAN · Konfirmasi Kesehatan Santri',
+                        body: pesan,
+                        dedupId: dedupKey
+                    });
+                } catch (err) {
+                    console.warn('Gagal generate notif konfirmasi sakit:', err);
+                }
+            }
         }
 
         async function konfirmasiSantriSudahSehat(izinId, santriId) {
@@ -9424,7 +9509,21 @@ daftarTugas +
 
             const notifItems = [];
 
-            // 1. Notifikasi Murobbi Kamar (murobbi_notif)
+            // 1. Notifikasi Konfirmasi Sakit Sesi (Langsung dari evaluasi santri aktif)
+            const perluKonfirmNotifs = getDaftarSantriPerluKonfirmasiSakit();
+            perluKonfirmNotifs.forEach(item => {
+                notifItems.push({
+                    id: 'konfirm_' + item.izin.id,
+                    title: `Konfirmasi Kesehatan: ${item.santriNama} (${item.kamar})`,
+                    body: `Perlu konfirmasi sesi ${item.targetSesiBerikutnya}. ${item.saranPeriksaMedis ? 'Mohon bawa periksa bila dirasa perlu.' : ''}`,
+                    icon: 'ph-heartbeat text-rose-400',
+                    dibaca: false,
+                    time: new Date().toISOString(),
+                    navTarget: 'beranda'
+                });
+            });
+
+            // 1b. Notifikasi Murobbi Kamar (murobbi_notif)
             const myRoomNotifs = murobbiNotifList.filter(n =>
                 isSameSektor(n.sektor, currentUser.sektor) && (isRecordKetuaLantai(currentUser) || n.kamar === currentUser.kamar || isRecordAdmin(currentUser))
             );
