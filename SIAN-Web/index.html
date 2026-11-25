@@ -3176,17 +3176,52 @@
                                     ` : ''}
                                 </div>
                                 <div class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                                    ${kegiatanAktif.length === 0 ? `
-                                        <p class="text-xs text-slate-400 py-4 text-center">Belum ada jadwal kegiatan hari ini.</p>
-                                    ` : kegiatanAktif.map(k => `
-                                        <div class="p-2.5 rounded-xl bg-[#0d1c2d] border border-asrama-border/70 flex items-center justify-between gap-2">
-                                            <div class="min-w-0">
-                                                <span class="text-[10px] font-bold text-sky-400">${escapeHtml(k.jam)} WIB</span>
-                                                <p class="text-xs font-semibold text-white truncate">${escapeHtml(k.nama)}</p>
-                                            </div>
-                                            <span class="text-[10px] text-slate-400 shrink-0">${escapeHtml(k.pj || 'Div. Kegiatan')}</span>
-                                        </div>
-                                    `).join('')}
+                                    ${(() => {
+                                        const hariNames = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jum\'at', 'Sabtu'];
+                                        const hariNow = hariNames[new Date().getDay()];
+                                        const hariAlt = new Date().getDay() === 0 ? 'Minggu' : (new Date().getDay() === 5 ? 'Jumat' : hariNow);
+                                        const listHariIni = kegiatanAktif.filter(k => {
+                                            const h = String(k.hari || '').trim();
+                                            if (!h || h.toLowerCase().includes('semua') || h.toLowerCase().includes('setiap')) return true;
+                                            return h.toLowerCase().includes(hariNow.toLowerCase()) || h.toLowerCase().includes(hariAlt.toLowerCase());
+                                        });
+                                        if (listHariIni.length === 0) {
+                                            return '<p class="text-xs text-slate-400 py-4 text-center">Belum ada jadwal kegiatan untuk hari ' + hariNow + '.</p>';
+                                        }
+                                        const nowMin = parseTimeToMinutes(nowHHMM);
+                                        return listHariIni.map(k => {
+                                            const parts = String(k.jam || '').split('-');
+                                            const startMin = parts[0] ? parseTimeToMinutes(parts[0].trim()) : 0;
+                                            const endMin = parts[1] ? parseTimeToMinutes(parts[1].trim()) : (startMin + 60);
+                                            const isSelesai = nowMin > endMin;
+                                            const isBerlangsung = !isSelesai && nowMin >= startMin && nowMin <= endMin;
+
+                                            const cardCls = isBerlangsung
+                                                ? 'bg-sky-500/15 border-sky-400/60 shadow-md'
+                                                : (isSelesai ? 'bg-[#091524] border-asrama-border/40 opacity-70' : 'bg-[#0d1c2d] border-asrama-border/70');
+                                            const titleCls = isBerlangsung
+                                                ? 'text-sky-300 font-bold'
+                                                : (isSelesai ? 'text-slate-500 line-through font-normal' : 'text-white font-semibold');
+                                            const timeCls = isBerlangsung
+                                                ? 'text-sky-300 font-extrabold'
+                                                : (isSelesai ? 'text-slate-500' : 'text-sky-400 font-bold');
+                                            const badgeHtml = isBerlangsung
+                                                ? '<span class="px-2 py-0.5 rounded-full bg-sky-400 text-slate-950 text-[9px] font-extrabold uppercase animate-pulse shrink-0">Berlangsung</span>'
+                                                : (isSelesai
+                                                    ? '<span class="text-[10px] text-emerald-400 font-bold shrink-0">Selesai &check;</span>'
+                                                    : '<span class="text-[10px] text-slate-400 shrink-0">Mendatang</span>');
+
+                                            return `
+                                                <div class="p-2.5 rounded-xl border ${cardCls} flex items-center justify-between gap-2 transition-all">
+                                                    <div class="min-w-0">
+                                                        <span class="text-[10px] ${timeCls}">${escapeHtml(k.jam)} WIB</span>
+                                                        <p class="text-xs ${titleCls} truncate">${escapeHtml(k.nama)}</p>
+                                                    </div>
+                                                    ${badgeHtml}
+                                                </div>
+                                            `;
+                                        }).join('');
+                                    })()}
                                 </div>
                             </div>
                         </div>
@@ -6782,6 +6817,13 @@
         // =========================================================================
         // 11. MODUL MUROBBI: PRESENSI KAMAR, IZIN SAKIT/PULANG & KONFIRMASI KEMBALI
         // =========================================================================
+        function perbaruiStatusAbsensiKamar() {
+            const autoKeg = getKegiatanPresensiOtomatis(kegiatanList);
+            if (autoKeg) selectedKegiatanId = autoKeg.id;
+            renderCurrentPage();
+            showToast(`Status absensi kamar diperbarui ke sesi: ${autoKeg ? autoKeg.nama : 'Saat Ini'}`, 'success');
+        }
+
         function renderMurobbiPresensi() {
             const list = getPresensiSantri().filter(s => !globalSearchQuery || String(s.nama || '').toLowerCase().includes(globalSearchQuery));
             
@@ -6812,7 +6854,12 @@
                     <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                         <div>
                             <div class="flex flex-wrap items-center gap-2 mb-1">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
                                 <h2 class="text-xl font-extrabold text-white">Presensi Kamar & Kegiatan</h2>
+                                <button onclick="perbaruiStatusAbsensiKamar()" class="px-3 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/40 text-sky-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all">
+                                    <i class="ph-bold ph-arrows-clockwise"></i> Perbarui Status Absensi Kamar
+                                </button>
+                            </div>
                                 ${kamarSelector}
                             </div>
                             <p class="text-xs text-slate-300">${formatTanggalHari(getTodayIso())} • ${escapeHtml(activeKeg.nama)} (${escapeHtml(activeKeg.jam)}) — <strong class="text-emerald-400">${hadirCount} Hadir</strong>, <strong class="text-amber-400">${tidakHadir} Berhalangan</strong></p>
