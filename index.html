@@ -2843,14 +2843,20 @@
         }
 
         async function tandaiSemuaNotifMurobbiDibaca() {
-            if (!window.FB || !window.FB.ready) return;
-            const unread = murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && n.kamar === currentUser.kamar);
+            if (!window.FB || !window.FB.ready || !currentUser) return;
+            const unread = murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && (isRecordKetuaLantai(currentUser) || n.kamar === currentUser.kamar));
+            if (unread.length === 0) {
+                showToast('Semua pemberitahuan sudah dibaca.', 'info');
+                return;
+            }
             const batch = window.FB.writeBatch(window.FB.db);
             unread.forEach(n => {
                 batch.update(window.FB.doc(window.FB.db, 'murobbi_notif', n.id), { dibaca: true });
             });
             await batch.commit();
             showToast('Pemberitahuan ditandai sudah dibaca.', 'info');
+            updatePendingBadge();
+            renderCurrentPage();
         }
 
         // =========================================================================
