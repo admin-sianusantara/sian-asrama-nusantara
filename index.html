@@ -1008,7 +1008,7 @@
 
         function getScopedSantri() {
             if (!currentUser) return [];
-            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser)) return santriList;
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordAdminKantor(currentUser)) return santriList;
             if (isRecordKetuaLantai(currentUser)) {
                 return santriList.filter(s => isSameSektor(s.sektor, currentUser.sektor));
             }
@@ -2599,6 +2599,15 @@
                     </button>
                     <button onclick="navigate('laporan_absen')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer">
                         <i class="ph-bold ph-clipboard-text text-base text-sky-400"></i> Laporan Absen 6 Sektor
+                    </button>
+                `;
+            } else if (isRecordAdminKantor(currentUser)) {
+                quickActions = `
+                    <button onclick="navigate('admin_pulang')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-lg cursor-pointer">
+                        <i class="ph-bold ph-stamp text-base"></i> Stempel & Monitoring Pulang
+                    </button>
+                    <button onclick="navigate('admin_izin')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-white text-xs font-semibold cursor-pointer">
+                        <i class="ph-bold ph-file-xls text-base text-sky-400"></i> Semua Izin Sakit & Pulang
                     </button>
                 `;
             } else {
