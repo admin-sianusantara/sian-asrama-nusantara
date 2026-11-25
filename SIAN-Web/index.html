@@ -2777,6 +2777,594 @@
             const sakit = scoped.filter(s => s.status === 'S').length;
             const pulang = scoped.filter(s => s.status === 'P').length;
             const persenHadir = totalSantri > 0 ? Math.round((hadir / totalSantri) * 100) : 100;
+            const persenHadirFloat = totalSantri > 0 ? ((hadir / totalSantri) * 100).toFixed(1) : '100.0';
+            const pendingCount = getPendingCount();
+            const berhalangan = scoped.filter(s => (s.status || 'H') !== 'H');
+            const todayFormatted = formatTanggalHari(getTodayIso());
+
+            // Hitung Donut SVG (Keliling r=48 -> 301.6)
+            const circ = 301.6;
+            const pHadir = totalSantri > 0 ? (hadir / totalSantri) : 1;
+            const pSakit = totalSantri > 0 ? (sakit / totalSantri) : 0;
+            const pPulang = totalSantri > 0 ? (pulang / totalSantri) : 0;
+            const lenHadir = (pHadir * circ).toFixed(2);
+            const lenSakit = (pSakit * circ).toFixed(2);
+            const lenPulang = (pPulang * circ).toFixed(2);
+            const offSakit = (-Number(lenHadir)).toFixed(2);
+            const offPulang = (-(Number(lenHadir) + Number(lenSakit))).toFixed(2);
+
+            // Hitung Skor Kebersihan Sektor dari kebersihanNilaiList
+            const sektorScores = SEKTOR_ASRAMA.map(sec => {
+                const items = kebersihanNilaiList.filter(x => isSameSektor(x.sektor, sec));
+                if (items.length === 0) return { sektor: sec, short: formatShortSektor(sec), avg: 0, count: 0 };
+                const total = items.reduce((a, b) => a + Number(b.totalSkor || 0), 0);
+                const avg = Math.round((total / (items.length * 70)) * 100);
+                return { sektor: sec, short: formatShortSektor(sec), avg, count: items.length };
+            }).sort((a, b) => b.avg - a.avg);
+
+            const unreadNotifs = (!isRecordAdmin(currentUser) && !isRecordKetuaAsrama(currentUser))
+                ? murobbiNotifList.filter(n => !n.dibaca && isSameSektor(n.sektor, currentUser.sektor) && (isRecordKetuaLantai(currentUser) || n.kamar === currentUser.kamar))
+                : [];
+
+            const primaryBtnOnclick = (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser))
+                ? "navigate('laporan_absen')"
+                : (isRecordAdminKantor(currentUser) ? "navigate('admin_pulang')" : "navigate('murobbi_presensi')");
+            const primaryBtnLabel = (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser))
+                ? "Laporan Absen 6 Sektor"
+                : (isRecordAdminKantor(currentUser) ? "Stempel & Monitoring Pulang" : "Buka Presensi Cepat");
+
+            const kegiatanAktif = getKegiatanHarianAktif();
+            const nowHHMM = getCurrentTimeHHMM();
+
+            return `
+                <div class="space-y-4 md:space-y-5 pb-20 md:pb-6">
+                    ${unreadNotifs.length > 0 ? `
+                        <div class="bg-red-500/15 border border-red-500/40 rounded-2xl p-4 space-y-2.5">
+                            <div class="flex items-center justify-between gap-2">
+                                <h3 class="text-xs font-extrabold text-red-300 flex items-center gap-1.5">
+                                    <i class="ph-fill ph-warning-circle text-base"></i> Pemberitahuan & Info Kamar
+                                </h3>
+                                <button onclick="tandaiSemuaNotifMurobbiDibaca()" class="text-[11px] font-bold text-red-200 underline cursor-pointer">Tandai Sudah Dibaca</button>
+                            </div>
+                            ${unreadNotifs.map(n => `
+                                <div class="p-3 rounded-xl bg-asrama-bg/90 border border-red-500/30 text-xs text-slate-200">
+                                    <p class="font-bold text-white">${escapeHtml(n.santriNama)} (${escapeHtml(n.kamar)})</p>
+                                    <p class="text-red-200 mt-0.5">${escapeHtml(n.pesan)}</p>
+                                    <p class="text-[11px] text-slate-400 mt-1">${formatTanggalHari(String(n.createdAt || '').slice(0, 10))} • Oleh ${escapeHtml(n.oleh || 'Divisi Keamanan')}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    ${(() => {
+                        const perluKonfirmasi = getDaftarSantriPerluKonfirmasiSakit();
+                        if (perluKonfirmasi.length === 0) return '';
+                        return `
+                            <div class="bg-gradient-to-r from-amber-950/60 via-asrama-card to-amber-950/40 border border-amber-500/40 rounded-2xl p-4 md:p-5 shadow-xl space-y-3">
+                                <div class="flex items-center justify-between border-b border-amber-500/20 pb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="p-2 rounded-xl bg-amber-500/20 text-amber-300"><i class="ph-bold ph-heartbeat text-lg"></i></span>
+                                        <div>
+                                            <h4 class="text-xs md:text-sm font-extrabold text-white flex items-center gap-1.5">
+                                                Konfirmasi Kesehatan Santri Kamar — Pergantian Sesi Kegiatan
+                                                <span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold">${perluKonfirmasi.length} Santri</span>
+                                            </h4>
+                                            <p class="text-[11px] text-slate-300">Mohon pastikan kondisi santri di bawah apakah sudah sehat atau perlu lanjut izin.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    ${perluKonfirmasi.map(item => `
+                                        <div class="p-3.5 rounded-xl bg-asrama-bg/90 border border-amber-500/30 space-y-2">
+                                            <div>
+                                                <span class="text-xs font-bold text-white">${escapeHtml(item.santriNama)}</span>
+                                                <span class="px-2 py-0.5 rounded bg-asrama-card border border-asrama-border text-emerald-300 text-[10px] font-bold ml-1.5">${escapeHtml(item.kamar)}</span>
+                                                <p class="text-[11px] text-slate-300 mt-0.5">Keluhan: <strong>${escapeHtml(item.keluhan)}</strong></p>
+                                                <p class="text-[10px] text-amber-400">Sesi Sebelumnya: <strong>${escapeHtml(item.sesiSebelumnya)}</strong> &rarr; Menuju: <strong class="text-amber-200 underline">${escapeHtml(item.targetSesiBerikutnya)}</strong></p>
+                                                ${item.saranPeriksaMedis ? `
+                                                    <div class="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-[10px] text-rose-300 flex items-center gap-1.5 mt-1">
+                                                        <i class="ph-bold ph-first-aid text-rose-400 text-xs shrink-0"></i>
+                                                        <span><strong>Perhatian:</strong> Santri masih sakit hingga pagi ini. Mohon bawa periksa ke Poskestren / Faskes bila dirasa perlu.</span>
+                                                    </div>
+                                                ` : ''}
+                                            </div>
+                                            <div class="flex items-center gap-2 pt-1 border-t border-asrama-border/50">
+                                                <button onclick="konfirmasiSantriSudahSehat('${item.izin.id}', '${item.santriId}')" class="flex-1 py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center justify-center gap-1 cursor-pointer">
+                                                    <i class="ph-bold ph-check-circle"></i> Sudah Sehat
+                                                </button>
+                                                <button onclick="konfirmasiLanjutSakitKeSesi('${item.izin.id}', '${item.targetSesiBerikutnya}')" class="flex-1 py-1.5 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-[11px] flex items-center justify-center gap-1 cursor-pointer">
+                                                    <i class="ph-bold ph-plus-circle"></i> Lanjut Sakit (${escapeHtml(item.targetSesiBerikutnya)})
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    })()}
+
+                    <!-- 1. Top Announcement Ticker ("Info Asrama") -->
+                    <div class="rounded-xl bg-[#0d1c2d]/90 border border-asrama-border/70 px-3.5 py-2 flex items-center justify-between gap-2 shadow-md">
+                        <div class="flex items-center gap-2 min-w-0 flex-1">
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-bold uppercase tracking-wider shrink-0">
+                                <span class="material-symbols-outlined text-[13px]">campaign</span> Info Asrama
+                            </span>
+                            <p class="text-xs text-slate-200 truncate">${escapeHtml(infoAsramaGlobal.pengumuman)}</p>
+                        </div>
+                        <span class="text-[10px] text-sky-400 font-semibold shrink-0 hidden sm:inline">${todayFormatted}</span>
+                    </div>
+
+                    <!-- 2. Hero Banner + Greeting Card (Desktop 2 Kolom, Mobile Stacked) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+                        <!-- Hero Card (Kiri 8 Cols - Desktop, Compact di Mobile) -->
+                        <div class="lg:col-span-8 relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0d1c2d] via-[#122131] to-[#0a1929] border border-sky-500/25 p-5 md:p-6 shadow-xl flex flex-col justify-between">
+                            <div class="absolute -right-8 -bottom-10 w-72 h-72 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                            <div class="relative z-10 space-y-1.5">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 text-[10px] font-bold border border-emerald-500/25">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Sistem Berjalan Normal
+                                    </span>
+                                    <span class="text-[10px] text-slate-400 uppercase tracking-widest hidden sm:inline">SIAN • Sistem Informasi Asrama Nusantara</span>
+                                </div>
+                                <h1 class="text-xl md:text-2xl font-extrabold text-white tracking-tight pt-1">
+                                    Pusat Kendali & Disiplin Santri
+                                </h1>
+                                <p class="text-xs md:text-sm text-slate-300">Tertib Ibadah • Disiplin Asrama • Kebersihan Terjaga</p>
+                            </div>
+                            <div class="relative z-10 pt-4 flex flex-wrap items-center justify-between gap-3">
+                                <div class="flex items-center gap-3 text-xs text-slate-300">
+                                    <span class="flex items-center gap-1"><span class="material-symbols-outlined text-emerald-400 text-[16px]">domain</span> <strong class="text-white">${formatShortSektor(currentUser.sektor)}</strong></span>
+                                    <span class="text-slate-600">•</span>
+                                    <span class="flex items-center gap-1"><span class="material-symbols-outlined text-sky-400 text-[16px]">groups</span> <strong class="text-white">${totalSantri} Santri</strong></span>
+                                </div>
+                                <button onclick="${primaryBtnOnclick}" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-400 to-sky-500 text-slate-950 font-extrabold text-xs shadow-lg shadow-sky-500/20 hover:scale-[1.02] transition-all cursor-pointer">
+                                    <span class="material-symbols-outlined text-[18px]">bolt</span>
+                                    <span>${primaryBtnLabel}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Greeting Card (Kanan 4 Cols) -->
+                        <div class="lg:col-span-4 rounded-2xl bg-[#122131]/90 border border-asrama-border p-5 shadow-xl flex flex-col justify-between">
+                            <div class="space-y-1.5">
+                                <div class="flex items-center justify-between">
+                                    <span class="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 text-[10px] font-bold uppercase tracking-wider">${getRoleBadgeLabel(currentUser)}</span>
+                                    <span class="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-bold"><span class="material-symbols-outlined text-[14px]">verified</span> Aktif</span>
+                                </div>
+                                <h2 class="text-lg font-extrabold text-white pt-1">Assalamu'alaikum, ${escapeHtml(currentUser.nama)}</h2>
+                                <p class="text-xs text-slate-400">${todayFormatted}</p>
+                            </div>
+                            <div class="mt-3 p-3 rounded-xl bg-[#051424]/70 border border-asrama-border/60 space-y-1.5 text-xs">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-400 flex items-center gap-1"><span class="material-symbols-outlined text-[16px] text-sky-400">meeting_room</span> Kamar Binaan</span>
+                                    <strong class="text-white">${escapeHtml(currentUser.kamar || 'Semua Kamar')}</strong>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-400 flex items-center gap-1"><span class="material-symbols-outlined text-[16px] text-purple-400">schedule</span> Jam Sekarang</span>
+                                    <span class="px-2 py-0.5 rounded bg-asrama-card text-sky-300 font-bold text-[11px]">${nowHHMM} WIB</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Aksi Cepat (6 Grid Tiles) -->
+                    <div class="rounded-2xl bg-[#122131]/80 border border-asrama-border p-4 shadow-lg">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs md:text-sm font-bold text-white flex items-center gap-1.5">
+                                <span class="material-symbols-outlined text-sky-400 text-[18px]">touch_app</span> Aksi Cepat
+                            </h3>
+                            <span class="text-[10px] text-emerald-400 font-semibold">Pintasan Harian</span>
+                        </div>
+                        <div class="grid grid-cols-3 lg:grid-cols-6 gap-2.5">
+                            <button onclick="openKehadiranShortcut()" class="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#0d1c2d] hover:bg-sky-500/15 border border-asrama-border hover:border-sky-400/50 transition-all cursor-pointer text-center">
+                                <div class="w-9 h-9 rounded-lg bg-sky-500/15 text-sky-400 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-[20px]">how_to_reg</span></div>
+                                <span class="text-[11px] font-bold text-white">Presensi</span>
+                            </button>
+                            <button onclick="openSakitShortcut()" class="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#0d1c2d] hover:bg-emerald-500/15 border border-asrama-border hover:border-emerald-400/50 transition-all cursor-pointer text-center">
+                                <div class="w-9 h-9 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-[20px]">post_add</span></div>
+                                <span class="text-[11px] font-bold text-white">Izin Santri</span>
+                            </button>
+                            <button onclick="navigate('murobbi_pelanggaran')" class="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#0d1c2d] hover:bg-rose-500/15 border border-asrama-border hover:border-rose-400/50 transition-all cursor-pointer text-center">
+                                <div class="w-9 h-9 rounded-lg bg-rose-500/15 text-rose-400 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-[20px]">timer_off</span></div>
+                                <span class="text-[11px] font-bold text-white">Telat / Alpa</span>
+                            </button>
+                            <button onclick="openGlobalSearchMobileModal()" class="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#0d1c2d] hover:bg-sky-500/15 border border-asrama-border hover:border-sky-400/50 transition-all cursor-pointer text-center">
+                                <div class="w-9 h-9 rounded-lg bg-sky-500/15 text-sky-400 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-[20px]">search</span></div>
+                                <span class="text-[11px] font-bold text-white">Cari Santri</span>
+                            </button>
+                            <button onclick="openPulangShortcut()" class="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#0d1c2d] hover:bg-purple-500/15 border border-asrama-border hover:border-purple-400/50 transition-all cursor-pointer text-center">
+                                <div class="w-9 h-9 rounded-lg bg-purple-500/15 text-purple-400 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-[20px]">departure_board</span></div>
+                                <span class="text-[11px] font-bold text-white">Santri Pulang</span>
+                            </button>
+                            <button onclick="openPwaInstallAndNotifModal()" class="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#0d1c2d] hover:bg-amber-500/15 border border-asrama-border hover:border-amber-400/50 transition-all cursor-pointer text-center">
+                                <div class="w-9 h-9 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-[20px]">notifications_active</span></div>
+                                <span class="text-[11px] font-bold text-white">App & Notif</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 4. 4 Glowing Gradient KPI Cards (2x2 di Mobile, 4 Kolom di Desktop) -->
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                        <div onclick="openKehadiranShortcut()" class="group relative overflow-hidden rounded-2xl bg-[#122131]/90 hover:bg-[#1c2b3c] border border-asrama-border hover:border-sky-400/50 p-4 shadow-lg cursor-pointer transition-all flex flex-col justify-between">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider block">Kehadiran Santri</span>
+                                    <div class="flex items-baseline gap-1 pt-1">
+                                        <span class="text-2xl font-extrabold text-sky-400">${hadir}</span>
+                                        <span class="text-xs text-slate-400">/ ${totalSantri}</span>
+                                    </div>
+                                </div>
+                                <div class="w-9 h-9 rounded-xl bg-sky-500/15 text-sky-400 flex items-center justify-center"><span class="material-symbols-outlined text-[20px]">groups</span></div>
+                            </div>
+                            <div class="mt-3 space-y-1.5">
+                                <div class="w-full h-1.5 rounded-full bg-[#010f1f] overflow-hidden">
+                                    <div class="h-full bg-gradient-to-r from-sky-400 to-sky-500 rounded-full" style="width: ${persenHadir}%"></div>
+                                </div>
+                                <div class="flex items-center justify-between text-[10px] text-slate-400 group-hover:text-sky-300">
+                                    <span>${persenHadirFloat}% Hadir</span>
+                                    <span>Detail &rarr;</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div onclick="openSakitShortcut()" class="group relative overflow-hidden rounded-2xl bg-[#122131]/90 hover:bg-[#1c2b3c] border border-asrama-border hover:border-emerald-400/50 p-4 shadow-lg cursor-pointer transition-all flex flex-col justify-between">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider block">Santri Sakit</span>
+                                    <div class="flex items-baseline gap-1 pt-1">
+                                        <span class="text-2xl font-extrabold text-emerald-400">${sakit}</span>
+                                        <span class="text-xs text-slate-400">Santri</span>
+                                    </div>
+                                </div>
+                                <div class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center"><span class="material-symbols-outlined text-[20px]">local_hospital</span></div>
+                            </div>
+                            <div class="mt-3 space-y-1.5">
+                                <div class="w-full h-1.5 rounded-full bg-[#010f1f] overflow-hidden">
+                                    <div class="h-full bg-emerald-400 rounded-full" style="width: ${totalSantri > 0 ? Math.min(100, Math.round((sakit/totalSantri)*100*5)) : 0}%"></div>
+                                </div>
+                                <div class="flex items-center justify-between text-[10px] text-slate-400 group-hover:text-emerald-300">
+                                    <span>Sekolah / Madin</span>
+                                    <span>Pantau &rarr;</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div onclick="openPulangShortcut()" class="group relative overflow-hidden rounded-2xl bg-[#122131]/90 hover:bg-[#1c2b3c] border border-asrama-border hover:border-purple-400/50 p-4 shadow-lg cursor-pointer transition-all flex flex-col justify-between">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider block">Izin Pulang</span>
+                                    <div class="flex items-baseline gap-1 pt-1">
+                                        <span class="text-2xl font-extrabold text-purple-300">${pulang}</span>
+                                        <span class="text-xs text-slate-400">Santri</span>
+                                    </div>
+                                </div>
+                                <div class="w-9 h-9 rounded-xl bg-purple-500/15 text-purple-300 flex items-center justify-center"><span class="material-symbols-outlined text-[20px]">time_to_leave</span></div>
+                            </div>
+                            <div class="mt-3 space-y-1.5">
+                                <div class="w-full h-1.5 rounded-full bg-[#010f1f] overflow-hidden">
+                                    <div class="h-full bg-purple-400 rounded-full" style="width: ${totalSantri > 0 ? Math.min(100, Math.round((pulang/totalSantri)*100*5)) : 0}%"></div>
+                                </div>
+                                <div class="flex items-center justify-between text-[10px] text-slate-400 group-hover:text-purple-300">
+                                    <span>Terpantau</span>
+                                    <span>Pantau &rarr;</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div onclick="openPendingShortcut()" class="group relative overflow-hidden rounded-2xl bg-[#122131]/90 hover:bg-[#1c2b3c] border border-asrama-border hover:border-rose-400/50 p-4 shadow-lg cursor-pointer transition-all flex flex-col justify-between">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider block">Notif & Antrean</span>
+                                    <div class="flex items-baseline gap-1 pt-1">
+                                        <span class="text-2xl font-extrabold ${pendingCount > 0 ? 'text-rose-400' : 'text-white'}">${pendingCount}</span>
+                                        <span class="text-xs text-slate-400">Item</span>
+                                    </div>
+                                </div>
+                                <div class="w-9 h-9 rounded-xl bg-rose-500/15 text-rose-400 flex items-center justify-center"><span class="material-symbols-outlined text-[20px]">pending_actions</span></div>
+                            </div>
+                            <div class="mt-3 space-y-1.5">
+                                <div class="w-full h-1.5 rounded-full bg-[#010f1f] overflow-hidden">
+                                    <div class="h-full bg-rose-400 rounded-full" style="width: ${pendingCount > 0 ? '60%' : '0%'}"></div>
+                                </div>
+                                <div class="flex items-center justify-between text-[10px] text-slate-400 group-hover:text-rose-300">
+                                    <span>Antrean ACC</span>
+                                    <span>Tinjau &rarr;</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Main Content Grid (Donut + Kebersihan + Santri Berhalangan & Jadwal) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        <!-- Kiri & Tengah (8 Cols) -->
+                        <div class="lg:col-span-8 space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                                <!-- Donut Chart Kondisi Santri (5 Cols) -->
+                                <div class="md:col-span-5 rounded-2xl bg-[#122131]/90 border border-asrama-border p-4 shadow-lg flex flex-col justify-between">
+                                    <div>
+                                        <div class="flex items-center justify-between">
+                                            <h3 class="text-sm font-bold text-white flex items-center gap-1.5"><span class="material-symbols-outlined text-sky-400 text-[18px]">pie_chart</span> Kondisi Santri</h3>
+                                            <span class="text-[10px] px-2 py-0.5 rounded bg-[#1c2b3c] text-slate-300">${totalSantri} Jiwa</span>
+                                        </div>
+                                        <p class="text-[11px] text-slate-400 mt-0.5">Status keberadaan santri hari ini</p>
+                                    </div>
+                                    <div class="py-3 flex flex-col items-center justify-center relative">
+                                        <svg class="w-36 h-36 -rotate-90" viewBox="0 0 120 120">
+                                            <circle cx="60" cy="60" fill="none" r="48" stroke="#1c2b3c" stroke-width="12"></circle>
+                                            <circle cx="60" cy="60" fill="none" r="48" stroke="#38bdf8" stroke-dasharray="${lenHadir} ${circ}" stroke-dashoffset="0" stroke-linecap="round" stroke-width="12"></circle>
+                                            ${sakit > 0 ? `<circle cx="60" cy="60" fill="none" r="48" stroke="#4edea3" stroke-dasharray="${lenSakit} ${circ}" stroke-dashoffset="${offSakit}" stroke-linecap="round" stroke-width="12"></circle>` : ''}
+                                            ${pulang > 0 ? `<circle cx="60" cy="60" fill="none" r="48" stroke="#ce9cff" stroke-dasharray="${lenPulang} ${circ}" stroke-dashoffset="${offPulang}" stroke-linecap="round" stroke-width="12"></circle>` : ''}
+                                        </svg>
+                                        <div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                                            <span class="text-xl font-extrabold text-white">${hadir}</span>
+                                            <span class="text-[9px] text-sky-400 uppercase font-bold tracking-wider">Hadir</span>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-1.5 text-xs">
+                                        <div class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#0d1c2d]"><span class="flex items-center gap-2 text-slate-200"><span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> Hadir</span><strong class="text-sky-400">${hadir}</strong></div>
+                                        <div class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#0d1c2d]"><span class="flex items-center gap-2 text-slate-200"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Sakit</span><strong class="text-emerald-400">${sakit}</strong></div>
+                                        <div class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#0d1c2d]"><span class="flex items-center gap-2 text-slate-200"><span class="w-2.5 h-2.5 rounded-full bg-purple-400"></span> Pulang</span><strong class="text-purple-300">${pulang}</strong></div>
+                                    </div>
+                                </div>
+
+                                <!-- Skor Kebersihan Sektor (7 Cols) -->
+                                <div class="md:col-span-7 rounded-2xl bg-[#122131]/90 border border-asrama-border p-4 shadow-lg flex flex-col justify-between">
+                                    <div>
+                                        <div class="flex items-center justify-between mb-2">
+                                            <div class="flex items-center gap-2">
+                                                <div class="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center"><span class="material-symbols-outlined text-[18px]">cleaning_services</span></div>
+                                                <div>
+                                                    <h3 class="text-sm font-bold text-white">Skor Kebersihan Sektor</h3>
+                                                    <p class="text-[10px] text-slate-400">Rata-rata nilai kebersihan kamar per sektor</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-2.5 pt-2">
+                                            ${sektorScores.map((item, idx) => `
+                                                <div class="space-y-1">
+                                                    <div class="flex justify-between text-[11px]">
+                                                        <span class="${idx === 0 && item.avg > 0 ? 'text-emerald-400 font-bold' : 'text-slate-200'}">${escapeHtml(item.short)} ${idx === 0 && item.avg > 0 ? '🏆' : ''}</span>
+                                                        <span class="font-bold ${item.avg > 0 ? 'text-sky-300' : 'text-slate-500'}">${item.avg > 0 ? item.avg + ' / 100' : 'Belum dinilai'}</span>
+                                                    </div>
+                                                    <div class="w-full h-2 rounded-full bg-[#010f1f] overflow-hidden">
+                                                        <div class="h-full ${idx === 0 ? 'bg-emerald-400' : 'bg-sky-400'} rounded-full" style="width: ${item.avg}%"></div>
+                                                    </div>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Santri Berhalangan / Izin Hari Ini -->
+                            <div class="rounded-2xl bg-[#122131]/90 border border-asrama-border p-4 shadow-lg space-y-3">
+                                <div class="flex items-center justify-between">
+                                    <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
+                                        <i class="ph-fill ph-warning-circle text-amber-400"></i> Santri Berhalangan / Izin Hari Ini
+                                    </h3>
+                                    <span class="text-xs text-slate-400">${berhalangan.length} santri</span>
+                                </div>
+                                ${berhalangan.length === 0 ? `
+                                    <p class="text-xs text-slate-400 py-4 text-center">Alhamdulillah, seluruh santri dalam lingkup ini hadir lengkap.</p>
+                                ` : `
+                                    <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                        ${berhalangan.map(s => `
+                                            <div class="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0d1c2d] border border-asrama-border/80">
+                                                <div class="min-w-0">
+                                                    <p class="text-xs font-bold text-white truncate">${escapeHtml(s.nama)}</p>
+                                                    <p class="text-[11px] text-slate-400 truncate">${formatShortSektor(s.sektor)} • ${escapeHtml(s.kamar)} • ${escapeHtml(s.catatan || '-')}</p>
+                                                </div>
+                                                ${renderStatusBadge(s.status)}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+
+                        <!-- Kanan (4 Cols): Jadwal Asrama Hari Ini -->
+                        <div class="lg:col-span-4 space-y-4">
+                            <div class="rounded-2xl bg-[#122131]/90 border border-asrama-border p-4 shadow-lg space-y-3">
+                                <div class="flex items-center justify-between">
+                                    <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
+                                        <span class="material-symbols-outlined text-emerald-400 text-[18px]">schedule</span> Jadwal Asrama Hari Ini
+                                    </h3>
+                                    ${hasDivisiAccess('kegiatan') || isRecordAdmin(currentUser) ? `
+                                        <button onclick="navigate('div_kegiatan')" class="text-[11px] text-sky-400 hover:underline font-semibold cursor-pointer">Kelola</button>
+                                    ` : ''}
+                                </div>
+                                <div class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                                    ${kegiatanAktif.length === 0 ? `
+                                        <p class="text-xs text-slate-400 py-4 text-center">Belum ada jadwal kegiatan hari ini.</p>
+                                    ` : kegiatanAktif.map(k => `
+                                        <div class="p-2.5 rounded-xl bg-[#0d1c2d] border border-asrama-border/70 flex items-center justify-between gap-2">
+                                            <div class="min-w-0">
+                                                <span class="text-[10px] font-bold text-sky-400">${escapeHtml(k.jam)} WIB</span>
+                                                <p class="text-xs font-semibold text-white truncate">${escapeHtml(k.nama)}</p>
+                                            </div>
+                                            <span class="text-[10px] text-slate-400 shrink-0">${escapeHtml(k.pj || 'Div. Kegiatan')}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function openKehadiranShortcut() {
+            if (!currentUser) return;
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordAdminKantor(currentUser) || isRecordKetuaLantai(currentUser)) {
+                navigate('laporan_absen');
+            } else {
+                navigate('murobbi_presensi');
+            }
+        }
+
+        function openSakitShortcut() {
+            if (!currentUser) return;
+            if (hasDivisiAccess('kesehatan')) {
+                navigate('div_kesehatan_izin');
+            } else if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordAdminKantor(currentUser)) {
+                navigate('admin_izin');
+            } else if (isRecordKetuaLantai(currentUser)) {
+                openKetuaSektorSakitModal();
+            } else {
+                navigate('murobbi_izin');
+            }
+        }
+
+        function openPulangShortcut() {
+            if (!currentUser) return;
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordAdminKantor(currentUser)) {
+                navigate('admin_pulang');
+            } else if (isRecordKetuaLantai(currentUser)) {
+                openKetuaSektorPulangModal();
+            } else if (hasDivisiAccess('keamanan')) {
+                navigate('div_keamanan_izin');
+            } else {
+                navigate('murobbi_izin');
+            }
+        }
+
+        function openKetuaSektorSakitModal() {
+            const sec = toCanonicalSektor(currentUser?.sektor);
+            const sakitSantri = santriList.filter(s => isSameSektor(s.sektor, sec) && s.status === 'S');
+            openModal(
+                `Pantau Santri Sakit — ${formatShortSektor(sec)}`,
+                `
+                <div class="space-y-3">
+                    <p class="text-xs text-slate-300">Menampilkan seluruh santri berstatus <strong class="text-amber-300">Sakit (S)</strong> di sektor Anda (${sakitSantri.length} santri).</p>
+                    <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                        ${sakitSantri.length === 0 ? `
+                            <div class="p-6 text-center bg-asrama-bg border border-asrama-border rounded-xl text-xs text-slate-400">
+                                Alhamdulillah, tidak ada santri yang sedang sakit di sektor Anda saat ini.
+                            </div>
+                        ` : sakitSantri.map(s => {
+                            const izinAktif = perizinanList.find(p => (p.santriId === s.id || p.santriNama === s.nama) && isIzinSakitRecord(p) && !p.sudahSembuh);
+                            const kegiatanTxt = izinAktif ? getIzinKegiatanText(izinAktif) : 'Sekolah / Halaqoh Sore / Madin';
+                            return `
+                                <div class="p-3 rounded-xl bg-asrama-bg border border-amber-500/30 flex items-start justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-bold text-white">${escapeHtml(s.nama)}</p>
+                                        <p class="text-[11px] text-emerald-300">${escapeHtml(s.kamar)} • Kelas ${escapeHtml(s.kelas || '-')}</p>
+                                        <p class="text-[11px] text-slate-300 mt-0.5">Keterangan: <strong>${escapeHtml(s.catatan || (izinAktif ? izinAktif.kategori : 'Sakit'))}</strong></p>
+                                        <p class="text-[10px] text-amber-300 mt-0.5">Sesi: ${escapeHtml(kegiatanTxt)}</p>
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold shrink-0">Sakit</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                `,
+                `<button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Tutup</button>`
+            );
+        }
+
+        function openKetuaSektorPulangModal() {
+            const sec = toCanonicalSektor(currentUser?.sektor);
+            const pulangSantri = santriList.filter(s => isSameSektor(s.sektor, sec) && s.status === 'P');
+            openModal(
+                `Pantau Santri Pulang — ${formatShortSektor(sec)}`,
+                `
+                <div class="space-y-3">
+                    <p class="text-xs text-slate-300">Menampilkan seluruh santri berstatus <strong class="text-purple-300">Pulang (P)</strong> di sektor Anda (${pulangSantri.length} santri).</p>
+                    <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                        ${pulangSantri.length === 0 ? `
+                            <div class="p-6 text-center bg-asrama-bg border border-asrama-border rounded-xl text-xs text-slate-400">
+                                Tidak ada santri yang sedang izin pulang di sektor Anda saat ini.
+                            </div>
+                        ` : pulangSantri.map(s => {
+                            const izinAktif = perizinanList.find(p => (p.santriId === s.id || p.santriNama === s.nama) && isIzinPulangRecord(p) && !p.sudahKembali);
+                            return `
+                                <div class="p-3 rounded-xl bg-asrama-bg border border-purple-500/30 flex items-start justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-bold text-white">${escapeHtml(s.nama)}</p>
+                                        <p class="text-[11px] text-emerald-300">${escapeHtml(s.kamar)} • Kelas ${escapeHtml(s.kelas || '-')}</p>
+                                        <p class="text-[11px] text-slate-300 mt-0.5">Alasan: <strong>${escapeHtml(s.catatan || (izinAktif ? izinAktif.kategori : 'Izin Pulang'))}</strong></p>
+                                        ${izinAktif ? `
+                                            <p class="text-[10px] text-slate-400 mt-0.5">
+                                                Batas Kembali: <strong class="text-amber-300">${formatTanggalHari(izinAktif.kembali || izinAktif.tanggal)} (${izinAktif.batasJamKembali || DEFAULT_BATAS_JAM_KEMBALI} WIB)</strong>
+                                            </p>
+                                            <p class="text-[10px] ${izinAktif.stempelKantor ? 'text-cyan-300' : 'text-slate-400'} mt-0.5">
+                                                ${izinAktif.stempelKantor ? '✓ Sudah Stempel Kantor' : '⏳ Belum Stempel Kantor'}
+                                            </p>
+                                        ` : ''}
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-bold shrink-0">Pulang</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                `,
+                `<button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Tutup</button>`
+            );
+        }
+
+        function openPendingShortcut() {
+            if (!currentUser) return;
+            if (isRecordAdmin(currentUser)) {
+                const pendingPengurus = pengurusList.filter(p => p.status === 'pending').length;
+                navigate(pendingPengurus > 0 ? 'admin_pengurus' : 'admin_izin');
+            } else if (isRecordAdminKantor(currentUser)) {
+                navigate('admin_pulang');
+            } else if (isRecordKetuaAsrama(currentUser) || isRecordKetuaLantai(currentUser)) {
+                navigate('pimpinan_acc_pulang');
+            } else if (hasDivisiAccess('keamanan')) {
+                navigate('div_keamanan_izin');
+            } else if (hasDivisiAccess('kesehatan')) {
+                navigate('div_kesehatan_izin');
+            } else {
+                navigate('murobbi_izin');
+            }
+        }
+
+        function renderCurrentPage() {
+            const container = document.getElementById('app-content');
+            if (!container || !currentUser) return;
+
+            switch (currentPage) {
+                case 'beranda': container.innerHTML = renderBeranda(); break;
+                case 'admin_pengurus': container.innerHTML = renderAdminPengurus(); break;
+                case 'admin_info': container.innerHTML = renderAdminInfoAsrama(); break;
+                case 'admin_santri': container.innerHTML = renderAdminSantri(); break;
+                case 'laporan_absen': container.innerHTML = renderLaporanAbsenSemua(); break;
+                case 'ketua_acc_santri': container.innerHTML = renderKetuaAccSantri(); break;
+                case 'pimpinan_acc_pulang': container.innerHTML = renderPimpinanAccPulang(); break;
+                case 'admin_izin': container.innerHTML = renderAdminIzin(); break;
+                case 'admin_pulang': container.innerHTML = renderAdminPulang(); break;
+                case 'murobbi_presensi': container.innerHTML = renderMurobbiPresensi(); break;
+                case 'murobbi_izin': container.innerHTML = renderMurobbiIzin(); break;
+                case 'murobbi_pelanggaran': container.innerHTML = renderMurobbiPelanggaran(); break;
+                case 'murobbi_pelanggaran_berat': container.innerHTML = renderMurobbiPelanggaranBerat(); break;
+                case 'murobbi_penilaian': container.innerHTML = renderMurobbiPenilaian(); break;
+                case 'div_keamanan_izin': container.innerHTML = renderDivKeamananIzin(); break;
+                case 'div_keamanan_aset': container.innerHTML = renderDivKeamananAset(); break;
+                case 'div_keamanan_pelanggaran': container.innerHTML = renderDivKeamananPelanggaran(); break;
+                case 'div_kesehatan_izin': container.innerHTML = renderDivKesehatanIzin(); break;
+                case 'div_kebersihan':
+                case 'div_kebersihan_roan': container.innerHTML = renderDivKebersihanRoan(); break;
+                case 'div_kebersihan_kas': container.innerHTML = renderDivKebersihanKas(); break;
+                case 'div_kebersihan_nilai': container.innerHTML = renderDivKebersihanNilai(); break;
+                case 'div_kegiatan': container.innerHTML = renderDivKegiatan(); break;
+                case 'div_penilaian': container.innerHTML = renderDivPenilaian(); break;
+                default: container.innerHTML = renderBeranda();
+            }
+        }
+
+        // =========================================================================
+        // 7. BERANDA & RINGKASAN
+        // =========================================================================
+        function renderBeranda() {
+            const scoped = getScopedSantri();
+            const totalSantri = scoped.length;
+            const hadir = scoped.filter(s => (s.status || 'H') === 'H').length;
+            const sakit = scoped.filter(s => s.status === 'S').length;
+            const pulang = scoped.filter(s => s.status === 'P').length;
+            const persenHadir = totalSantri > 0 ? Math.round((hadir / totalSantri) * 100) : 100;
             const pendingCount = getPendingCount();
             const berhalangan = scoped.filter(s => (s.status || 'H') !== 'H');
             const todayFormatted = formatTanggalHari(getTodayIso());
