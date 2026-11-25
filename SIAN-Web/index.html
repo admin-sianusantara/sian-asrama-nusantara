@@ -23,7 +23,8 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Font Inter dengan display=swap -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
     <!-- Phosphor Icons -->
     <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
     <!-- SheetJS untuk Import & Export Excel (.xlsx) -->
@@ -33,17 +34,29 @@
             darkMode: 'class',
             theme: {
                 extend: {
-                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
                     colors: {
                         asrama: {
-                            bg: '#090d0b',
-                            sidebar: '#101714',
-                            card: '#16201c',
-                            cardHover: '#1e2b26',
-                            border: '#2c3d36',
-                            accent: '#10b981',
-                            accentDark: '#059669'
-                        }
+                            bg: '#051424',
+                            sidebar: '#010f1f',
+                            card: '#122131',
+                            cardHover: '#1c2b3c',
+                            border: '#273647',
+                            accent: '#38bdf8',
+                            accentDark: '#0284c7'
+                        },
+                        primary: '#8ed5ff',
+                        'primary-container': '#38bdf8',
+                        'on-primary': '#00354a',
+                        'on-primary-container': '#004965',
+                        secondary: '#4edea3',
+                        'secondary-container': '#00a572',
+                        tertiary: '#e1c0ff',
+                        'tertiary-container': '#ce9cff',
+                        'surface-container': '#122131',
+                        'surface-container-low': '#0d1c2d',
+                        'surface-container-high': '#1c2b3c',
+                        'surface-container-lowest': '#010f1f'
                     }
                 }
             }
@@ -51,28 +64,28 @@
     </script>
     <style>
         html, body {
-            background-color: #090d0b !important;
+            background-color: #051424 !important;
             color: #f8fafc !important;
             color-scheme: dark;
             overflow-x: hidden;
         }
         select, input, textarea {
             color: #f8fafc !important;
-            background-color: #0d1411 !important;
+            background-color: #0d1c2d !important;
         }
         select option {
-            background-color: #16201c;
+            background-color: #122131;
             color: #f8fafc;
             padding: 8px;
         }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #101714; }
-        ::-webkit-scrollbar-thumb { background: #2c3d36; border-radius: 9999px; }
+        ::-webkit-scrollbar-track { background: #010f1f; }
+        ::-webkit-scrollbar-thumb { background: #273647; border-radius: 9999px; }
         ::-webkit-scrollbar-thumb:hover { background: #3d544a; }
         .ambient-glow {
-            background-color: #090d0b !important;
-            background-image: radial-gradient(circle at 85% 15%, rgba(16, 185, 129, 0.14) 0%, rgba(9, 13, 11, 0) 45%),
-                              radial-gradient(circle at 10% 85%, rgba(16, 185, 129, 0.08) 0%, rgba(9, 13, 11, 0) 40%);
+            background-color: #051424 !important;
+            background-image: radial-gradient(circle at 85% 15%, rgba(56, 189, 248, 0.14) 0%, rgba(9, 13, 11, 0) 45%),
+                              radial-gradient(circle at 10% 85%, rgba(78, 222, 163, 0.08) 0%, rgba(9, 13, 11, 0) 40%);
         }
     </style>
     <script>
@@ -393,6 +406,32 @@
             <!-- Dynamic Workspace Container -->
             <div id="app-content" class="p-4 md:p-6 max-w-7xl w-full mx-auto flex-1"></div>
         </main>
+
+        <!-- Bottom Navigation Bar Khusus Mobile -->
+        <nav class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#010f1f]/90 backdrop-blur-2xl border-t border-asrama-border/80 shadow-[0_-8px_32px_rgba(1,15,31,0.85)]">
+            <div class="h-16 px-2 flex items-center justify-around">
+                <button onclick="navigate('beranda')" class="flex flex-col items-center justify-center gap-0.5 min-w-[56px] text-sky-400 font-bold cursor-pointer">
+                    <span class="material-symbols-outlined text-[22px]">dashboard</span>
+                    <span class="text-[10px]">Beranda</span>
+                </button>
+                <button onclick="openKehadiranShortcut()" class="flex flex-col items-center justify-center gap-0.5 min-w-[56px] text-slate-300 hover:text-white cursor-pointer">
+                    <span class="material-symbols-outlined text-[22px]">fingerprint</span>
+                    <span class="text-[10px]">Presensi</span>
+                </button>
+                <button onclick="openSakitShortcut()" class="flex flex-col items-center justify-center gap-0.5 min-w-[56px] text-slate-300 hover:text-white cursor-pointer">
+                    <span class="material-symbols-outlined text-[22px]">assignment_turned_in</span>
+                    <span class="text-[10px]">Perizinan</span>
+                </button>
+                <button onclick="toggleSidebar()" class="flex flex-col items-center justify-center gap-0.5 min-w-[56px] text-slate-300 hover:text-white cursor-pointer">
+                    <span class="material-symbols-outlined text-[22px]">hub</span>
+                    <span class="text-[10px]">Menu Divisi</span>
+                </button>
+                <button onclick="openPwaInstallAndNotifModal()" class="flex flex-col items-center justify-center gap-0.5 min-w-[56px] text-slate-300 hover:text-white cursor-pointer">
+                    <span class="material-symbols-outlined text-[22px]">notifications_active</span>
+                    <span class="text-[10px]">App & Notif</span>
+                </button>
+            </div>
+        </nav>
     </div>
 
     <!-- MODAL KONFIRMASI / FORM -->
@@ -1972,42 +2011,62 @@
 
                 if (hasDivisiAccess('keamanan')) {
                     html += `
-                        <div class="space-y-1 pt-2 border-t border-asrama-border/60">
-                            <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-purple-400 mb-1.5">Divisi Keamanan</p>
+                        <details class="group pt-2 border-t border-asrama-border/60" open>
+                            <summary class="flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer text-purple-400 hover:bg-asrama-card select-none">
+                                <span class="text-[10px] font-bold uppercase tracking-wider">Divisi Keamanan</span>
+                                <i class="ph-bold ph-caret-down text-xs transition-transform group-open:rotate-180"></i>
+                            </summary>
+                            <div class="space-y-1 mt-1">
                             ${navItem('div_keamanan_izin', 'ph-shield-check', 'ACC Izin Pulang (Sakit)', 'text-purple-400')}
                             ${navItem('div_keamanan_aset', 'ph-laptop', 'Laptop, Sitaan & Tebusan', 'text-purple-400')}
                             ${navItem('div_keamanan_pelanggaran', 'ph-warning-octagon', 'Pelanggaran & Takziran Santri', 'text-purple-400')}
-                        </div>
+                            </div>
+                        </details>
                     `;
                 }
 
                 if (hasDivisiAccess('kesehatan')) {
                     html += `
-                        <div class="space-y-1 pt-2 border-t border-asrama-border/60">
-                            <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-rose-400 mb-1.5">Divisi Kesehatan</p>
+                        <details class="group pt-2 border-t border-asrama-border/60" open>
+                            <summary class="flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer text-rose-400 hover:bg-asrama-card select-none">
+                                <span class="text-[10px] font-bold uppercase tracking-wider">Divisi Kesehatan</span>
+                                <i class="ph-bold ph-caret-down text-xs transition-transform group-open:rotate-180"></i>
+                            </summary>
+                            <div class="space-y-1 mt-1">
                             ${navItem('div_kesehatan_izin', 'ph-first-aid-kit', 'ACC & Rekap Izin Sakit', 'text-rose-400')}
-                        </div>
+                            </div>
+                        </details>
                     `;
                 }
 
                 if (hasDivisiAccess('kebersihan')) {
                     html += `
-                        <div class="space-y-1 pt-2 border-t border-asrama-border/60">
-                            <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-teal-400 mb-1.5">Divisi Kebersihan</p>
+                        <details class="group pt-2 border-t border-asrama-border/60" open>
+                            <summary class="flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer text-teal-400 hover:bg-asrama-card select-none">
+                                <span class="text-[10px] font-bold uppercase tracking-wider">Divisi Kebersihan</span>
+                                <i class="ph-bold ph-caret-down text-xs transition-transform group-open:rotate-180"></i>
+                            </summary>
+                            <div class="space-y-1 mt-1">
                             ${navItem('div_kebersihan_roan', 'ph-calendar-check', 'Kalender & Jadwal Roan', 'text-teal-400')}
                             ${navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400')}
                         ${navItem('div_kebersihan_nilai', 'ph-sparkle', 'Penilaian Kebersihan Kamar', 'text-teal-400')}
-                        </div>
+                            </div>
+                        </details>
                     `;
                 }
 
                 if (hasDivisiAccess('kegiatan')) {
                     html += `
-                        <div class="space-y-1 pt-2 border-t border-asrama-border/60">
-                            <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1.5">Divisi Kegiatan</p>
+                        <details class="group pt-2 border-t border-asrama-border/60" open>
+                            <summary class="flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer text-amber-400 hover:bg-asrama-card select-none">
+                                <span class="text-[10px] font-bold uppercase tracking-wider">Divisi Kegiatan</span>
+                                <i class="ph-bold ph-caret-down text-xs transition-transform group-open:rotate-180"></i>
+                            </summary>
+                            <div class="space-y-1 mt-1">
                             ${navItem('div_kegiatan', 'ph-calendar-check', 'Atur & Edit Kegiatan Harian', 'text-amber-400')}
                             ${navItem('div_penilaian', 'ph-exam', 'Rubrik & Hasil Penilaian', 'text-emerald-400')}
-                        </div>
+                            </div>
+                        </details>
                     `;
                 }
             }
