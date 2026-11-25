@@ -640,7 +640,7 @@
         let currentPage = 'beranda';
         let globalSearchQuery = '';
         let cloudVapidKey = '';
-        let notifSettings = { izinMurobbi: true, roanKebersihan: true, penilaianKegiatan: true, takziranKeamanan: true };
+        let notifSettings = { izinMurobbi: true, roanKebersihan: true, penilaianKegiatan: true, takziranKeamanan: true, showDendaMenus: false };
 
         let pengurusList = [];
         let santriList = [];
@@ -1721,7 +1721,8 @@
                             izinMurobbi: data.izinMurobbi !== false,
                             roanKebersihan: data.roanKebersihan !== false,
                             penilaianKegiatan: data.penilaianKegiatan !== false,
-                            takziranKeamanan: data.takziranKeamanan !== false
+                            takziranKeamanan: data.takziranKeamanan !== false,
+                            showDendaMenus: data.showDendaMenus === true
                         };
                     }
                     const candidateMap = data.map || data.kamarBySektor || data.kamarMap;
@@ -1737,6 +1738,7 @@
                 rawFirestoreKamarMap = normalizedMap;
                 syncKamarMapFromAllSources();
                 initSignupFormDropdowns();
+                if (currentUser) renderSidebarMenus();
                 renderCurrentPage();
             }));
 
@@ -1963,7 +1965,7 @@
                         ${navItem('murobbi_pelanggaran', 'ph-warning-circle', 'Rekap Telat & Alpa', 'text-amber-400')}
                         ${navItem('div_keamanan_pelanggaran', 'ph-warning-octagon', 'Pelanggaran & Takziran (Keamanan)', 'text-purple-400')}
                         ${navItem('div_kebersihan_roan', 'ph-calendar-check', 'Kalender & Jadwal Roan', 'text-teal-400')}
-                        ${navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400')}
+                        ${notifSettings.showDendaMenus ? navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400') : ''}
                         ${navItem('div_kebersihan_nilai', 'ph-sparkle', 'Penilaian Kebersihan Kamar', 'text-teal-400')}
                         ${navItem('div_penilaian', 'ph-exam', 'Pantau Hasil Penilaian', 'text-emerald-400')}</div>
                 `;
@@ -2018,7 +2020,7 @@
                             </summary>
                             <div class="space-y-1 mt-1">
                             ${navItem('div_keamanan_izin', 'ph-shield-check', 'ACC Izin Pulang (Sakit)', 'text-purple-400')}
-                            ${navItem('div_keamanan_aset', 'ph-laptop', 'Laptop, Sitaan & Tebusan', 'text-purple-400')}
+                            ${notifSettings.showDendaMenus ? navItem('div_keamanan_aset', 'ph-laptop', 'Laptop, Sitaan & Tebusan', 'text-purple-400') : ''}
                             ${navItem('div_keamanan_pelanggaran', 'ph-warning-octagon', 'Pelanggaran & Takziran Santri', 'text-purple-400')}
                             </div>
                         </details>
@@ -2048,7 +2050,7 @@
                             </summary>
                             <div class="space-y-1 mt-1">
                             ${navItem('div_kebersihan_roan', 'ph-calendar-check', 'Kalender & Jadwal Roan', 'text-teal-400')}
-                            ${navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400')}
+                            ${notifSettings.showDendaMenus ? navItem('div_kebersihan_kas', 'ph-wallet', 'Kas, Denda & Belanja', 'text-emerald-400') : ''}
                         ${navItem('div_kebersihan_nilai', 'ph-sparkle', 'Penilaian Kebersihan Kamar', 'text-teal-400')}
                             </div>
                         </details>
@@ -11029,6 +11031,14 @@ daftarTugas +
                     <p class="text-xs text-slate-300">Tentukan jenis pemberitahuan otomatis yang dikirimkan ke HP Murobbi kamar dan divisi terkait:</p>
                     
                     <div class="space-y-2.5">
+                        <label class="flex items-center justify-between p-3 rounded-xl bg-asrama-bg border border-amber-500/40 cursor-pointer">
+                            <div>
+                                <p class="text-xs font-bold text-amber-300">Tampilkan Menu Denda & Tebusan</p>
+                                <p class="text-[11px] text-slate-400">Aktifkan menu Sitaan/Tebusan (Keamanan) & Kas/Denda (Kebersihan) di sidebar.</p>
+                            </div>
+                            <input id="cfg-show-denda" type="checkbox" ${notifSettings.showDendaMenus === true ? 'checked' : ''} class="w-4 h-4 accent-amber-500">
+                        </label>
+
                         <label class="flex items-center justify-between p-3 rounded-xl bg-asrama-bg border border-asrama-border cursor-pointer">
                             <div>
                                 <p class="text-xs font-bold text-white">Notifikasi Izin Santri ke Murobbi</p>
