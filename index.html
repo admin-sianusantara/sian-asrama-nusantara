@@ -2878,6 +2878,9 @@
                                                     <i class="ph-bold ph-plus-circle"></i> Lanjut Sakit (${escapeHtml(item.targetSesiBerikutnya)})
                                                 </button>
                                             </div>
+                                            <button onclick="rekomendasikanSantriPulang('${item.izin.id}', '${item.santriId}')" class="w-full py-1.5 px-2.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/40 text-purple-200 font-bold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer transition-colors">
+                                                <i class="ph-bold ph-house-line"></i> Direkomendasikan Pulang (Dijemput Ortu)
+                                            </button>
                                         </div>
                                     `).join('')}
                                 </div>
@@ -7249,6 +7252,75 @@
             }
         }
     
+        async function rekomendasikanSantriPulang(izinId, santriId) {
+            const izin = perizinanList.find(x => x.id === izinId);
+            const s = santriList.find(x => x.id === (santriId || izin?.santriId));
+            if (!izin && !s) {
+                showToast('Data santri tidak ditemukan.', 'error');
+                return;
+            }
+            const nowTime = getCurrentTimeHHMM();
+            const today = getTodayIso();
+            const namaSantri = s ? s.nama : izin.santriNama;
+            const sektorSantri = toCanonicalSektor(s ? s.sektor : izin.sektor);
+            const kamarSantri = s ? s.kamar : izin.kamar;
+            const keluhan = izin ? izin.kategori : (s?.catatan || 'Sakit (Butuh Penanganan Lanjut)');
+
+            showLoading('Menghentikan siklus sakit & meneruskan ke Izin Pulang (Keamanan)...');
+            try {
+                // 1. Tutup siklus konfirmasi sakit pada dokumen izin sakit
+                if (izin) {
+                    const colName = izin._col || 'perizinan';
+                    await window.FB.updateDoc(window.FB.doc(window.FB.db, colName, izin.id), {
+                        sudahSembuh: true,
+                        direkomendasikanPulang: true,
+                        statusPerkembangan: `Direkomendasikan Pulang (Pk ${nowTime} WIB)`,
+                        riwayatTimeline: [
+                            ...(izin.riwayatTimeline || []),
+                            { tanggal: today, jam: nowTime, status: 'Direkomendasikan Pulang (Dijemput Orang Tua)', oleh: currentUser?.nama || 'Petugas' }
+                        ]
+                    });
+                }
+
+                // 2. Buat pengajuan Izin Pulang (Sakit) otomatis ke Divisi Keamanan
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
+                    santriId: s ? s.id : (izin?.santriId || ''),
+                    santriNama: namaSantri,
+                    sektor: sektorSantri,
+                    kamar: kamarSantri,
+                    murobbi: currentUser?.nama || izin?.murobbi || 'Murobbi',
+                    jenis: 'pulang',
+                    kategoriPulang: 'pulang_sakit',
+                    kategori: `Rekomendasi Pulang Sakit: ${keluhan}`,
+                    tanggal: today,
+                    kembali: today,
+                    batasJamKembali: DEFAULT_BATAS_JAM_KEMBALI,
+                    status: 'menunggu',
+                    divisiTujuan: 'keamanan',
+                    dariRekomendasiSakit: true,
+                    createdAt: new Date().toISOString()
+                });
+
+                await sendServerPush({
+                    eventType: 'izin_baru',
+                    jenis: 'pulang',
+                    divisiTujuan: 'keamanan',
+                    sektor: sektorSantri,
+                    title: 'SIAN · Rekomendasi Pulang (Sakit)',
+                    body: `${namaSantri} (${kamarSantri}) direkomendasikan pulang karena ${keluhan}.`,
+                    dedupId: `rekom_pulang_${Date.now()}`
+                });
+
+                hideLoading();
+                showToast(`${namaSantri} direkomendasikan pulang & pengajuan izin pulang otomatis dikirim ke Divisi Keamanan.`, 'success');
+                renderCurrentPage();
+            } catch (err) {
+                hideLoading();
+                console.error('Gagal rekomendasi pulang:', err);
+                showToast('Gagal memproses rekomendasi pulang: ' + err.message, 'error');
+            }
+        }
+
         // FORM PENGAJUAN IZIN SAKIT & PULANG + RIWAYAT & KONFIRMASI KEMBALI
         function renderMurobbiIzin() {
             const scopedSantri = getScopedSantri();
@@ -8150,6 +8222,7 @@
                                         ` : ''}
                                         ${masihSakit ? `
                                             <button onclick="tandaiSantriSembuh('${sObj.id}')" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer">Tandai Sembuh (H)</button>
+                                            <button onclick="rekomendasikanSantriPulang('${p.id}', '${sObj.id}')" class="px-3.5 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/40 text-purple-200 text-xs font-bold cursor-pointer">Direkomendasikan Pulang</button>
                                         ` : ''}
                                         <button onclick="openHapusIzinKesehatanModal('${p.id}')" class="px-3 py-2 rounded-xl bg-red-600/20 hover:bg-red-600/35 border border-red-500/40 text-red-300 text-xs font-bold flex items-center gap-1 cursor-pointer" title="Hapus Pengajuan Izin Sakit">
                                             <i class="ph-bold ph-trash"></i> Hapus
