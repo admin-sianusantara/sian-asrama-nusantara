@@ -2514,6 +2514,117 @@
             }, 50);
         }
 
+        function openKehadiranShortcut() {
+            if (!currentUser) return;
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordAdminKantor(currentUser) || isRecordKetuaLantai(currentUser)) {
+                navigate('laporan_absen');
+            } else {
+                navigate('murobbi_presensi');
+            }
+        }
+
+        function openSakitShortcut() {
+            if (!currentUser) return;
+            if (hasDivisiAccess('kesehatan')) {
+                navigate('div_kesehatan_izin');
+            } else if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordAdminKantor(currentUser)) {
+                navigate('admin_izin');
+            } else if (isRecordKetuaLantai(currentUser)) {
+                openKetuaSektorSakitModal();
+            } else {
+                navigate('murobbi_izin');
+            }
+        }
+
+        function openPulangShortcut() {
+            if (!currentUser) return;
+            if (isRecordAdmin(currentUser) || isRecordKetuaAsrama(currentUser) || isRecordAdminKantor(currentUser)) {
+                navigate('admin_pulang');
+            } else if (isRecordKetuaLantai(currentUser)) {
+                openKetuaSektorPulangModal();
+            } else if (hasDivisiAccess('keamanan')) {
+                navigate('div_keamanan_izin');
+            } else {
+                navigate('murobbi_izin');
+            }
+        }
+
+        function openKetuaSektorSakitModal() {
+            const sec = toCanonicalSektor(currentUser?.sektor);
+            const sakitSantri = santriList.filter(s => isSameSektor(s.sektor, sec) && s.status === 'S');
+            openModal(
+                `Pantau Santri Sakit — ${formatShortSektor(sec)}`,
+                `
+                <div class="space-y-3">
+                    <p class="text-xs text-slate-300">Menampilkan seluruh santri berstatus <strong class="text-amber-300">Sakit (S)</strong> di sektor Anda (${sakitSantri.length} santri).</p>
+                    <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                        ${sakitSantri.length === 0 ? `
+                            <div class="p-6 text-center bg-asrama-bg border border-asrama-border rounded-xl text-xs text-slate-400">
+                                Alhamdulillah, tidak ada santri yang sedang sakit di sektor Anda saat ini.
+                            </div>
+                        ` : sakitSantri.map(s => {
+                            const izinAktif = perizinanList.find(p => (p.santriId === s.id || p.santriNama === s.nama) && isIzinSakitRecord(p) && !p.sudahSembuh);
+                            const kegiatanTxt = izinAktif ? getIzinKegiatanText(izinAktif) : 'Sekolah / Halaqoh Sore / Madin';
+                            return `
+                                <div class="p-3 rounded-xl bg-asrama-bg border border-amber-500/30 flex items-start justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-bold text-white">${escapeHtml(s.nama)}</p>
+                                        <p class="text-[11px] text-emerald-300">${escapeHtml(s.kamar)} • Kelas ${escapeHtml(s.kelas || '-')}</p>
+                                        <p class="text-[11px] text-slate-300 mt-0.5">Keterangan: <strong>${escapeHtml(s.catatan || (izinAktif ? izinAktif.kategori : 'Sakit'))}</strong></p>
+                                        <p class="text-[10px] text-amber-300 mt-0.5">Sesi: ${escapeHtml(kegiatanTxt)}</p>
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold shrink-0">Sakit</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                `,
+                `<button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Tutup</button>`
+            );
+        }
+
+        function openKetuaSektorPulangModal() {
+            const sec = toCanonicalSektor(currentUser?.sektor);
+            const pulangSantri = santriList.filter(s => isSameSektor(s.sektor, sec) && s.status === 'P');
+            openModal(
+                `Pantau Santri Pulang — ${formatShortSektor(sec)}`,
+                `
+                <div class="space-y-3">
+                    <p class="text-xs text-slate-300">Menampilkan seluruh santri berstatus <strong class="text-purple-300">Pulang (P)</strong> di sektor Anda (${pulangSantri.length} santri).</p>
+                    <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                        ${pulangSantri.length === 0 ? `
+                            <div class="p-6 text-center bg-asrama-bg border border-asrama-border rounded-xl text-xs text-slate-400">
+                                Tidak ada santri yang sedang izin pulang di sektor Anda saat ini.
+                            </div>
+                        ` : pulangSantri.map(s => {
+                            const izinAktif = perizinanList.find(p => (p.santriId === s.id || p.santriNama === s.nama) && isIzinPulangRecord(p) && !p.sudahKembali);
+                            return `
+                                <div class="p-3 rounded-xl bg-asrama-bg border border-purple-500/30 flex items-start justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-bold text-white">${escapeHtml(s.nama)}</p>
+                                        <p class="text-[11px] text-emerald-300">${escapeHtml(s.kamar)} • Kelas ${escapeHtml(s.kelas || '-')}</p>
+                                        <p class="text-[11px] text-slate-300 mt-0.5">Alasan: <strong>${escapeHtml(s.catatan || (izinAktif ? izinAktif.kategori : 'Izin Pulang'))}</strong></p>
+                                        ${izinAktif ? `
+                                            <p class="text-[10px] text-slate-400 mt-0.5">
+                                                Batas Kembali: <strong class="text-amber-300">${formatTanggalHari(izinAktif.kembali || izinAktif.tanggal)} (${izinAktif.batasJamKembali || DEFAULT_BATAS_JAM_KEMBALI} WIB)</strong>
+                                            </p>
+                                            <p class="text-[10px] ${izinAktif.stempelKantor ? 'text-cyan-300' : 'text-slate-400'} mt-0.5">
+                                                ${izinAktif.stempelKantor ? '✓ Sudah Stempel Kantor' : '⏳ Belum Stempel Kantor'}
+                                            </p>
+                                        ` : ''}
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-bold shrink-0">Pulang</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                `,
+                `<button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Tutup</button>`
+            );
+        }
+
         function openPendingShortcut() {
             if (!currentUser) return;
             if (isRecordAdmin(currentUser)) {
@@ -2728,7 +2839,7 @@
 
                     <!-- Kartu Statistik -->
                     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                        <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-2">
+                        <div onclick="openKehadiranShortcut()" class="bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border hover:border-emerald-500/50 rounded-2xl p-4 space-y-2 cursor-pointer transition-all">
                             <div class="flex items-center justify-between">
                                 <span class="text-xs text-slate-300 font-medium">Kehadiran Santri</span>
                                 <span class="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center"><i class="ph-fill ph-users text-lg"></i></span>
@@ -2737,24 +2848,27 @@
                             <div class="w-full bg-asrama-bg rounded-full h-1.5 overflow-hidden">
                                 <div class="bg-emerald-500 h-1.5 rounded-full" style="width: ${persenHadir}%"></div>
                             </div>
+                            <p class="text-[10px] text-emerald-400 font-medium">Klik untuk pantau &rarr;</p>
                         </div>
 
-                        <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-2">
+                        <div onclick="openSakitShortcut()" class="bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border hover:border-amber-500/50 rounded-2xl p-4 space-y-2 cursor-pointer transition-all">
                             <div class="flex items-center justify-between">
                                 <span class="text-xs text-slate-300 font-medium">Santri Sakit</span>
                                 <span class="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center"><i class="ph-fill ph-thermometer text-lg"></i></span>
                             </div>
                             <p class="text-2xl font-extrabold text-white">${sakit}</p>
                             <p class="text-[11px] text-slate-400">Sekolah / Halaqoh Sore / Madin</p>
+                            <p class="text-[10px] text-amber-400 font-medium">Klik untuk pantau &rarr;</p>
                         </div>
 
-                        <div class="bg-asrama-card border border-asrama-border rounded-2xl p-4 space-y-2">
+                        <div onclick="openPulangShortcut()" class="bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border hover:border-purple-500/50 rounded-2xl p-4 space-y-2 cursor-pointer transition-all">
                             <div class="flex items-center justify-between">
                                 <span class="text-xs text-slate-300 font-medium">Santri Pulang</span>
                                 <span class="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center"><i class="ph-fill ph-house-line text-lg"></i></span>
                             </div>
                             <p class="text-2xl font-extrabold text-white">${pulang}</p>
                             <p class="text-[11px] text-slate-400">Terpantau izin pulang</p>
+                            <p class="text-[10px] text-purple-400 font-medium">Klik untuk pantau &rarr;</p>
                         </div>
 
                         <div onclick="openPendingShortcut()" class="bg-asrama-card hover:bg-asrama-cardHover border border-asrama-border rounded-2xl p-4 space-y-2 cursor-pointer transition-colors">
