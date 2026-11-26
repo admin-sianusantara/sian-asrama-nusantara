@@ -7067,7 +7067,8 @@
                 if (tglIzin < today) {
                     // Jika sekarang sesi pagi (< 14:00), konfirmasi Sekolah
                     if (isPergantianHari) {
-                        return true;
+                        const tl = Array.isArray(p.riwayatTimeline) ? p.riwayatTimeline.filter(t => t.tanggal === today) : [];
+                        return !tl.some(t => String(t.status || '').includes(pergantianTarget.ke));
                     }
                     // Jika sekarang sore/malam, periksa apakah sesi target sudah dikonfirmasi hari ini
                     const timelineHariIni = Array.isArray(p.riwayatTimeline) ? p.riwayatTimeline.filter(t => t.tanggal === today) : [];
