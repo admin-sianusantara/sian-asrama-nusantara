@@ -7218,41 +7218,92 @@
                 const izin = perizinanList.find(x => x.id === izinId);
                 if (!izin) throw new Error('Data izin tidak ditemukan');
 
-                const currentList = Array.isArray(izin.kegiatanSakitList) ? [...izin.kegiatanSakitList] : [izin.targetKegiatan || 'Sekolah'];
-                if (!currentList.includes(sesiBerikutnya)) {
-                    currentList.push(sesiBerikutnya);
-                }
-
-                const updatedTarget = currentList.join(', ');
                 const isCrossDay = String(izin.tanggal || '').slice(0, 10) < today;
 
-                // Update data izin parent (anti dobel, 1 rekor terpadu)
-                await window.FB.updateDoc(window.FB.doc(window.FB.db, 'perizinan', izinId), {
-                    kegiatanSakitList: currentList,
-                    targetKegiatan: updatedTarget,
-                    terakhirDiperpanjangKe: sesiBerikutnya,
-                    statusPerkembangan: `Masih Sakit (Diperpanjang ke ${sesiBerikutnya} pk ${nowTime}${isCrossDay ? ', hari berikutnya' : ''})`,
-                    riwayatTimeline: [
-                        ...(izin.riwayatTimeline || []),
-                        { tanggal: today, jam: nowTime, status: `Diperpanjang ke sesi ${sesiBerikutnya}${isCrossDay ? ' (Lanjutan Pagi)' : ''}`, oleh: currentUser.nama }
-                    ]
-                });
-
-                // Notifikasi pembaruan ke Divisi Kesehatan
-                try {
-                    await window.FB.addDoc(window.FB.collection(window.FB.db, 'notifikasi'), {
-                        divisi: 'kesehatan',
-                        judul: `Perpanjangan Izin Sakit: ${izin.santriNama}`,
-                        pesan: `Santri ${izin.santriNama} (${izin.kamar}) masih belum sehat. Izin diperpanjang oleh Murobbi untuk sesi: ${sesiBerikutnya}.`,
-                        tanggal: new Date().toISOString(),
-                        dibaca: false
+                if (isCrossDay) {
+                    // 1. Tutup rekor hari kemarin tanpa mengubah daftar kegiatannya agar riwayat kemarin tetap murni
+                    const colName = izin._col || 'perizinan';
+                    await window.FB.updateDoc(window.FB.doc(window.FB.db, colName, izin.id), {
+                        sudahSembuh: true,
+                        dilanjutkanKeTanggal: today,
+                        statusPerkembangan: `Dilanjutkan ke tgl ${today} (Pk ${nowTime})`,
+                        riwayatTimeline: [
+                            ...(izin.riwayatTimeline || []),
+                            { tanggal: today, jam: nowTime, status: `Dilanjutkan ke tgl ${today} (${sesiBerikutnya})`, oleh: currentUser.nama }
+                        ]
                     });
-                } catch (notifErr) {
-                    console.warn('Gagal notif perpanjang:', notifErr);
+
+                    // 2. Buat rekor baru khusus untuk hari ini (status: 'menunggu' ACC Divisi Kesehatan)
+                    await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
+                        santriId: izin.santriId || '',
+                        santriNama: izin.santriNama,
+                        sektor: toCanonicalSektor(izin.sektor),
+                        kamar: izin.kamar,
+                        murobbi: currentUser.nama || izin.murobbi || 'Murobbi',
+                        jenis: 'sakit',
+                        kategori: izin.kategori,
+                        kegiatanSakitList: [sesiBerikutnya],
+                        targetKegiatan: sesiBerikutnya,
+                        sakitSeharianPenuh: false,
+                        sudahSembuh: false,
+                        statusPerkembangan: `Sakit Sesi: ${sesiBerikutnya} (Lanjutan Kemarin)`,
+                        riwayatTimeline: [
+                            { tanggal: today, jam: nowTime, status: `Diajukan lanjut sakit: ${sesiBerikutnya}`, oleh: currentUser.nama }
+                        ],
+                        tanggal: today,
+                        jamPengajuan: nowTime,
+                        status: 'menunggu',
+                        divisiTujuan: 'kesehatan',
+                        createdAt: new Date().toISOString()
+                    });
+
+                    // 3. Kirim push notifikasi ke Divisi Kesehatan
+                    await sendServerPush({
+                        eventType: 'izin_baru',
+                        jenis: 'sakit',
+                        divisiTujuan: 'kesehatan',
+                        sektor: toCanonicalSektor(izin.sektor),
+                        title: 'SIAN · Pengajuan Lanjut Sakit (Hari Baru)',
+                        body: `${izin.santriNama} (${izin.kamar}) masih sakit (${izin.kategori}) — Sesi ${sesiBerikutnya}`,
+                        dedupId: `lanjut_sakit_${Date.now()}`
+                    });
+
+                    hideLoading();
+                    showToast(`Pengajuan izin sakit ${izin.santriNama} untuk hari ini (${sesiBerikutnya}) terkirim ke Divisi Kesehatan.`, 'success');
+                } else {
+                    // Masih di hari yang sama: gabungkan ke rekor hari ini (anti-dobel dalam 1 hari)
+                    const currentList = Array.isArray(izin.kegiatanSakitList) ? [...izin.kegiatanSakitList] : [izin.targetKegiatan || 'Sekolah'];
+                    if (!currentList.includes(sesiBerikutnya)) {
+                        currentList.push(sesiBerikutnya);
+                    }
+                    const updatedTarget = currentList.join(', ');
+                    const colName = izin._col || 'perizinan';
+
+                    await window.FB.updateDoc(window.FB.doc(window.FB.db, colName, izin.id), {
+                        kegiatanSakitList: currentList,
+                        targetKegiatan: updatedTarget,
+                        terakhirDiperpanjangKe: sesiBerikutnya,
+                        statusPerkembangan: `Masih Sakit (Diperpanjang ke ${sesiBerikutnya} pk ${nowTime})`,
+                        riwayatTimeline: [
+                            ...(izin.riwayatTimeline || []),
+                            { tanggal: today, jam: nowTime, status: `Diperpanjang ke sesi ${sesiBerikutnya}`, oleh: currentUser.nama }
+                        ]
+                    });
+
+                    await sendServerPush({
+                        eventType: 'izin_baru',
+                        jenis: 'sakit',
+                        divisiTujuan: 'kesehatan',
+                        sektor: toCanonicalSektor(izin.sektor),
+                        title: `SIAN · Perpanjangan Izin Sakit (${sesiBerikutnya})`,
+                        body: `${izin.santriNama} (${izin.kamar}) diperpanjang sakit ke sesi ${sesiBerikutnya}.`,
+                        dedupId: `perpanjang_sakit_${Date.now()}`
+                    });
+
+                    hideLoading();
+                    showToast(`Izin sakit ${izin.santriNama} diperpanjang ke sesi ${sesiBerikutnya} & dinotifikasi ke Kesehatan.`, 'info');
                 }
 
-                hideLoading();
-                showToast(`Izin sakit ${izin.santriNama} berhasil diperpanjang ke sesi ${sesiBerikutnya}.`, 'info');
                 renderCurrentPage();
             } catch (err) {
                 hideLoading();
@@ -7260,7 +7311,7 @@
                 showToast('Gagal: ' + err.message, 'error');
             }
         }
-    
+
         async function rekomendasikanSantriPulang(izinId, santriId) {
             const izin = perizinanList.find(x => x.id === izinId);
             const s = santriList.find(x => x.id === (santriId || izin?.santriId));
