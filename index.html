@@ -741,6 +741,7 @@
 
         let murobbiIzinSearchSantri = '';
         let murobbiSelectedSantriId = '';
+        let murobbiSelectedSantriIds = [];
         let murobbiIzinRiwayatSearch = '';
         let murobbiSelectedJenisIzin = 'sakit';
         let murobbiSelectedKategoriPulang = 'pulang_sakit';
@@ -6718,7 +6719,7 @@
                                                         ${isSakit ? 'Izin Sakit' : (isKeluarga ? 'Pulang (Acara Keluarga)' : 'Pulang (Sakit)')}
                                                     </span>
                                                     <p class="text-slate-200 mt-1">${escapeHtml(p.kategori)}</p>
-                                                    ${isSakit ? `<p class="text-[11px] text-amber-300">Kegiatan: ${escapeHtml(getIzinKegiatanText(p))}</p>` : ''}
+                                                    ${(isSakit || murobbiSelectedJenisIzin === 'kegiatan') ? `<p class="text-[11px] text-amber-300">Kegiatan: ${escapeHtml(getIzinKegiatanText(p))}</p>` : ''}
                                                 </td>
                                                 <td class="py-3 px-4 text-slate-300">
                                                     ${isSakit
@@ -7404,7 +7405,7 @@
                                 <label class="block text-xs font-semibold text-slate-200">1. Cari & Pilih Santri *</label>
                                 <input id="izin-search-santri" type="text" value="${escapeHtml(murobbiIzinSearchSantri)}" oninput="filterMurobbiIzinSantri(this.value)" placeholder="Ketik nama santri atau kamar..." class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs focus:border-emerald-500 focus:outline-none">
                                 <p id="izin-selected-summary" class="text-[11px] text-slate-400">
-                                    ${selectedSantri ? `Santri terpilih: <strong class="text-emerald-400">${escapeHtml(selectedSantri.nama)}</strong> (${escapeHtml(selectedSantri.kamar)})` : 'Belum ada santri dipilih. Klik salah satu nama di bawah.'}
+                                    ${murobbiSelectedSantriIds.length > 0 ? `<strong class="text-emerald-400">${murobbiSelectedSantriIds.length} santri</strong> terpilih.` : 'Belum ada santri dipilih. Centang satu atau beberapa nama di bawah.'}
                                 </p>
                                 <div id="izin-santri-results" class="max-h-48 overflow-y-auto space-y-1.5 pr-1 border border-asrama-border rounded-xl p-2 bg-asrama-bg/60">
                                     ${renderMurobbiIzinSantriPickerItems(murobbiIzinSearchSantri)}
@@ -7414,8 +7415,9 @@
                             <div>
                                 <label class="block text-xs font-semibold text-slate-200 mb-1">2. Jenis Perizinan *</label>
                                 <select id="izin-jenis" onchange="murobbiSelectedJenisIzin = this.value; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
-                                    <option value="sakit" ${isSakit ? 'selected' : ''}>Izin Sakit (Tidak Masuk Kegiatan — Divisi Kesehatan)</option>
-                                    <option value="pulang" ${!isSakit ? 'selected' : ''}>Izin Pulang ke Rumah</option>
+                                    <option value="sakit" ${murobbiSelectedJenisIzin === 'sakit' ? 'selected' : ''}>Izin Sakit (Tidak Masuk Kegiatan — Divisi Kesehatan)</option>
+                                    <option value="pulang" ${murobbiSelectedJenisIzin === 'pulang' ? 'selected' : ''}>Izin Pulang ke Rumah</option>
+                                    <option value="kegiatan" ${murobbiSelectedJenisIzin === 'kegiatan' ? 'selected' : ''}>Izin Tidak Ikut Kegiatan / Dispensasi (HGN, Ziarah, Lomba)</option>
                                 </select>
                             </div>
 
@@ -7485,14 +7487,35 @@
                                 </div>
                             `}
 
+                            ${murobbiSelectedJenisIzin === 'kegiatan' ? `
+                                <div class="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/30 space-y-2.5">
+                                    <label class="block text-xs font-bold text-sky-300">Pilih Kegiatan yang Tidak Diikuti (Dispensasi) *</label>
+                                    <div class="grid grid-cols-3 gap-2 text-xs">
+                                        <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
+                                            <input type="checkbox" name="izin-keg-disp" value="Sekolah" class="accent-sky-500">
+                                            <span>Sekolah</span>
+                                        </label>
+                                        <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
+                                            <input type="checkbox" name="izin-keg-disp" value="Halaqoh Sore" checked class="accent-sky-500">
+                                            <span>Halaqoh Sore</span>
+                                        </label>
+                                        <label class="flex items-center gap-1.5 p-2 rounded-lg bg-asrama-bg border border-asrama-border cursor-pointer">
+                                            <input type="checkbox" name="izin-keg-disp" value="Madin" class="accent-sky-500">
+                                            <span>Madin</span>
+                                        </label>
+                                    </div>
+                                    <p class="text-[10px] text-slate-300">Semua santri yang dicentang akan digabung menjadi <strong>1 kartu rombongan</strong> agar mudah disalin ke WhatsApp.</p>
+                                </div>
+                            ` : ''}
+
                             <div>
-                                <label class="block text-xs font-semibold text-slate-200 mb-1">Alasan / Keterangan Detail *</label>
-                                <input id="izin-alasan" type="text" placeholder="${isSakit ? 'Contoh: Demam & pusing' : 'Contoh: Kontrol dokter / Walimah kakak'}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                <label class="block text-xs font-semibold text-slate-200 mb-1">${murobbiSelectedJenisIzin === 'kegiatan' ? 'Catatan / Keterangan Acara *' : 'Alasan / Keterangan Detail *'}</label>
+                                <input id="izin-alasan" type="text" placeholder="${murobbiSelectedJenisIzin === 'kegiatan' ? 'Contoh: Latihan persiapan acara HGN / Diajak ziarah' : (isSakit ? 'Contoh: Demam & pusing' : 'Contoh: Kontrol dokter / Walimah kakak')}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             </div>
 
                             ${isSakit ? `
                                 <div>
-                                    <label class="block text-xs font-semibold text-slate-200 mb-1">Hari & Tanggal Izin Sakit *</label>
+                                    <label class="block text-xs font-semibold text-slate-200 mb-1">${murobbiSelectedJenisIzin === 'kegiatan' ? 'Hari & Tanggal Izin Kegiatan *' : 'Hari & Tanggal Izin Sakit *'}</label>
                                     <input id="izin-tgl" type="date" value="${today}" onchange="const el = document.getElementById('preview-tgl-izin'); if (el) el.textContent = formatTanggalHari(this.value);" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                                     <p class="text-[11px] text-emerald-400 mt-1">Keterangan Hari: <strong id="preview-tgl-izin">${formatTanggalHari(today)}</strong></p>
                                 </div>
@@ -7545,15 +7568,15 @@
                 return `<p class="text-[11px] text-slate-400 text-center py-3">Tidak ada santri ditemukan.</p>`;
             }
             return pool.map(s => {
-                const isSelected = murobbiSelectedSantriId === s.id;
+                const isSelected = murobbiSelectedSantriIds.includes(s.id);
                 return `
-                    <button type="button" onclick="selectMurobbiIzinSantri('${s.id}')" class="w-full text-left px-3 py-2 rounded-xl border text-xs flex items-center justify-between gap-2 cursor-pointer transition-colors ${isSelected ? 'bg-emerald-500/20 border-emerald-500 text-white font-bold ring-1 ring-emerald-500' : 'bg-asrama-bg border-asrama-border text-slate-200 hover:border-slate-500'}">
+                    <label class="w-full text-left px-3 py-2 rounded-xl border text-xs flex items-center justify-between gap-2 cursor-pointer transition-colors ${isSelected ? 'bg-emerald-500/20 border-emerald-500 text-white font-bold ring-1 ring-emerald-500' : 'bg-asrama-bg border-asrama-border text-slate-200 hover:border-slate-500'}">
                         <div class="flex items-center gap-2 min-w-0">
-                            <i class="ph-bold ${isSelected ? 'ph-check-circle text-emerald-400' : 'ph-circle text-slate-500'} text-sm shrink-0"></i>
+                            <input type="checkbox" onchange="selectMurobbiIzinSantri('${s.id}')" ${isSelected ? 'checked' : ''} class="w-4 h-4 rounded accent-emerald-500 cursor-pointer shrink-0">
                             <span class="truncate">${escapeHtml(s.nama)}</span>
                         </div>
                         <span class="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-asrama-card border border-asrama-border text-emerald-300 shrink-0">${escapeHtml(s.kamar)}</span>
-                    </button>
+                    </label>
                 `;
             }).join('');
         }
@@ -7565,13 +7588,19 @@
         }
 
         function selectMurobbiIzinSantri(id) {
-            murobbiSelectedSantriId = id;
-            const s = id ? santriList.find(x => x.id === id) : null;
+            if (!id) {
+                murobbiSelectedSantriIds = [];
+            } else if (murobbiSelectedSantriIds.includes(id)) {
+                murobbiSelectedSantriIds = murobbiSelectedSantriIds.filter(x => x !== id);
+            } else {
+                murobbiSelectedSantriIds.push(id);
+            }
+            murobbiSelectedSantriId = murobbiSelectedSantriIds[0] || '';
             const summary = document.getElementById('izin-selected-summary');
             if (summary) {
-                summary.innerHTML = s
-                    ? `Santri terpilih: <strong class="text-emerald-400">${escapeHtml(s.nama)}</strong> (${escapeHtml(s.kamar)})`
-                    : 'Belum ada santri dipilih. Klik salah satu nama di bawah.';
+                summary.innerHTML = murobbiSelectedSantriIds.length > 0
+                    ? `<strong class="text-emerald-400">${murobbiSelectedSantriIds.length} santri</strong> terpilih.`
+                    : 'Belum ada santri dipilih. Centang satu atau beberapa nama di bawah.';
             }
             const box = document.getElementById('izin-santri-results');
             if (box) box.innerHTML = renderMurobbiIzinSantriPickerItems(murobbiIzinSearchSantri);
@@ -7595,6 +7624,29 @@
             return riwayat.map(p => {
                 if (isIzinPulangRecord(p)) {
                     return renderKartuPulangDetail(p, false);
+                }
+                if (p.jenis === 'kegiatan') {
+                    const rombongan = Array.isArray(p.santriRombongan) && p.santriRombongan.length > 0 ? p.santriRombongan : [{ nama: p.santriNama, kamar: p.kamar }];
+                    return `
+                        <div class="p-3.5 rounded-xl bg-asrama-bg border border-sky-500/30 space-y-2">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-bold">IZIN KEGIATAN (${rombongan.length} Santri)</span>
+                                        <span class="text-[11px] text-slate-400">${formatTanggalHari(p.tanggal)}</span>
+                                    </div>
+                                    <p class="text-xs font-bold text-white mt-1">Catatan: ${escapeHtml(p.kategori)}</p>
+                                    <p class="text-[11px] text-sky-300">Tidak mengikuti: <strong>${escapeHtml(getIzinKegiatanText(p))}</strong></p>
+                                </div>
+                                <button onclick="salinIzinRombonganWa('${p.id}')" class="px-3 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 text-[11px] font-bold flex items-center gap-1.5 shrink-0 cursor-pointer self-start">
+                                    <i class="ph-bold ph-whatsapp-logo"></i> Salin WA
+                                </button>
+                            </div>
+                            <div class="flex flex-wrap gap-1.5 pt-1.5 border-t border-asrama-border/50">
+                                ${rombongan.map(r => `<span class="px-2 py-0.5 rounded bg-asrama-card border border-asrama-border text-[10px] text-slate-200">${escapeHtml(r.nama)} (${escapeHtml(r.kamar)})</span>`).join('')}
+                            </div>
+                        </div>
+                    `;
                 }
                 return `
                     ${(() => {
@@ -7811,20 +7863,52 @@
         }
 
         async function submitPengajuanIzin() {
-            const santriId = murobbiSelectedSantriId || (document.getElementById('izin-santri-id') ? document.getElementById('izin-santri-id').value : '');
+            const targetIds = murobbiSelectedSantriIds.length > 0
+                ? murobbiSelectedSantriIds
+                : (murobbiSelectedSantriId ? [murobbiSelectedSantriId] : []);
             const jenis = document.getElementById('izin-jenis').value;
             const alasan = document.getElementById('izin-alasan').value.trim();
             const tanggal = document.getElementById('izin-tgl').value;
 
-            const s = santriList.find(x => x.id === santriId);
-            if (!s || !alasan || !tanggal) {
-                showToast('Pilih santri, tanggal, dan isi alasan perizinan!', 'error');
+            const targets = santriList.filter(x => targetIds.includes(x.id));
+            if (targets.length === 0 || !alasan || !tanggal) {
+                showToast('Centang minimal 1 santri, pilih tanggal, dan isi alasan/catatan!', 'error');
                 return;
             }
 
             const dedupId = `izin_${Date.now()}`;
+            const nowHHMM = getCurrentTimeHHMM();
 
-            if (jenis === 'sakit') {
+            if (jenis === 'kegiatan') {
+                const checkedKeg = Array.from(document.querySelectorAll('input[name="izin-keg-disp"]:checked')).map(el => el.value);
+                if (checkedKeg.length === 0) {
+                    showToast('Pilih minimal 1 kegiatan (Sekolah / Halaqoh Sore / Madin)!', 'error');
+                    return;
+                }
+                const kegStr = checkedKeg.join(', ');
+                const rombongan = targets.map(s => ({ id: s.id, nama: s.nama, kamar: s.kamar, sektor: toCanonicalSektor(s.sektor) }));
+                const namaRingkas = targets.length === 1 ? targets[0].nama : `${targets[0].nama} (+ ${targets.length - 1} lainnya)`;
+
+                await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
+                    santriId: targets[0].id,
+                    santriNama: namaRingkas,
+                    santriRombongan: rombongan,
+                    sektor: toCanonicalSektor(targets[0].sektor),
+                    kamar: targets[0].kamar,
+                    murobbi: currentUser.nama,
+                    jenis: 'kegiatan',
+                    kategori: alasan,
+                    kegiatanSakitList: checkedKeg,
+                    targetKegiatan: kegStr,
+                    tanggal,
+                    jamPengajuan: nowHHMM,
+                    status: 'disetujui',
+                    divisiTujuan: 'kegiatan',
+                    createdAt: new Date().toISOString()
+                });
+
+                showToast(`Izin tidak ikut kegiatan (${targets.length} santri) berhasil dicatat dalam 1 kartu rombongan.`, 'success');
+            } else if (jenis === 'sakit') {
                 const checkedKeg = Array.from(document.querySelectorAll('input[name="izin-sakit-keg"]:checked')).map(el => el.value);
                 if (checkedKeg.length === 0) {
                     showToast('Pilih minimal 1 kegiatan (Sekolah / Halaqoh Sore / Madin)!', 'error');
@@ -7832,8 +7916,8 @@
                 }
                 const kegStr = checkedKeg.join(', ');
                 const isSeharian = document.getElementById('izin-sakit-seharian')?.checked || false;
-                const nowHHMM = getCurrentTimeHHMM();
-                await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
+
+                await Promise.all(targets.map(s => window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
                     santriId: s.id,
                     santriNama: s.nama,
                     sektor: toCanonicalSektor(s.sektor),
@@ -7845,35 +7929,33 @@
                     targetKegiatan: kegStr,
                     sakitSeharianPenuh: isSeharian,
                     sudahSembuh: false,
-                    statusPerkembangan: isSeharian ? 'Sakit Seharian Penuh / Rawat Inap' : `Sakit Sesi: ${checkedKeg.join(', ')}`,
-                    riwayatTimeline: [
-                        { jam: nowHHMM, status: `Diajukan sakit: ${kegStr}`, oleh: currentUser.nama }
-                    ],
+                    statusPerkembangan: isSeharian ? 'Sakit Seharian Penuh / Rawat Inap' : `Sakit Sesi: ${kegStr}`,
+                    riwayatTimeline: [{ jam: nowHHMM, status: `Diajukan sakit: ${kegStr}`, oleh: currentUser.nama }],
                     tanggal,
                     jamPengajuan: nowHHMM,
                     status: 'menunggu',
                     divisiTujuan: 'kesehatan',
                     createdAt: new Date().toISOString()
-                });
+                })));
 
                 await sendServerPush({
                     eventType: 'izin_baru',
                     jenis: 'sakit',
                     divisiTujuan: 'kesehatan',
-                    sektor: toCanonicalSektor(s.sektor),
+                    sektor: toCanonicalSektor(targets[0].sektor),
                     title: 'SIAN · Pengajuan Izin Sakit Baru',
-                    body: `${s.nama} (${s.kamar}) — ${alasan} (${kegStr})`,
+                    body: `${targets.length} santri (${targets[0].nama}...) — ${alasan} (${kegStr})`,
                     dedupId
                 });
 
-                showToast(`Pengajuan izin sakit ${s.nama} terkirim ke Divisi Kesehatan.`, 'success');
+                showToast(`Pengajuan izin sakit ${targets.length} santri terkirim ke Divisi Kesehatan.`, 'success');
             } else {
                 const kategoriPulang = document.getElementById('izin-kategori-pulang').value;
                 const kembali = document.getElementById('izin-kembali').value || tanggal;
                 const batasJamKembali = document.getElementById('izin-jam-kembali').value || DEFAULT_BATAS_JAM_KEMBALI;
                 const divisiTujuan = kategoriPulang === 'pulang_keluarga' ? 'pimpinan' : 'keamanan';
 
-                await window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
+                await Promise.all(targets.map(s => window.FB.addDoc(window.FB.collection(window.FB.db, 'perizinan'), {
                     santriId: s.id,
                     santriNama: s.nama,
                     sektor: toCanonicalSektor(s.sektor),
@@ -7885,31 +7967,53 @@
                     tanggal,
                     kembali,
                     batasJamKembali,
-                    sudahKembali: false,
                     status: 'menunggu',
                     divisiTujuan,
                     createdAt: new Date().toISOString()
-                });
+                })));
 
                 await sendServerPush({
                     eventType: 'izin_baru',
                     jenis: 'pulang',
-                    kategoriPulang,
                     divisiTujuan,
-                    sektor: toCanonicalSektor(s.sektor),
-                    title: kategoriPulang === 'pulang_keluarga' ? 'SIAN · Izin Pulang (Acara Keluarga)' : 'SIAN · Izin Pulang (Sakit)',
-                    body: `${s.nama} (${s.kamar}) — ${alasan} (${formatTanggalHari(tanggal)})`,
+                    sektor: toCanonicalSektor(targets[0].sektor),
+                    title: kategoriPulang === 'pulang_keluarga' ? 'SIAN · Izin Pulang (Keluarga)' : 'SIAN · Izin Pulang (Sakit)',
+                    body: `${targets.length} santri (${targets[0].nama}...) — ${alasan}`,
                     dedupId
                 });
 
-                showToast(
-                    kategoriPulang === 'pulang_keluarga'
-                        ? `Izin pulang (acara keluarga) ${s.nama} terkirim ke Ketua Sektor & Ketua Asrama.`
-                        : `Izin pulang (sakit) ${s.nama} terkirim ke Divisi Keamanan.`,
-                    'success'
-                );
+                showToast(`Pengajuan izin pulang ${targets.length} santri terkirim.`, 'success');
             }
+
+            murobbiSelectedSantriIds = [];
+            murobbiSelectedSantriId = '';
+            murobbiIzinSearchSantri = '';
             renderCurrentPage();
+        }
+
+        function salinIzinRombonganWa(izinId) {
+            const p = perizinanList.find(x => x.id === izinId);
+            if (!p) return;
+            const list = Array.isArray(p.santriRombongan) && p.santriRombongan.length > 0
+                ? p.santriRombongan
+                : [{ nama: p.santriNama, kamar: p.kamar }];
+            let teks = `*PEMBERITAHUAN IZIN TIDAK IKUT KEGIATAN*
+`;
+            teks += `Tanggal: ${formatTanggalHari(p.tanggal)}
+`;
+            teks += `Kegiatan: ${getIzinKegiatanText(p)}
+`;
+            teks += `Keterangan: ${p.kategori}
+`;
+            teks += `Daftar Santri (${list.length}):
+`;
+            list.forEach((item, idx) => {
+                teks += `${idx + 1}. ${item.nama} (${item.kamar})
+`;
+            });
+            teks += `_Dicatat oleh: ${p.murobbi || '-'}_`;
+            navigator.clipboard?.writeText(teks);
+            showToast('Daftar izin kegiatan berhasil disalin untuk WhatsApp!', 'success');
         }
 
         function openKonfirmasiKembaliModal(izinId) {
