@@ -7417,7 +7417,7 @@
                                 <select id="izin-jenis" onchange="murobbiSelectedJenisIzin = this.value; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                                     <option value="sakit" ${murobbiSelectedJenisIzin === 'sakit' ? 'selected' : ''}>Izin Sakit (Tidak Masuk Kegiatan — Divisi Kesehatan)</option>
                                     <option value="pulang" ${murobbiSelectedJenisIzin === 'pulang' ? 'selected' : ''}>Izin Pulang ke Rumah</option>
-                                    <option value="kegiatan" ${murobbiSelectedJenisIzin === 'kegiatan' ? 'selected' : ''}>Izin Tidak Ikut Kegiatan / Dispensasi (HGN, Ziarah, Lomba)</option>
+                                    <option value="kegiatan" ${murobbiSelectedJenisIzin === 'kegiatan' ? 'selected' : ''}>Izin Tidak Ikut Kegiatan (Acara / Dispensasi)</option>
                                 </select>
                             </div>
 
@@ -7472,7 +7472,7 @@
                                         </div>
                                     `;
                                 })()}
-                            ` : `
+                            ` : (murobbiSelectedJenisIzin === 'pulang' ? `
                                 <div class="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-2">
                                     <label class="block text-xs font-bold text-purple-300">Kategori Alasan Izin Pulang *</label>
                                     <select id="izin-kategori-pulang" onchange="murobbiSelectedKategoriPulang = this.value; renderCurrentPage();" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
@@ -7485,7 +7485,7 @@
                                             : 'Pengajuan & notifikasi otomatis masuk ke <strong>Divisi Keamanan</strong>.'}
                                     </p>
                                 </div>
-                            `}
+                            ` : '')}
 
                             ${murobbiSelectedJenisIzin === 'kegiatan' ? `
                                 <div class="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/30 space-y-2.5">
@@ -7510,7 +7510,7 @@
 
                             <div>
                                 <label class="block text-xs font-semibold text-slate-200 mb-1">${murobbiSelectedJenisIzin === 'kegiatan' ? 'Catatan / Keterangan Acara *' : 'Alasan / Keterangan Detail *'}</label>
-                                <input id="izin-alasan" type="text" placeholder="${murobbiSelectedJenisIzin === 'kegiatan' ? 'Contoh: Latihan persiapan acara HGN / Diajak ziarah' : (isSakit ? 'Contoh: Demam & pusing' : 'Contoh: Kontrol dokter / Walimah kakak')}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                                <input id="izin-alasan" type="text" placeholder="${murobbiSelectedJenisIzin === 'kegiatan' ? 'Tuliskan keterangan acara atau alasan tidak ikut kegiatan...' : (isSakit ? 'Contoh: Demam & pusing' : 'Contoh: Kontrol dokter / Walimah kakak')}" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             </div>
 
                             ${isSakit ? `
