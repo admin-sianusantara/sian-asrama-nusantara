@@ -1879,6 +1879,14 @@
                 roanList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 renderCurrentPage();
             }));
+            unsubscribeListeners.push(onSnapshot(collection(db, 'pengajuan_santri'), (snap) => {
+                pindahKamarList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                    .sort((a, b) => toSortableTime(b.createdAt).localeCompare(toSortableTime(a.createdAt)));
+                initialSyncDone.pindahKamar = true;
+                updatePendingBadge();
+                renderCurrentPage();
+            }));
+
             unsubscribeListeners.push(onSnapshot(collection(db, 'kas_kebersihan'), (snap) => {
                 kasKebersihanList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 renderCurrentPage();
