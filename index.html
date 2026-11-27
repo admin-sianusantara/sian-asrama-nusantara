@@ -5690,51 +5690,70 @@
             }
             const sektor = toCanonicalSektor(targetSektor) || SEKTOR_ASRAMA[0];
             const listKamar = kamarBySektor[sektor] || [];
-            const kamarSample1 = listKamar[0]?.nama || 'DAMASKUS';
-            const kamarSample2 = listKamar[1]?.nama || kamarSample1;
-
-            const rows = [
-                {
-                    'No': 1,
-                    'Nama Lengkap Santri': 'Ahmad Fauzan',
-                    'Kelas': 'X-1',
-                    'Sektor Lantai': sektor,
-                    'Kamar': kamarSample1
-                },
-                {
-                    'No': 2,
-                    'Nama Lengkap Santri': 'Muhammad Farhan',
-                    'Kelas': 'X-2',
-                    'Sektor Lantai': sektor,
-                    'Kamar': kamarSample1
-                },
-                {
-                    'No': 3,
-                    'Nama Lengkap Santri': 'Zidny Ilman',
-                    'Kelas': 'XI-MIPA-1',
-                    'Sektor Lantai': sektor,
-                    'Kamar': kamarSample2
-                }
-            ];
-
-            const ws = XLSX.utils.json_to_sheet(rows);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Santri Sektor');
-
-            // Tambahkan sheet daftar kamar sebagai referensi
-            if (listKamar.length > 0) {
-                const refKamar = listKamar.map((k, idx) => ({
-                    'No': idx + 1,
-                    'Nama Kamar': k.nama,
-                    'Murobbi': k.murobbi || '-'
-                }));
-                const wsRef = XLSX.utils.json_to_sheet(refKamar);
-                XLSX.utils.book_append_sheet(wb, wsRef, 'Daftar Kamar Valid');
+            if (listKamar.length === 0) {
+                showToast('Belum ada daftar kamar di sektor ini.', 'error');
+                return;
             }
 
-            const cleanFileName = `SIAN_Template_Santri_${sektor.replace(/[^a-zA-Z0-9]/g, '_')}.xlsx`;
-            XLSX.writeFile(wb, cleanFileName);
-            showToast(`Template Santri untuk ${sektor} berhasil diunduh.`, 'success');
+            const wb = XLSX.utils.book_new();
+
+            // Sheet 1: Panduan_Daftar_Kamar (persis seperti referensi gambar ke-3)
+            const panduanAoA = [
+                ['TEMPLATE INPUT DATA SANTRI PER KAMAR (' + sektor + ')'],
+                ['CARA PENGISIAN:'],
+                ['1. Klik masing-masing tab sheet kamar di bagian bawah (contoh: 01 - ' + (listKamar[0]?.nama || 'KAMAR') + ').'],
+                ['2. Setiap tab sudah disiapkan untuk 1 kamar khusus beserta nama Murobbinya.'],
+                ['3. Ketik atau copy-paste daftar Nama Lengkap Santri & Kelas pada tabel di dalam tab kamar tersebut.'],
+                ['4. (Opsional) Jika ingin sekalian mengganti Nama Kamar / Nama Murobbi, edit langsung sel B2 atau B3 pada tab kamar.'],
+                ['5. Simpan file (.xlsx) lalu upload kembali melalui tombol "Import ke Sektor Ini".'],
+                [],
+                ['No_Kamar', 'Nama_Tab_Sheet', 'Nama_Kamar', 'Nama_Murobbi', 'Santri_Terdaftar_Saat_Ini']
+            ];
+
+            listKamar.forEach((k, idx) => {
+                const noStr = String(idx + 1).padStart(2, '0');
+                const safeKamar = String(k.nama || 'Kamar').replace(/[\\/?*[\]:]/g, '').trim();
+                const tabName = `${noStr} - ${safeKamar}`.slice(0, 31);
+                const jmlSantri = santriList.filter(s => isSameSektor(s.sektor, sektor) && s.kamar === k.nama).length;
+                panduanAoA.push([idx + 1, tabName, k.nama, k.murobbi || '-', jmlSantri]);
+            });
+
+            const wsPanduan = XLSX.utils.aoa_to_sheet(panduanAoA);
+            XLSX.utils.book_append_sheet(wb, wsPanduan, 'Panduan_Daftar_Kamar');
+
+            // Sheet 2..N: 1 Tab Sheet untuk masing-masing kamar
+            listKamar.forEach((k, idx) => {
+                const noStr = String(idx + 1).padStart(2, '0');
+                const safeKamar = String(k.nama || 'Kamar').replace(/[\\/?*[\]:]/g, '').trim();
+                const tabName = `${noStr} - ${safeKamar}`.slice(0, 31);
+
+                const existingSantri = santriList.filter(s => isSameSektor(s.sektor, sektor) && s.kamar === k.nama);
+
+                const kamarAoA = [
+                    ['Sektor', sektor],
+                    ['Nama Kamar', k.nama],
+                    ['Nama Murobbi', k.murobbi || '-'],
+                    [],
+                    ['No', 'Nama Lengkap Santri', 'Kelas']
+                ];
+
+                if (existingSantri.length > 0) {
+                    existingSantri.forEach((s, sIdx) => {
+                        kamarAoA.push([sIdx + 1, s.nama || '', s.kelas || 'X-1']);
+                    });
+                } else {
+                    kamarAoA.push([1, '', '']);
+                    kamarAoA.push([2, '', '']);
+                    kamarAoA.push([3, '', '']);
+                }
+
+                const wsKamar = XLSX.utils.aoa_to_sheet(kamarAoA);
+                XLSX.utils.book_append_sheet(wb, wsKamar, tabName);
+            });
+
+            const safeSec = formatShortSektor(sektor).replace(/[^a-zA-Z0-9]+/g, '_');
+            XLSX.writeFile(wb, `Template_Santri_Per_Kamar_${safeSec}.xlsx`);
+            showToast(`Template multi-sheet (${listKamar.length} kamar) sektor ${formatShortSektor(sektor)} berhasil diunduh.`, 'success');
         }
 
         function downloadTemplateSantriPerKamarExcel(targetSektor, targetKamar) {
@@ -5785,46 +5804,86 @@
             try {
                 const buf = await file.arrayBuffer();
                 const wb = XLSX.read(buf);
-                const sheet = wb.Sheets[wb.SheetNames[0]];
-                const rows = XLSX.utils.sheet_to_json(sheet);
-                if (!rows || rows.length === 0) {
+                const batch = window.FB.writeBatch(window.FB.db);
+                let count = 0;
+
+                // Deteksi apakah format baru multi-sheet (ada Panduan_Daftar_Kamar atau tab berawalan '01 - ')
+                const isMultiSheet = wb.SheetNames.includes('Panduan_Daftar_Kamar') || wb.SheetNames.some(n => /^\d{2}\s*-\s*/.test(n));
+
+                if (isMultiSheet) {
+                    wb.SheetNames.forEach(sheetName => {
+                        if (sheetName === 'Panduan_Daftar_Kamar' || sheetName === 'Daftar Kamar Valid') return;
+                        const sheet = wb.Sheets[sheetName];
+                        const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                        if (!aoa || aoa.length === 0) return;
+
+                        // Cari Nama Kamar dari sel B2 (jika ada) atau dari nama tab ('01 - DEMAK' -> 'DEMAK')
+                        let kamarNama = sheetName.replace(/^\d{2}\s*-\s*/, '').trim();
+                        let headerRowIdx = -1;
+
+                        for (let i = 0; i < Math.min(aoa.length, 10); i++) {
+                            const row = aoa[i] || [];
+                            const col0 = String(row[0] || '').trim().toLowerCase();
+                            if (col0 === 'nama kamar' && row[1]) {
+                                kamarNama = String(row[1]).trim();
+                            }
+                            if (col0 === 'no' && String(row[1] || '').toLowerCase().includes('nama')) {
+                                headerRowIdx = i;
+                                break;
+                            }
+                        }
+
+                        const startRow = headerRowIdx !== -1 ? headerRowIdx + 1 : 0;
+                        for (let r = startRow; r < aoa.length; r++) {
+                            const row = aoa[r] || [];
+                            const nama = String(row[1] || '').trim();
+                            if (!nama || nama.toLowerCase().includes('contoh')) continue;
+                            const kelas = String(row[2] || 'X-1').trim();
+                            const docRef = window.FB.doc(window.FB.collection(window.FB.db, 'santri'));
+                            batch.set(docRef, {
+                                nama,
+                                kelas,
+                                sektor: sektorDefault,
+                                kamar: kamarNama,
+                                status: 'H',
+                                catatan: '',
+                                createdAt: new Date().toISOString()
+                            });
+                            count++;
+                        }
+                    });
+                } else {
+                    // Kompatibilitas mundur format lama (1 sheet 'Santri Sektor')
+                    const sheet = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(sheet);
+                    rows.forEach(r => {
+                        const nama = String(r['Nama Lengkap Santri'] || r['Nama Santri'] || r.Nama || r.nama || '').trim();
+                        const kelas = String(r.Kelas || r.kelas || 'X-1').trim();
+                        const rowSektor = r['Sektor Lantai'] || r.Sektor || r.sektor;
+                        const sektor = rowSektor ? toCanonicalSektor(rowSektor) : sektorDefault;
+                        const kamar = String(r.Kamar || r.kamar || 'Kamar 01').trim();
+                        if (nama) {
+                            const docRef = window.FB.doc(window.FB.collection(window.FB.db, 'santri'));
+                            batch.set(docRef, { nama, kelas, sektor, kamar, status: 'H', catatan: '', createdAt: new Date().toISOString() });
+                            count++;
+                        }
+                    });
+                }
+
+                if (count === 0) {
                     hideLoading();
-                    showToast('File Excel kosong atau format tidak sesuai.', 'error');
+                    showToast('Tidak ada data santri yang diisi di dalam file Excel.', 'error');
                     if (event.target) event.target.value = '';
                     return;
                 }
 
-                const batch = window.FB.writeBatch(window.FB.db);
-                let count = 0;
-                rows.forEach(r => {
-                    const nama = String(r['Nama Lengkap Santri'] || r['Nama Santri'] || r.Nama || r.nama || '').trim();
-                    const kelas = String(r.Kelas || r.kelas || 'X-1').trim();
-                    // Prioritaskan sektor target dari parameter jika di file tidak ada atau cocokkan
-                    const rowSektor = r['Sektor Lantai'] || r.Sektor || r.sektor;
-                    const sektor = rowSektor ? toCanonicalSektor(rowSektor) : sektorDefault;
-                    const kamar = String(r.Kamar || r.kamar || 'Kamar 01').trim();
-
-                    if (nama) {
-                        const ref = window.FB.doc(window.FB.collection(window.FB.db, 'santri'));
-                        batch.set(ref, { 
-                            nama, 
-                            kelas, 
-                            sektor, 
-                            kamar, 
-                            status: 'H', 
-                            catatan: '' 
-                        });
-                        count++;
-                    }
-                });
-
                 await batch.commit();
                 hideLoading();
-                showToast(`Berhasil mengimpor ${count} santri ke sektor ${sektorDefault}.`, 'success');
-                renderCurrentPage();
+                showToast(`Berhasil mengimpor ${count} santri ke sektor ${formatShortSektor(sektorDefault)}!`, 'success');
             } catch (err) {
                 hideLoading();
-                showToast('Gagal mengimpor Excel Sektor: ' + err.message, 'error');
+                console.error('Gagal import santri per sektor:', err);
+                showToast('Gagal membaca file Excel: ' + err.message, 'error');
             }
             if (event.target) event.target.value = '';
         }
