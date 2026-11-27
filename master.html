@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#051424">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="SIMA">
+    <title>SIMA · Sistem Informasi Master Asrama</title>
+    <link rel="manifest" href="/manifest-sima.json">
+    <link rel="icon" type="image/jpeg" href="/assets/logo-sima.jpg">
+    <link rel="apple-touch-icon" href="/assets/logo-sima.jpg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #051424; color: #f8fafc; }
+    </style>
+</head>
+<body class="min-h-screen bg-[#051424] text-slate-100">
+
+    <!-- LOGIN VIEW -->
+    <div id="master-login-view" class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-md bg-[#122131] border border-[#273647] rounded-3xl p-7 shadow-2xl space-y-6">
+            <div class="text-center space-y-3">
+                <img src="/assets/logo-sima.jpg" alt="Logo SIMA" class="w-16 h-16 mx-auto rounded-2xl object-cover border border-amber-400/40 shadow-lg">
+                <div>
+                    <span class="inline-block text-[10px] font-bold uppercase tracking-widest text-amber-300 bg-amber-500/10 border border-amber-500/30 px-3 py-0.5 rounded-full">
+                        Portal Pimpinan & Sekretaris
+                    </span>
+                    <h1 class="text-2xl font-extrabold text-white mt-2">SIMA</h1>
+                    <p class="text-xs text-slate-300">Sistem Informasi Master Asrama (SIAN + SIAP)</p>
+                </div>
+            </div>
+
+            <form id="master-login-form" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Email Pimpinan / Sekretaris</label>
+                    <input id="master-email" type="email" required placeholder="ketua@asrama.id"
+                        class="w-full px-3.5 py-2.5 rounded-xl bg-[#051424] border border-[#273647] text-sm text-white focus:outline-none focus:border-sky-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+                    <input id="master-password" type="password" required placeholder="••••••••"
+                        class="w-full px-3.5 py-2.5 rounded-xl bg-[#051424] border border-[#273647] text-sm text-white focus:outline-none focus:border-sky-400">
+                </div>
+                <p id="master-login-error" class="hidden text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl p-2.5"></p>
+                <button id="master-login-btn" type="submit"
+                    class="w-full py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-sm transition-colors cursor-pointer">
+                    Masuk ke Dashboard Gabungan
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- DASHBOARD VIEW -->
+    <div id="master-dashboard-view" class="hidden min-h-screen flex flex-col">
+        <!-- Header -->
+        <header class="bg-[#010f1f] border-b border-[#273647] px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <img src="/assets/logo-sima.jpg" alt="SIMA" class="w-10 h-10 rounded-xl object-cover border border-amber-400/40">
+                <div>
+                    <h1 class="text-base md:text-lg font-extrabold text-white leading-tight">SIMA · Dashboard Gabungan</h1>
+                    <p id="master-user-info" class="text-[11px] text-slate-400">Asrama Nusantara & Asrama Putra</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2.5">
+                <button id="btn-refresh-master" type="button"
+                    class="px-3 py-2 rounded-xl bg-[#122131] hover:bg-[#1c2b3c] border border-[#273647] text-xs font-semibold text-slate-200 flex items-center gap-1.5 cursor-pointer">
+                    <i class="ph-bold ph-arrows-clockwise"></i> Refresh
+                </button>
+                <button id="btn-export-excel" type="button"
+                    class="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                    <i class="ph-bold ph-file-xls"></i> Export Excel Gabungan
+                </button>
+                <button id="btn-master-logout" type="button"
+                    class="px-3 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 text-xs font-semibold cursor-pointer">
+                    Keluar
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto space-y-6">
+            <!-- Status Koneksi -->
+            <div id="master-connection-status" class="text-xs text-slate-300 bg-[#122131] border border-[#273647] rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                <span>Memuat data dari SIAN & SIAP...</span>
+            </div>
+
+            <!-- Kartu Ringkasan Statistik Gabungan -->
+            <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-[#122131] border border-[#273647] rounded-2xl p-4">
+                    <p class="text-xs text-slate-400 font-medium">Total Santri</p>
+                    <p id="stat-total-santri" class="text-2xl font-extrabold text-white mt-1">0</p>
+                    <p id="stat-santri-breakdown" class="text-[11px] text-sky-300 mt-1">SIAN: 0 • SIAP: 0</p>
+                </div>
+                <div class="bg-[#122131] border border-[#273647] rounded-2xl p-4">
+                    <p class="text-xs text-slate-400 font-medium">Data Absensi / Telat</p>
+                    <p id="stat-total-absensi" class="text-2xl font-extrabold text-amber-300 mt-1">0</p>
+                    <p id="stat-absensi-breakdown" class="text-[11px] text-slate-400 mt-1">SIAN: 0 • SIAP: 0</p>
+                </div>
+                <div class="bg-[#122131] border border-[#273647] rounded-2xl p-4">
+                    <p class="text-xs text-slate-400 font-medium">Perizinan Santri</p>
+                    <p id="stat-total-izin" class="text-2xl font-extrabold text-emerald-300 mt-1">0</p>
+                    <p id="stat-izin-breakdown" class="text-[11px] text-slate-400 mt-1">SIAN: 0 • SIAP: 0</p>
+                </div>
+                <div class="bg-[#122131] border border-[#273647] rounded-2xl p-4">
+                    <p class="text-xs text-slate-400 font-medium">Catatan Pelanggaran</p>
+                    <p id="stat-total-pelanggaran" class="text-2xl font-extrabold text-rose-400 mt-1">0</p>
+                    <p id="stat-pelanggaran-breakdown" class="text-[11px] text-slate-400 mt-1">SIAN: 0 • SIAP: 0</p>
+                </div>
+            </section>
+
+            <!-- Filter & Pencarian Lintas Asrama -->
+            <section class="bg-[#122131] border border-[#273647] rounded-2xl p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+                <div class="flex flex-wrap items-center gap-3 flex-1">
+                    <select id="filter-asrama" class="px-3.5 py-2 rounded-xl bg-[#051424] border border-[#273647] text-xs font-semibold text-white focus:outline-none focus:border-sky-400">
+                        <option value="ALL">Semua Asrama</option>
+                        <option value="Asrama Nusantara">Asrama Nusantara</option>
+                        <option value="Asrama Putra">Asrama Putra</option>
+                    </select>
+                    <input id="search-santri" type="text" placeholder="Cari nama santri / kamar / sektor lintas asrama..."
+                        class="flex-1 min-w-[220px] px-3.5 py-2 rounded-xl bg-[#051424] border border-[#273647] text-xs text-white focus:outline-none focus:border-sky-400">
+                </div>
+                <div class="flex gap-1.5 bg-[#051424] p-1 rounded-xl border border-[#273647]">
+                    <button type="button" data-tab="santri" class="master-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-500 text-slate-950 cursor-pointer">Santri</button>
+                    <button type="button" data-tab="absensi" class="master-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white cursor-pointer">Absensi</button>
+                    <button type="button" data-tab="izin" class="master-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white cursor-pointer">Izin</button>
+                    <button type="button" data-tab="pelanggaran" class="master-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white cursor-pointer">Pelanggaran</button>
+                </div>
+            </section>
+
+            <!-- Tabel Data Gabungan -->
+            <section class="bg-[#122131] border border-[#273647] rounded-2xl overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead id="master-table-head" class="bg-[#010f1f] text-[11px] uppercase tracking-wider text-slate-400 border-b border-[#273647]"></thead>
+                        <tbody id="master-table-body" class="divide-y divide-[#273647] text-xs text-slate-200"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="./master.js"></script>
+</body>
+</html>

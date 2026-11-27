@@ -7,11 +7,11 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="SIAN">
+    <meta id="pwa-apple-title" name="apple-mobile-web-app-title" content="SIAN">
     <title>SIAN · Sistem Informasi Asrama Nusantara</title>
-    <link rel="manifest" href="/manifest.json">
-    <link id="pwa-favicon" rel="icon" type="image/png" href="/icon-192.png?v=2">
-    <link id="pwa-apple-icon" rel="apple-touch-icon" href="/icon-192.png?v=2">
+    <link id="pwa-manifest" rel="manifest" href="/manifest-sian.json">
+    <link id="pwa-favicon" rel="icon" type="image/png" href="/assets/logo-sian.png">
+    <link id="pwa-apple-icon" rel="apple-touch-icon" href="/assets/logo-sian.png">
     <!-- Preconnect & DNS-Prefetch untuk efisiensi jaringan & hemat bandwidth -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -148,18 +148,18 @@
             <!-- Brand Identity -->
             <div class="text-center space-y-2 relative z-10">
                 <div class="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-lg">
-                    <img src="/icon-192.png?v=2" alt="Logo SIAN" class="w-full h-full object-cover rounded-2xl">
+                    <img id="login-logo-img" src="/assets/logo-sian.png" alt="Logo Aplikasi" class="w-full h-full object-cover rounded-2xl">
                 </div>
                 <div class="flex items-center justify-center gap-2 flex-wrap">
-                    <span class="inline-block text-[11px] font-bold uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-0.5 rounded-full">
+                    <span id="login-tenant-badge" class="inline-block text-[11px] font-bold uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-0.5 rounded-full">
                         Asrama Nusantara
                     </span>
                     <button type="button" onclick="openFirebaseConfigModal()" id="firebase-status-badge" class="inline-block text-[10px] font-bold uppercase tracking-wider text-sky-300 bg-sky-500/10 border border-sky-500/30 px-2.5 py-0.5 rounded-full cursor-pointer">
                         Memeriksa Koneksi...
                     </button>
                 </div>
-                <h1 class="text-2xl font-extrabold text-white tracking-tight">SIAN</h1>
-                <p class="text-xs text-slate-300">Sistem Informasi Asrama Nusantara • Portal Pengurus & Admin</p>
+                <h1 id="login-app-code" class="text-2xl font-extrabold text-white tracking-tight">SIAN</h1>
+                <p id="login-app-subtitle" class="text-xs text-slate-300">Sistem Informasi Asrama Nusantara • Portal Pengurus & Admin</p>
             </div>
 
             <!-- Tab Masuk vs Daftar Pengurus -->
@@ -456,16 +456,29 @@
         import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, addDoc, updateDoc, deleteDoc, getDocs, getDoc, onSnapshot, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
+        import { ACTIVE_CONFIG } from "./config.js";
 
-        const DEFAULT_FIREBASE_CONFIG = {
-            apiKey: "AIzaSyC7spgWIt7iPsPpVOPTmk0e-XYO8TgZINI",
-            authDomain: "sian-asrama-nusantara.firebaseapp.com",
-            projectId: "sian-asrama-nusantara",
-            storageBucket: "sian-asrama-nusantara.firebasestorage.app",
-            messagingSenderId: "561976504931",
-            appId: "1:561976504931:web:b0856e7d4d56c903677e56",
-            measurementId: "G-Z20J923GWW"
-        };
+        // Terapkan identitas tenant (SIAN / SIAP) secara dinamis
+        document.title = `${ACTIVE_CONFIG.kode} · ${ACTIVE_CONFIG.nama}`;
+        const manifestEl = document.getElementById('pwa-manifest');
+        if (manifestEl && ACTIVE_CONFIG.manifest) manifestEl.setAttribute('href', ACTIVE_CONFIG.manifest);
+        const faviconEl = document.getElementById('pwa-favicon');
+        if (faviconEl) faviconEl.setAttribute('href', ACTIVE_CONFIG.logo);
+        const appleIconEl = document.getElementById('pwa-apple-icon');
+        if (appleIconEl) appleIconEl.setAttribute('href', ACTIVE_CONFIG.logo);
+        const appleTitleEl = document.getElementById('pwa-apple-title');
+        if (appleTitleEl) appleTitleEl.setAttribute('content', ACTIVE_CONFIG.kode);
+
+        const loginLogoEl = document.getElementById('login-logo-img');
+        if (loginLogoEl) { loginLogoEl.src = ACTIVE_CONFIG.logo; loginLogoEl.alt = `Logo ${ACTIVE_CONFIG.kode}`; }
+        const loginBadgeEl = document.getElementById('login-tenant-badge');
+        if (loginBadgeEl) loginBadgeEl.textContent = ACTIVE_CONFIG.nama.replace('Sistem Informasi ', '');
+        const loginCodeEl = document.getElementById('login-app-code');
+        if (loginCodeEl) loginCodeEl.textContent = ACTIVE_CONFIG.kode;
+        const loginSubEl = document.getElementById('login-app-subtitle');
+        if (loginSubEl) loginSubEl.textContent = `${ACTIVE_CONFIG.nama} • Portal Pengurus & Admin`;
+
+        const DEFAULT_FIREBASE_CONFIG = ACTIVE_CONFIG.firebase;
 
         window.DEFAULT_VAPID_KEY = "BMQSFmMqkKYMT9E9GEzN85QH8Vx3Wd2BX-SyDkDsz312geMySlydZohNW4OdXwK5naJitZrzJQtYQ-QZ6xg0__A";
 
@@ -566,14 +579,16 @@
         // =========================================================================
         const PRIMARY_ADMIN_EMAIL = 'admin.sianusantara@gmail.com';
         const DEFAULT_BATAS_JAM_KEMBALI = '22:00';
-        const SEKTOR_ASRAMA = [
-            'Asrama Nusantara Lt. 1 Utara',
-            'Asrama Nusantara Lt. 1 Selatan',
-            'Asrama Nusantara Lt. 2 Utara',
-            'Asrama Nusantara Lt. 2 Selatan',
-            'Asrama Nusantara Lt. 3 Utara',
-            'Asrama Nusantara Lt. 3 Selatan'
-        ];
+        const SEKTOR_ASRAMA = (window.ACTIVE_CONFIG && Array.isArray(window.ACTIVE_CONFIG.sektor))
+            ? window.ACTIVE_CONFIG.sektor
+            : [
+                'Asrama Nusantara Lt. 1 Utara',
+                'Asrama Nusantara Lt. 1 Selatan',
+                'Asrama Nusantara Lt. 2 Utara',
+                'Asrama Nusantara Lt. 2 Selatan',
+                'Asrama Nusantara Lt. 3 Utara',
+                'Asrama Nusantara Lt. 3 Selatan'
+            ];
         const HARI_SEMINGGU = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
         // Opsi Baku Kegiatan Telat / Alpa Santri (Hanya 8 Kegiatan yang disepakati)

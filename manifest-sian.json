@@ -1,0 +1,25 @@
+{
+  "name": "SIAN · Sistem Informasi Asrama Nusantara",
+  "short_name": "SIAN",
+  "description": "Sistem Informasi Asrama Nusantara — Presensi, Perizinan, Keamanan, Kesehatan & Kebersihan",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#090d0b",
+  "theme_color": "#090d0b",
+  "icons": [
+    {
+      "src": "/assets/logo-sian.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png?v=2",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "SIMA · Sistem Informasi Master Asrama",
+  "short_name": "SIMA",
+  "description": "Dashboard Gabungan Pimpinan & Sekretaris — Asrama Nusantara & Asrama Putra",
+  "start_url": "/master.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#051424",
+  "theme_color": "#051424",
+  "icons": [
+    {
+      "src": "/assets/logo-sima.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/logo-sima.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}
