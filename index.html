@@ -592,7 +592,7 @@
         const DEFAULT_BATAS_JAM_KEMBALI = '22:00';
         const _isSiapMode = window.location.hostname.toLowerCase().includes('siap') ||
             ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && localStorage.getItem('sian_dev_tenant') === 'SIAP');
-        const SEKTOR_ASRAMA = (window.ACTIVE_CONFIG && Array.isArray(window.ACTIVE_CONFIG.sektor))
+        let SEKTOR_ASRAMA = (window.ACTIVE_CONFIG && Array.isArray(window.ACTIVE_CONFIG.sektor))
             ? window.ACTIVE_CONFIG.sektor
             : (_isSiapMode
                 ? ['Putra Lt 2', 'Putra Lt 3']
@@ -1421,6 +1421,9 @@
                 const normalizedMap = {};
                 snap.docs.forEach(d => {
                     const data = d.data() || {};
+                    if (Array.isArray(data.sektorList) && data.sektorList.length > 0) {
+                        SEKTOR_ASRAMA = [...data.sektorList];
+                    }
                     const candidateMap = data.map || data.kamarBySektor || data.kamarMap;
                     if (candidateMap && typeof candidateMap === 'object') {
                         Object.keys(candidateMap).forEach(rawKey => {
@@ -5182,6 +5185,166 @@
         // =========================================================================
         // 9. INFO KAMAR & MUROBBI, DATA SANTRI & LAPORAN ABSEN SEMUA SANTRI
         // =========================================================================
+        // =========================================================================
+        // KELOLA SEKTOR & KAMAR (KHUSUS ADMIN UTAMA)
+        // =========================================================================
+        window.openKelolaSektorModal = function() {
+            if (!isRecordAdmin(currentUser)) {
+                alert('Akses ditolak: Hanya Admin Utama yang dapat mengelola sektor & kamar.');
+                return;
+            }
+            const existing = document.getElementById('modal-kelola-sektor');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.id = 'modal-kelola-sektor';
+            modal.className = 'fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4';
+            modal.innerHTML = `
+                <div class="bg-[#122131] border border-[#273647] rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+                    <div class="px-6 py-4 border-b border-[#273647] flex items-center justify-between bg-[#010f1f]">
+                        <div>
+                            <h3 class="text-base font-extrabold text-white">Kelola Sektor & Kamar</h3>
+                            <p class="text-[11px] text-slate-400">Khusus Admin Utama • Perubahan langsung tersimpan ke database</p>
+                        </div>
+                        <button onclick="document.getElementById('modal-kelola-sektor').remove()" class="text-slate-400 hover:text-white p-1 cursor-pointer">
+                            <i class="ph-bold ph-x text-lg"></i>
+                        </button>
+                    </div>
+                    <div id="kelola-sektor-body" class="p-5 overflow-y-auto space-y-4 flex-1"></div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            renderKelolaSektorBody();
+        };
+
+        function renderKelolaSektorBody() {
+            const body = document.getElementById('kelola-sektor-body');
+            if (!body) return;
+            body.innerHTML = `
+                <div class="flex gap-2">
+                    <input id="input-sektor-baru" type="text" placeholder="Nama sektor baru (misal: Putra Lt 4)" class="flex-1 px-3 py-2 rounded-xl bg-[#051424] border border-[#273647] text-xs text-white focus:outline-none focus:border-indigo-400">
+                    <input id="input-jumlah-kamar-baru" type="number" min="1" max="50" value="5" class="w-20 px-3 py-2 rounded-xl bg-[#051424] border border-[#273647] text-xs text-white text-center" title="Jumlah kamar awal">
+                    <button onclick="tambahSektorBaru()" class="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-bold cursor-pointer">+ Tambah Sektor</button>
+                </div>
+                <div class="space-y-3">
+                    ${SEKTOR_ASRAMA.map((sec, idx) => {
+                        const kamars = kamarBySektor[sec] || [];
+                        return `
+                            <div class="bg-[#051424] border border-[#273647] rounded-2xl p-3.5 space-y-2.5">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-sm font-bold text-white">${sec} <span class="text-[11px] text-slate-400 font-normal">(${kamars.length} Kamar)</span></span>
+                                    <div class="flex items-center gap-1.5">
+                                        <button onclick="ubahNamaSektor(${idx})" class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-[11px] font-semibold cursor-pointer">Ubah Nama</button>
+                                        <button onclick="tambahKamarDiSektor(${idx})" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-[11px] font-semibold cursor-pointer">+ Kamar</button>
+                                        <button onclick="hapusSektor(${idx})" class="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-[11px] font-semibold cursor-pointer">Hapus</button>
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    ${kamars.map((k, kIdx) => `
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#122131] border border-[#273647] text-[11px] text-slate-200">
+                                            <button onclick="ubahNamaKamarModal(${idx}, ${kIdx})" class="hover:text-sky-300 cursor-pointer" title="Klik untuk ubah nama kamar">${k.nama}</button>
+                                            <button onclick="hapusKamarDiSektor(${idx}, ${kIdx})" class="text-rose-400 hover:text-rose-300 cursor-pointer" title="Hapus kamar">&times;</button>
+                                        </span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        async function simpanSektorDanKamarKeFirestore() {
+            if (!window.FB || !window.FB.ready) return;
+            try {
+                await window.FB.setDoc(
+                    window.FB.doc(window.FB.db, 'settings', 'kamarMap'),
+                    { sektorList: SEKTOR_ASRAMA, map: kamarBySektor, updatedAt: new Date().toISOString() },
+                    { merge: true }
+                );
+            } catch (err) {
+                console.error('Gagal menyimpan sektor & kamar:', err);
+                alert('Gagal menyimpan ke Firestore: ' + err.message);
+            }
+        }
+
+        window.tambahSektorBaru = async function() {
+            const nama = (document.getElementById('input-sektor-baru')?.value || '').trim();
+            const jml = parseInt(document.getElementById('input-jumlah-kamar-baru')?.value || '5', 10) || 5;
+            if (!nama) return alert('Masukkan nama sektor terlebih dahulu.');
+            if (SEKTOR_ASRAMA.includes(nama)) return alert('Sektor tersebut sudah ada.');
+            SEKTOR_ASRAMA.push(nama);
+            kamarBySektor[nama] = Array.from({ length: jml }, (_, i) => ({
+                nama: `Kamar ${String(i + 1).padStart(2, '0')}`,
+                murobbi: 'Belum Ada Murobbi'
+            }));
+            await simpanSektorDanKamarKeFirestore();
+            renderKelolaSektorBody();
+            renderAdminInfoAsrama();
+        };
+
+        window.ubahNamaSektor = async function(idx) {
+            const lama = SEKTOR_ASRAMA[idx];
+            const baru = prompt('Masukkan nama sektor baru:', lama);
+            if (!baru || baru.trim() === '' || baru.trim() === lama) return;
+            const namaBaru = baru.trim();
+            SEKTOR_ASRAMA[idx] = namaBaru;
+            kamarBySektor[namaBaru] = kamarBySektor[lama] || [];
+            delete kamarBySektor[lama];
+            if (adminInfoSelectedSektor === lama) adminInfoSelectedSektor = namaBaru;
+            await simpanSektorDanKamarKeFirestore();
+            renderKelolaSektorBody();
+            renderAdminInfoAsrama();
+        };
+
+        window.hapusSektor = async function(idx) {
+            const nama = SEKTOR_ASRAMA[idx];
+            if (SEKTOR_ASRAMA.length <= 1) return alert('Minimal harus ada 1 sektor.');
+            if (!confirm(`Hapus sektor "${nama}" beserta daftar kamarnya?`)) return;
+            SEKTOR_ASRAMA.splice(idx, 1);
+            delete kamarBySektor[nama];
+            if (adminInfoSelectedSektor === nama) adminInfoSelectedSektor = SEKTOR_ASRAMA[0];
+            await simpanSektorDanKamarKeFirestore();
+            renderKelolaSektorBody();
+            renderAdminInfoAsrama();
+        };
+
+        window.tambahKamarDiSektor = async function(secIdx) {
+            const sec = SEKTOR_ASRAMA[secIdx];
+            const list = kamarBySektor[sec] || [];
+            const defaultNama = `Kamar ${String(list.length + 1).padStart(2, '0')}`;
+            const nama = prompt(`Tambah kamar di ${sec}:`, defaultNama);
+            if (!nama || !nama.trim()) return;
+            list.push({ nama: nama.trim(), murobbi: 'Belum Ada Murobbi' });
+            kamarBySektor[sec] = list;
+            await simpanSektorDanKamarKeFirestore();
+            renderKelolaSektorBody();
+            renderAdminInfoAsrama();
+        };
+
+        window.ubahNamaKamarModal = async function(secIdx, kIdx) {
+            const sec = SEKTOR_ASRAMA[secIdx];
+            const kObj = (kamarBySektor[sec] || [])[kIdx];
+            if (!kObj) return;
+            const baru = prompt('Ubah nama kamar:', kObj.nama);
+            if (!baru || !baru.trim() || baru.trim() === kObj.nama) return;
+            kObj.nama = baru.trim();
+            await simpanSektorDanKamarKeFirestore();
+            renderKelolaSektorBody();
+            renderAdminInfoAsrama();
+        };
+
+        window.hapusKamarDiSektor = async function(secIdx, kIdx) {
+            const sec = SEKTOR_ASRAMA[secIdx];
+            const list = kamarBySektor[sec] || [];
+            if (list.length <= 1) return alert('Minimal harus ada 1 kamar dalam sektor.');
+            if (!confirm(`Hapus "${list[kIdx].nama}" dari ${sec}?`)) return;
+            list.splice(kIdx, 1);
+            await simpanSektorDanKamarKeFirestore();
+            renderKelolaSektorBody();
+            renderAdminInfoAsrama();
+        };
+
         function renderAdminInfoAsrama() {
             const kamarList = kamarBySektor[adminInfoSelectedSektor] || [];
             const activeKamarObj = getKamarObj(adminInfoSelectedSektor, adminInfoSelectedKamar);
@@ -5203,6 +5366,9 @@
                                 <input type="file" accept=".xlsx,.xls,.csv" onchange="handleImportSantriPerSektorExcel(event, '${adminInfoSelectedSektor}')" class="hidden">
                             </label>
                             ${isRecordAdmin(currentUser) ? `
+                                <button onclick="openKelolaSektorModal()" class="px-3 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Tambah, ubah, atau hapus sektor & kamar (Khusus Admin Utama)">
+                                    <i class="ph-bold ph-sliders-horizontal"></i> Kelola Sektor & Kamar
+                                </button>
                                 <button onclick="openHapusSantriSatuSektorModal('${adminInfoSelectedSektor}')" class="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Hapus seluruh data santri di sektor ini">
                                     <i class="ph-bold ph-trash"></i> Hapus Santri Sektor Ini
                                 </button>
