@@ -5172,6 +5172,11 @@
                                 <i class="ph-bold ph-file-xls"></i> Import ke Sektor Ini
                                 <input type="file" accept=".xlsx,.xls,.csv" onchange="handleImportSantriPerSektorExcel(event, '${adminInfoSelectedSektor}')" class="hidden">
                             </label>
+                            ${isRecordAdmin(currentUser) ? `
+                                <button onclick="openHapusSantriSatuSektorModal('${adminInfoSelectedSektor}')" class="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer" title="Hapus seluruh data santri di sektor ini">
+                                    <i class="ph-bold ph-trash"></i> Hapus Santri Sektor Ini
+                                </button>
+                            ` : ''}
                             <button onclick="openPengaturanNotifikasiModal()" class="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                                 <i class="ph-bold ph-bell-ringing"></i> Pengaturan Notifikasi
                             </button>
@@ -5821,6 +5826,64 @@
             showToast(`Template Santri kamar ${kamar} berhasil diunduh.`, 'success');
         }
 
+        function openHapusSantriSatuSektorModal(targetSektor) {
+            if (!isRecordAdmin(currentUser)) {
+                showToast('Hanya Administrator Pusat yang dapat menghapus data 1 sektor.', 'error');
+                return;
+            }
+            const sektor = toCanonicalSektor(targetSektor);
+            const list = santriList.filter(s => isSameSektor(s.sektor, sektor));
+            if (list.length === 0) {
+                showToast(`Tidak ada data santri di sektor ${formatShortSektor(sektor)}.`, 'info');
+                return;
+            }
+            openModal(
+                `Hapus Semua Santri — ${formatShortSektor(sektor)}`,
+                `
+                <div class="space-y-3">
+                    <div class="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-200 space-y-1.5">
+                        <p class="font-extrabold text-sm text-rose-300 flex items-center gap-1.5">
+                            <i class="ph-bold ph-warning-octagon text-base"></i> Peringatan Penghapusan Massal
+                        </p>
+                        <p>Anda akan menghapus seluruh <strong>${list.length} santri</strong> di sektor <strong>${sektor}</strong> secara permanen.</p>
+                        <p class="text-[11px] text-rose-300/80">Gunakan fitur ini jika ingin membersihkan data dobel sebelum mengimpor ulang dari Excel.</p>
+                    </div>
+                </div>
+                `,
+                `
+                <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-asrama-bg border border-asrama-border text-xs text-slate-300 cursor-pointer">Batal</button>
+                <button onclick="confirmHapusSantriSatuSektor('${sektor}')" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs text-white font-bold cursor-pointer">Ya, Hapus ${list.length} Santri</button>
+                `
+            );
+        }
+
+        async function confirmHapusSantriSatuSektor(targetSektor) {
+            if (!isRecordAdmin(currentUser)) return;
+            const sektor = toCanonicalSektor(targetSektor);
+            const list = santriList.filter(s => isSameSektor(s.sektor, sektor));
+            closeModal();
+            if (list.length === 0) return;
+
+            showLoading(`Menghapus ${list.length} santri di ${formatShortSektor(sektor)}...`);
+            try {
+                // Batch delete per 400 dokumen agar aman dari limit Firestore 500
+                for (let i = 0; i < list.length; i += 400) {
+                    const chunk = list.slice(i, i + 400);
+                    const batch = window.FB.writeBatch(window.FB.db);
+                    chunk.forEach(s => {
+                        batch.delete(window.FB.doc(window.FB.db, 'santri', s.id));
+                    });
+                    await batch.commit();
+                }
+                hideLoading();
+                showToast(`Berhasil menghapus ${list.length} santri di sektor ${formatShortSektor(sektor)}.`, 'success');
+            } catch (err) {
+                hideLoading();
+                console.error('Gagal hapus santri sektor:', err);
+                showToast('Gagal menghapus: ' + err.message, 'error');
+            }
+        }
+
         async function handleImportSantriPerSektorExcel(event, targetSektor) {
             const file = event.target.files[0];
             if (!file || typeof XLSX === 'undefined') return;
@@ -5902,6 +5965,15 @@
                     return;
                 }
 
+                // Hapus data santri lama di sektor ini terlebih dahulu agar tidak dobel (Mode Timpa)
+                const oldSantriInSector = santriList.filter(s => isSameSektor(s.sektor, sektorDefault));
+                for (let i = 0; i < oldSantriInSector.length; i += 400) {
+                    const chunk = oldSantriInSector.slice(i, i + 400);
+                    const delBatch = window.FB.writeBatch(window.FB.db);
+                    chunk.forEach(s => delBatch.delete(window.FB.doc(window.FB.db, 'santri', s.id)));
+                    await delBatch.commit();
+                }
+
                 await batch.commit();
                 hideLoading();
                 showToast(`Berhasil mengimpor ${count} santri ke sektor ${formatShortSektor(sektorDefault)}!`, 'success');
@@ -5954,6 +6026,14 @@
                         count++;
                     }
                 });
+
+                // Hapus data santri lama di kamar ini terlebih dahulu agar tidak dobel (Mode Timpa)
+                const oldSantriInKamar = santriList.filter(s => isSameSektor(s.sektor, sektorDefault) && s.kamar === kamarDefault);
+                if (oldSantriInKamar.length > 0) {
+                    const delBatch = window.FB.writeBatch(window.FB.db);
+                    oldSantriInKamar.forEach(s => delBatch.delete(window.FB.doc(window.FB.db, 'santri', s.id)));
+                    await delBatch.commit();
+                }
 
                 await batch.commit();
                 hideLoading();
