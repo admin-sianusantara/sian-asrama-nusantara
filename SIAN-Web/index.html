@@ -752,6 +752,8 @@
         let laporanAbsenSearchQuery = '';
 
         let pengurusSearchQuery = '';
+        let adminPengurusSektorFilter = 'ALL';
+        let adminPengurusDivisiFilter = 'ALL';
         let pelSelectedSantriIds = [];
         let pelSearchPickerQuery = '';
         let pelSelectedKategori = 'Terlambat';
@@ -1353,6 +1355,11 @@
                     }
                 });
 
+                // Prioritaskan nama Murobbi dari data Kelola Pengurus (pengurusList) jika ada pengurus aktif di kamar tersebut
+                list = list.map(item => {
+                    const pengurusMurobbi = discoveredMap.get(item.nama);
+                    return (pengurusMurobbi && pengurusMurobbi !== 'Belum Ada Murobbi') ? { ...item, murobbi: pengurusMurobbi } : item;
+                });
                 merged[sec] = list;
             });
 
@@ -3453,12 +3460,17 @@
             const q = (pengurusSearchQuery || globalSearchQuery).toLowerCase();
 
             const approved = allApproved
-                .filter(p => !q
-                    || String(p.nama || '').toLowerCase().includes(q)
-                    || String(p.email || '').toLowerCase().includes(q)
-                    || String(p.kamar || '').toLowerCase().includes(q)
-                    || String(p.sektor || '').toLowerCase().includes(q)
-                    || String(p.divisi || '').toLowerCase().includes(q))
+                .filter(p => {
+                    const mSec = adminPengurusSektorFilter === 'ALL' || isSameSektor(p.sektor, adminPengurusSektorFilter);
+                    const mDiv = adminPengurusDivisiFilter === 'ALL' || String(p.divisi || '').toLowerCase().includes(adminPengurusDivisiFilter.toLowerCase());
+                    const mQ = !q
+                        || String(p.nama || '').toLowerCase().includes(q)
+                        || String(p.email || '').toLowerCase().includes(q)
+                        || String(p.kamar || '').toLowerCase().includes(q)
+                        || String(p.sektor || '').toLowerCase().includes(q)
+                        || String(p.divisi || '').toLowerCase().includes(q);
+                    return mSec && mDiv && mQ;
+                })
                 .sort((a, b) => {
                     const rank = u => isRecordKetuaAsrama(u) ? 1 : (isRecordAdminKantor(u) ? 2 : (isRecordKetuaLantai(u) ? 3 : 4));
                     if (rank(a) !== rank(b)) return rank(a) - rank(b);
@@ -3520,6 +3532,19 @@
                         <div class="relative flex-1 max-w-md">
                             <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
                             <input type="text" value="${escapeHtml(pengurusSearchQuery)}" oninput="updatePengurusSearch(this.value)" placeholder="Cari nama pengurus, email, kamar, atau sektor..." class="w-full border border-asrama-border rounded-xl pl-9 pr-3 py-2 text-xs">
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <select onchange="adminPengurusSektorFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg text-white">
+                                <option value="ALL" ${adminPengurusSektorFilter === 'ALL' ? 'selected' : ''}>Semua Sektor</option>
+                                ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${adminPengurusSektorFilter === sec ? 'selected' : ''}>${formatShortSektor(sec)}</option>`).join('')}
+                            </select>
+                            <select onchange="adminPengurusDivisiFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg text-white">
+                                <option value="ALL" ${adminPengurusDivisiFilter === 'ALL' ? 'selected' : ''}>Semua Divisi</option>
+                                <option value="keamanan" ${adminPengurusDivisiFilter === 'keamanan' ? 'selected' : ''}>Divisi Keamanan</option>
+                                <option value="kesehatan" ${adminPengurusDivisiFilter === 'kesehatan' ? 'selected' : ''}>Divisi Kesehatan</option>
+                                <option value="kebersihan" ${adminPengurusDivisiFilter === 'kebersihan' ? 'selected' : ''}>Divisi Kebersihan</option>
+                                <option value="kegiatan" ${adminPengurusDivisiFilter === 'kegiatan' ? 'selected' : ''}>Divisi Kegiatan</option>
+                            </select>
                         </div>
                         <span class="text-[11px] text-slate-400">Menampilkan <strong id="pengurus-count-label" class="text-white">${approved.length}</strong> dari ${allApproved.length} pengurus aktif</span>
                     </div>
