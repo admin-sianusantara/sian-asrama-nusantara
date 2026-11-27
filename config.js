@@ -14,12 +14,13 @@ export const FIREBASE_SIAN = {
 
 // Placeholder sementara untuk Firebase SIAP (Asrama Putra) — silakan ganti dengan config asli
 export const FIREBASE_SIAP = {
-    apiKey: "MASUKKAN_API_KEY_SIAP",
+    apiKey: "AIzaSyC-0Iouc9PhVu0EGQtTAMASQh5pJKIsA1E",
     authDomain: "siap-asrama-putra.firebaseapp.com",
     projectId: "siap-asrama-putra",
     storageBucket: "siap-asrama-putra.firebasestorage.app",
-    messagingSenderId: "000000000000",
-    appId: "1:000000000000:web:placeholder_siap"
+    messagingSenderId: "903525384971",
+    appId: "1:903525384971:web:ada49361e2c8ea12af980e",
+    measurementId: "G-1KPZJDS0YM"
 };
 
 const TENANT_CONFIGS = {
