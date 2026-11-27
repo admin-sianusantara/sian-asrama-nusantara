@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getAuth, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { FIREBASE_SIAN, FIREBASE_SIAP } from "./config.js";
 
@@ -67,6 +67,39 @@ loginForm.addEventListener("submit", async (e) => {
         loginBtn.textContent = "Masuk ke Dashboard Gabungan";
     }
 });
+
+// Opsi 2: Login dengan Google (ke SIAN & SIAP)
+const googleLoginBtn = document.getElementById("btn-master-google-login");
+if (googleLoginBtn) {
+    googleLoginBtn.addEventListener("click", async () => {
+        loginError.classList.add("hidden");
+        googleLoginBtn.disabled = true;
+        googleLoginBtn.textContent = "Menghubungkan akun Google...";
+
+        try {
+            const provider = new GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: "select_account" });
+
+            const resSIAN = await signInWithPopup(authSIAN, provider);
+            if (authSIAP) {
+                await signInWithPopup(authSIAP, provider);
+            }
+
+            const email = resSIAN.user?.email || "Akun Google";
+            document.getElementById("master-user-info").textContent = `Login sebagai: ${email}`;
+            loginView.classList.add("hidden");
+            dashboardView.classList.remove("hidden");
+
+            await fetchAllMasterData();
+        } catch (err) {
+            console.error("Login Google SIMA gagal:", err);
+            showError(`Login Google gagal: ${err.message}`);
+        } finally {
+            googleLoginBtn.disabled = false;
+            googleLoginBtn.innerHTML = `<i class="ph-bold ph-google-logo text-amber-300 text-base"></i> Masuk dengan Google`;
+        }
+    });
+}
 
 // Tarik koleksi dari 1 database & sisipkan asalAsrama
 async function fetchCollectionWithOrigin(db, colName, asalAsrama) {
