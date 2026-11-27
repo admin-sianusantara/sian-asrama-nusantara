@@ -312,11 +312,11 @@
                 <div class="flex items-center justify-between px-2">
                     <div class="flex items-center gap-3">
                         <div class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner">
-                            <img src="/icon-192.png?v=2" alt="Logo SIAN" class="w-full h-full object-cover rounded-xl">
+                            <img id="sidebar-logo-img" src="/assets/logo-sian.png" alt="Logo SIAN" class="w-full h-full object-cover rounded-xl">
                         </div>
                         <div>
-                            <span class="font-extrabold text-white tracking-tight text-base block">SIAN</span>
-                            <span class="text-[11px] text-slate-300 block">Sistem Info Asrama Nusantara</span>
+                            <span id="sidebar-app-code" class="font-extrabold text-white tracking-tight text-base block">SIAN</span>
+                            <span id="sidebar-app-subtitle" class="text-[11px] text-slate-300 block">Sistem Info Asrama Nusantara</span>
                         </div>
                     </div>
                     <button onclick="toggleSidebar()" class="md:hidden text-slate-300 hover:text-white p-1">
@@ -356,8 +356,8 @@
                     <i class="ph-bold ph-sign-out text-sm"></i> Keluar Akun Google
                 </button>
                 <div class="text-[11px] text-slate-400 flex items-center justify-between px-1">
-                    <span>Asrama Nusantara</span>
-                    <span class="text-emerald-400 font-medium">6 Sektor • 60 Kamar</span>
+                    <span id="sidebar-footer-name">Asrama Nusantara</span>
+                    <span id="sidebar-footer-stats" class="text-emerald-400 font-medium">6 Sektor • 60 Kamar</span>
                 </div>
             </div>
         </aside>
@@ -478,6 +478,17 @@
         const loginSubEl = document.getElementById('login-app-subtitle');
         if (loginSubEl) loginSubEl.textContent = `${ACTIVE_CONFIG.nama} • Portal Pengurus & Admin`;
 
+        const sbLogoEl = document.getElementById('sidebar-logo-img');
+        if (sbLogoEl) { sbLogoEl.src = ACTIVE_CONFIG.logo; sbLogoEl.alt = `Logo ${ACTIVE_CONFIG.kode}`; }
+        const sbCodeEl = document.getElementById('sidebar-app-code');
+        if (sbCodeEl) sbCodeEl.textContent = ACTIVE_CONFIG.kode;
+        const sbSubEl = document.getElementById('sidebar-app-subtitle');
+        if (sbSubEl) sbSubEl.textContent = ACTIVE_CONFIG.nama;
+        const sbFooterName = document.getElementById('sidebar-footer-name');
+        if (sbFooterName) sbFooterName.textContent = ACTIVE_CONFIG.nama.replace('Sistem Informasi ', '');
+        const sbFooterStats = document.getElementById('sidebar-footer-stats');
+        if (sbFooterStats) sbFooterStats.textContent = `${ACTIVE_CONFIG.sektor.length} Sektor`;
+
         const DEFAULT_FIREBASE_CONFIG = ACTIVE_CONFIG.firebase;
 
         window.DEFAULT_VAPID_KEY = "BMQSFmMqkKYMT9E9GEzN85QH8Vx3Wd2BX-SyDkDsz312geMySlydZohNW4OdXwK5naJitZrzJQtYQ-QZ6xg0__A";
@@ -579,16 +590,20 @@
         // =========================================================================
         const PRIMARY_ADMIN_EMAIL = 'admin.sianusantara@gmail.com';
         const DEFAULT_BATAS_JAM_KEMBALI = '22:00';
+        const _isSiapMode = window.location.hostname.toLowerCase().includes('siap') ||
+            ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && localStorage.getItem('sian_dev_tenant') === 'SIAP');
         const SEKTOR_ASRAMA = (window.ACTIVE_CONFIG && Array.isArray(window.ACTIVE_CONFIG.sektor))
             ? window.ACTIVE_CONFIG.sektor
-            : [
-                'Asrama Nusantara Lt. 1 Utara',
-                'Asrama Nusantara Lt. 1 Selatan',
-                'Asrama Nusantara Lt. 2 Utara',
-                'Asrama Nusantara Lt. 2 Selatan',
-                'Asrama Nusantara Lt. 3 Utara',
-                'Asrama Nusantara Lt. 3 Selatan'
-            ];
+            : (_isSiapMode
+                ? ['Putra Lt 2', 'Putra Lt 3']
+                : [
+                    'Asrama Nusantara Lt. 1 Utara',
+                    'Asrama Nusantara Lt. 1 Selatan',
+                    'Asrama Nusantara Lt. 2 Utara',
+                    'Asrama Nusantara Lt. 2 Selatan',
+                    'Asrama Nusantara Lt. 3 Utara',
+                    'Asrama Nusantara Lt. 3 Selatan'
+                ]);
         const HARI_SEMINGGU = ['Ahad', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
         // Opsi Baku Kegiatan Telat / Alpa Santri (Hanya 8 Kegiatan yang disepakati)
