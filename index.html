@@ -209,7 +209,7 @@
                 </div>
                 <div>
                     <label class="block text-[11px] font-semibold text-slate-300 mb-1">Nomor WhatsApp Aktif *</label>
-                    <input id="signup-no-hp" type="tel" inputmode="numeric" placeholder="Contoh: 081234567890" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs focus:border-emerald-500 focus:outline-none">
+                    <input id="signup-no-hp" type="tel" inputmode="numeric" required placeholder="Wajib diisi, contoh: 081234567890" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs focus:border-emerald-500 focus:outline-none">
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
@@ -1448,7 +1448,7 @@
             const divisi = document.getElementById('signup-divisi').value;
             const fbBox = document.getElementById('signup-feedback-box');
 
-            if (!email || !email.includes('@') || !rawNama || !cleanHp) {
+            if (!email || !email.includes('@') || !rawNama || !cleanHp || cleanHp.length < 9) {
                 fbBox.className = 'p-3 rounded-xl bg-red-500/15 border border-red-500/40 text-xs text-red-200';
                 fbBox.textContent = 'Mohon lengkapi Email Gmail aktif, Nama Murobbi, dan Nomor WhatsApp aktif.';
                 fbBox.classList.remove('hidden');
