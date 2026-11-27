@@ -98,6 +98,12 @@ function isRecipientEligible(userFields, eventPayload) {
         return email === targetEmail;
     }
 
+    if (eventType === 'stempel_izin') {
+        const targetSektor = normSektor(eventPayload.sektor);
+        const targetKamar = norm(eventPayload.kamar);
+        return userSektor === targetSektor && userKamar === targetKamar;
+    }
+
     if (eventType === 'pendaftaran_baru') {
         return isAdmin;
     }
