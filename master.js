@@ -180,10 +180,10 @@ async function fetchAllMasterData() {
     ] = await Promise.all([
         fetchCollectionWithOrigin(dbSIAN, "santri", "Asrama Nusantara"),
         fetchCollectionWithOrigin(dbSIAP, "santri", "Asrama Putra"),
-        fetchCollectionWithOrigin(dbSIAN, "absensi", "Asrama Nusantara"),
-        fetchCollectionWithOrigin(dbSIAP, "absensi", "Asrama Putra"),
-        fetchCollectionWithOrigin(dbSIAN, "izin", "Asrama Nusantara"),
-        fetchCollectionWithOrigin(dbSIAP, "izin", "Asrama Putra"),
+        fetchCollectionWithOrigin(dbSIAN, "presensi", "Asrama Nusantara"),
+        fetchCollectionWithOrigin(dbSIAP, "presensi", "Asrama Putra"),
+        fetchCollectionWithOrigin(dbSIAN, "perizinan", "Asrama Nusantara"),
+        fetchCollectionWithOrigin(dbSIAP, "perizinan", "Asrama Putra"),
         fetchCollectionWithOrigin(dbSIAN, "pelanggaran", "Asrama Nusantara"),
         fetchCollectionWithOrigin(dbSIAP, "pelanggaran", "Asrama Putra")
     ]);
