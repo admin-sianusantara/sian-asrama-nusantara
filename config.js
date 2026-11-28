@@ -54,6 +54,9 @@ const TENANT_CONFIGS = {
 
 function detectActiveMode() {
     const hostname = window.location.hostname.toLowerCase();
+    if (hostname.includes("sima") && !window.location.pathname.endsWith("/master.html")) {
+        window.location.replace("/master.html");
+    }
     const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
 
     if (isLocal) {
