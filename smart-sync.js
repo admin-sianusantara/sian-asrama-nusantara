@@ -12,7 +12,7 @@
         filterPutraOnly: true,
         schoolRows: [],
         selectedKamars: new Set(), // key: "sektor|||kamar"
-        skipExistingNis: false,
+        skipExistingNis: true,
         standardizeNames: true,
         results: [], // array of match items
         usedSchoolKeys: new Map(), // schoolKey -> santriId
@@ -467,6 +467,14 @@
                                 Auto-Centang Kamar Sesuai File
                             </button>
                         </div>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="text-[11px] text-slate-400 mr-1">Pilih Cepat:</span>
+                            <button type="button" onclick="SmartSync.quickSelectFloor('ALL')" class="px-2 py-0.5 rounded bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-[11px] text-slate-200 cursor-pointer">Semua</button>
+                            <button type="button" onclick="SmartSync.quickSelectFloor('1')" class="px-2 py-0.5 rounded bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-[11px] text-emerald-300 cursor-pointer">Lt. 1</button>
+                            <button type="button" onclick="SmartSync.quickSelectFloor('2')" class="px-2 py-0.5 rounded bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-[11px] text-emerald-300 cursor-pointer">Lt. 2</button>
+                            <button type="button" onclick="SmartSync.quickSelectFloor('3')" class="px-2 py-0.5 rounded bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-[11px] text-emerald-300 cursor-pointer">Lt. 3</button>
+                            <button type="button" onclick="SmartSync.quickSelectFloor('NONE')" class="px-2 py-0.5 rounded bg-asrama-bg hover:bg-asrama-cardHover border border-rose-500/30 text-[11px] text-rose-300 cursor-pointer">Kosongkan</button>
+                        </div>
                         <div class="max-h-52 overflow-y-auto space-y-2.5 pr-1">
                             ${allowedSektors.map((sec) => {
                                 const kamars = kamarMap[sec] || [];
@@ -498,8 +506,8 @@
                         </div>
                         <div class="space-y-1.5 pt-1 border-t border-asrama-border">
                             <label class="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                                <input id="ss-skip-nis" type="checkbox" class="rounded border-asrama-border bg-asrama-bg text-sky-500">
-                                <span>Lewati santri yang sudah memiliki NIS</span>
+                                <input id="ss-skip-nis" type="checkbox" checked class="rounded border-asrama-border bg-asrama-bg text-sky-500">
+                                <span>Lewati santri yang sudah memiliki NIS (Sudah Sinkron)</span>
                             </label>
                             <label class="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
                                 <input id="ss-standardize-name" type="checkbox" checked class="rounded border-asrama-border bg-asrama-bg text-emerald-500">
@@ -766,6 +774,25 @@
             syncState.selectedKamars.clear();
             document.querySelectorAll(".ss-kamar-cb:checked").forEach((cb) => syncState.selectedKamars.add(cb.value));
             runMatchingEngine();
+        },
+
+        quickSelectFloor(floor) {
+            document.querySelectorAll(".ss-sektor-cb").forEach((cb) => {
+                const sec = cb.dataset.sektor || "";
+                let checked = false;
+                if (floor === "ALL") checked = true;
+                else if (floor === "NONE") checked = false;
+                else checked = sec.includes(`Lt. ${floor}`) || sec.includes(`Lt ${floor}`);
+                cb.checked = checked;
+            });
+            document.querySelectorAll(".ss-kamar-cb").forEach((cb) => {
+                const sec = cb.dataset.sektor || "";
+                let checked = false;
+                if (floor === "ALL") checked = true;
+                else if (floor === "NONE") checked = false;
+                else checked = sec.includes(`Lt. ${floor}`) || sec.includes(`Lt ${floor}`);
+                cb.checked = checked;
+            });
         },
 
         autoCheckRoomsFromExcel() {
