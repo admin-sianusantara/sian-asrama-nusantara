@@ -311,8 +311,12 @@
 
             if (best) {
                 const isUnique = !second || (best.score - second.score >= 0.08);
-                if (isOneWord) {
-                    if (best.roomMatch && isUnique && best.nameScore >= 0.85) {
+                const sianTokens = normalizeNameTokens(s.nama).length;
+                const schoolTokens = normalizeNameTokens(best.school.nama).length;
+                const oneWordMismatch = (sianTokens <= 1 || schoolTokens <= 1) && (sianTokens !== schoolTokens);
+
+                if (isOneWord || oneWordMismatch) {
+                    if (!oneWordMismatch && best.roomMatch && isUnique && best.nameScore >= 0.85) {
                         status = "HIJAU";
                         selectedSchool = best.school;
                         note = "Nama 1 kata cocok & kamar sama";
@@ -384,6 +388,12 @@
 
         syncState.results = results;
         renderSyncResults();
+        if (window.showToast) {
+            const h = results.filter((r) => r.status === "HIJAU").length;
+            const k = results.filter((r) => r.status === "KUNING").length;
+            const m = results.filter((r) => r.status === "MERAH").length;
+            window.showToast(`Pencocokan selesai! Hijau: ${h} • Kuning: ${k} • Merah: ${m}`, "success");
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -762,9 +772,16 @@
                 </td>
                 <td class="px-4 py-3 align-top">${detailHtml}</td>
                 <td class="px-4 py-3 align-top">
-                    <button onclick="SmartSync.openManualModal('${s.id}')" class="px-2.5 py-1 rounded-lg bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-[11px] font-semibold text-sky-300 cursor-pointer">
-                        Cari / Manual
-                    </button>
+                    <div class="flex flex-wrap gap-1.5">
+                        <button onclick="SmartSync.openManualModal('${s.id}')" class="px-2.5 py-1 rounded-lg bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-[11px] font-semibold text-sky-300 cursor-pointer">
+                            Cari / Manual
+                        </button>
+                        ${item.status !== "LEWATI" ? `
+                            <button onclick="SmartSync.skipRow('${s.id}')" class="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-[11px] font-semibold text-rose-300 cursor-pointer" title="Batalkan / jangan sinkronkan santri ini">
+                                Lewati
+                            </button>
+                        ` : ""}
+                    </div>
                 </td>
             </tr>
         `;
@@ -970,6 +987,18 @@
             item.selectedSchool = manualObj;
             saveDraftItem(santriId, { status: "DIPERBAIKI", manualInput: manualObj, useOfficialName: true });
             document.getElementById("ss-manual-modal").remove();
+            renderSyncResults();
+        },
+
+        skipRow(santriId) {
+            const item = syncState.results.find((r) => r.santri.id === santriId);
+            if (!item) return;
+            if (item.selectedSchool?.schoolKey) {
+                syncState.usedSchoolKeys.delete(item.selectedSchool.schoolKey);
+            }
+            item.status = "LEWATI";
+            item.selectedSchool = null;
+            saveDraftItem(santriId, { status: "LEWATI" });
             renderSyncResults();
         },
 
