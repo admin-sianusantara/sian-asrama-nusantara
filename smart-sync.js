@@ -407,7 +407,7 @@
     // 5. RENDER UI HALAMAN SMART SYNC
     // ------------------------------------------------------------------------
     window.renderSmartSyncPage = function () {
-        const container = document.getElementById("main-content");
+        const container = document.getElementById("app-content");
         if (!container) return;
 
         const santriList = window.getSantriList ? window.getSantriList() : [];
