@@ -21,6 +21,7 @@ const state = {
     activeTab: "santri",
     filterAsrama: "ALL",
     filterJenjang: "ALL",
+    filterKelas: "ALL",
     searchQuery: ""
 };
 
@@ -197,7 +198,36 @@ async function fetchAllMasterData() {
         : `<span class="text-amber-300 font-semibold">SIAN Terhubung • SIAP masih menggunakan placeholder config</span>`;
 
     updateSummaryCards();
+    populateKelasDropdown();
     renderTable();
+}
+
+function resolveKelas(item) {
+    if (item.kelas) return String(item.kelas).trim();
+    const nama = String(item.nama || item.namaSantri || "").trim().toLowerCase();
+    const santriMatch = state.santri.find((s) =>
+        (item.santriId && s.id === item.santriId) ||
+        (nama && String(s.nama || "").trim().toLowerCase() === nama && s.asalAsrama === item.asalAsrama)
+    );
+    return String(santriMatch?.kelas || "").trim();
+}
+
+function populateKelasDropdown() {
+    const sel = document.getElementById("filter-kelas");
+    if (!sel) return;
+    const kelasSet = new Set();
+    state.santri.forEach((s) => {
+        if (state.filterAsrama !== "ALL" && s.asalAsrama !== state.filterAsrama) return;
+        if (state.filterJenjang !== "ALL" && resolveJenjang(s) !== state.filterJenjang) return;
+        if (s.kelas && String(s.kelas).trim()) kelasSet.add(String(s.kelas).trim());
+    });
+    const sorted = Array.from(kelasSet).sort((a, b) => a.localeCompare(b));
+    const prev = state.filterKelas;
+    sel.innerHTML = `<option value="ALL">Semua Kelas</option>` + sorted.map((k) => `<option value="${k}" ${k === prev ? "selected" : ""}>${k}</option>`).join("");
+    if (prev !== "ALL" && !kelasSet.has(prev)) {
+        state.filterKelas = "ALL";
+        sel.value = "ALL";
+    }
 }
 
 function updateSummaryCards() {
@@ -243,6 +273,9 @@ function getFilteredData() {
             return false;
         }
         if (state.filterJenjang !== "ALL" && resolveJenjang(item) !== state.filterJenjang) {
+            return false;
+        }
+        if (state.filterKelas !== "ALL" && resolveKelas(item) !== state.filterKelas) {
             return false;
         }
         if (!q) return true;
@@ -326,11 +359,18 @@ function renderTable() {
 // Event Listeners UI
 document.getElementById("filter-asrama").addEventListener("change", (e) => {
     state.filterAsrama = e.target.value;
+    populateKelasDropdown();
     renderTable();
 });
 
 document.getElementById("filter-jenjang").addEventListener("change", (e) => {
     state.filterJenjang = e.target.value;
+    populateKelasDropdown();
+    renderTable();
+});
+
+document.getElementById("filter-kelas").addEventListener("change", (e) => {
+    state.filterKelas = e.target.value;
     renderTable();
 });
 
@@ -352,13 +392,39 @@ document.querySelectorAll(".master-tab").forEach((btn) => {
 
 document.getElementById("btn-refresh-master").addEventListener("click", fetchAllMasterData);
 
+document.getElementById("btn-export-wa").addEventListener("click", () => {
+    const rows = getFilteredData();
+    if (!rows.length) {
+        alert("Tidak ada data untuk dikirim ke WhatsApp.");
+        return;
+    }
+    const header = `*LAPORAN SIMA (${state.activeTab.toUpperCase()})*\nAsrama: ${state.filterAsrama === "ALL" ? "Semua" : state.filterAsrama} | Jenjang: ${state.filterJenjang === "ALL" ? "Semua" : state.filterJenjang} | Kelas: ${state.filterKelas === "ALL" ? "Semua" : state.filterKelas}\nTotal: ${rows.length} data\n\n`;
+    const lines = rows.slice(0, 40).map((item, i) => {
+        const nama = item.nama || item.namaSantri || "-";
+        const kls = resolveKelas(item) || "-";
+        const info = state.activeTab === "izin" ? (item.alasan || item.keterangan || item.status || "-")
+            : state.activeTab === "absensi" ? (item.kegiatan || item.status || "-")
+            : state.activeTab === "pelanggaran" ? (item.jenis || item.keterangan || "-")
+            : `${item.sektor || "-"} • ${item.kamar || "-"}`;
+        return `${i + 1}. *${nama}* (${kls}) - ${item.asalAsrama}\n   _${info}_`;
+    }).join("\n");
+    const footer = rows.length > 40 ? `\n\n...dan ${rows.length - 40} data lainnya.` : "";
+    const url = `https://wa.me/?text=${encodeURIComponent(header + lines + footer)}`;
+    window.open(url, "_blank");
+});
+
 document.getElementById("btn-export-excel").addEventListener("click", () => {
     if (typeof XLSX === "undefined") {
         alert("Library Excel belum selesai dimuat. Coba sesaat lagi.");
         return;
     }
     const wb = XLSX.utils.book_new();
-    const filterFn = (arr) => state.filterAsrama === "ALL" ? arr : arr.filter((x) => x.asalAsrama === state.filterAsrama);
+    const filterFn = (arr) => arr.filter((x) => {
+        if (state.filterAsrama !== "ALL" && x.asalAsrama !== state.filterAsrama) return false;
+        if (state.filterJenjang !== "ALL" && resolveJenjang(x) !== state.filterJenjang) return false;
+        if (state.filterKelas !== "ALL" && resolveKelas(x) !== state.filterKelas) return false;
+        return true;
+    });
 
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filterFn(state.santri)), "Santri");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filterFn(state.absensi)), "Absensi");
