@@ -1360,7 +1360,7 @@
 
                 const discoveredMap = new Map();
                 pengurusList.forEach(p => {
-                    if (isPengurusApproved(p) && !isRecordAdmin(p) && !isRecordKetuaAsrama(p) && isSameSektor(p.sektor, sec)) {
+                    if (isPengurusApproved(p) && (!isRecordAdmin(p) || p.dualAdmin === true || String(p.email || '').toLowerCase() === 'mryamin3@gmail.com') && !isRecordKetuaAsrama(p) && isSameSektor(p.sektor, sec)) {
                         const kName = String(p.kamar || '').trim();
                         if (kName && kName.toLowerCase() !== 'semua kamar') {
                             discoveredMap.set(kName, p.nama || 'Belum Ada Murobbi');
@@ -3513,7 +3513,7 @@
         function renderAdminPengurus() {
             const pending = pengurusList.filter(p => isPengurusPending(p));
             const rejected = pengurusList.filter(p => isPengurusRejected(p));
-            const allApproved = pengurusList.filter(p => isPengurusApproved(p) && !isRecordAdmin(p));
+            const allApproved = pengurusList.filter(p => isPengurusApproved(p) && (!isRecordAdmin(p) || p.dualAdmin === true || String(p.email || '').toLowerCase() === 'mryamin3@gmail.com'));
             const q = (pengurusSearchQuery || globalSearchQuery).toLowerCase();
 
             const approved = allApproved
@@ -3692,7 +3692,7 @@
         function updatePengurusSearch(val) {
             pengurusSearchQuery = val;
             const q = (val || '').trim().toLowerCase();
-            const allApproved = pengurusList.filter(p => isPengurusApproved(p) && !isRecordAdmin(p));
+            const allApproved = pengurusList.filter(p => isPengurusApproved(p) && (!isRecordAdmin(p) || p.dualAdmin === true || String(p.email || '').toLowerCase() === 'mryamin3@gmail.com'));
             const filtered = allApproved
                 .filter(p => !q
                     || String(p.nama || '').toLowerCase().includes(q)
