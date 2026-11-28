@@ -475,6 +475,14 @@
                             <button type="button" onclick="SmartSync.quickSelectFloor('3')" class="px-2 py-0.5 rounded bg-asrama-bg hover:bg-asrama-cardHover border border-asrama-border text-[11px] text-emerald-300 cursor-pointer">Lt. 3</button>
                             <button type="button" onclick="SmartSync.quickSelectFloor('NONE')" class="px-2 py-0.5 rounded bg-asrama-bg hover:bg-asrama-cardHover border border-rose-500/30 text-[11px] text-rose-300 cursor-pointer">Kosongkan</button>
                         </div>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="text-[11px] text-slate-400 mr-1">Per Sektor:</span>
+                            ${allowedSektors.map((sec) => `
+                                <button type="button" onclick="SmartSync.quickSelectSektor('${sec}')" class="px-2 py-0.5 rounded bg-asrama-bg hover:bg-asrama-cardHover border border-sky-500/30 text-[11px] text-sky-300 cursor-pointer">
+                                    ${window.formatShortSektor ? window.formatShortSektor(sec) : sec}
+                                </button>
+                            `).join("")}
+                        </div>
                         <div class="max-h-52 overflow-y-auto space-y-2.5 pr-1">
                             ${allowedSektors.map((sec) => {
                                 const kamars = kamarMap[sec] || [];
@@ -792,6 +800,15 @@
                 else if (floor === "NONE") checked = false;
                 else checked = sec.includes(`Lt. ${floor}`) || sec.includes(`Lt ${floor}`);
                 cb.checked = checked;
+            });
+        },
+
+        quickSelectSektor(targetSec) {
+            document.querySelectorAll(".ss-sektor-cb").forEach((cb) => {
+                cb.checked = (cb.dataset.sektor === targetSec);
+            });
+            document.querySelectorAll(".ss-kamar-cb").forEach((cb) => {
+                cb.checked = (cb.dataset.sektor === targetSec);
             });
         },
 
