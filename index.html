@@ -3750,7 +3750,7 @@
                     divEl.value = 'pimpinan';
                     divEl.disabled = true;
                 }
-                if (noteEl) noteEl.textContent = 'Ketua Asrama Nusantara berwenang atas seluruh 6 sektor, tanpa kamar binaan spesifik dan berstatus Pimpinan Asrama.';
+                if (noteEl) noteEl.textContent = `${_isSiapMode ? 'Ketua Asrama Putra' : 'Ketua Asrama Nusantara'} berwenang atas seluruh ${SEKTOR_ASRAMA.length} sektor, tanpa kamar binaan spesifik dan berstatus Pimpinan Asrama.`;
             } else if (val === 'admin_kantor') {
                 if (secWrap) secWrap.classList.add('hidden');
                 if (divEl) {
@@ -3791,7 +3791,7 @@
                         <select id="add-p-role" onchange="handleRoleSelectionChange('add-p')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="murobbi">Murobbi Kamar</option>
                             <option value="ketua_sektor">Murobbi Kamar + Ketua Sektor (1 Lantai)</option>
-                            <option value="ketua_asrama">Ketua Asrama Nusantara (Keseluruhan 6 Sektor)</option>
+                            <option value="ketua_asrama">${_isSiapMode ? 'Ketua Asrama Putra' : 'Ketua Asrama Nusantara'} (Keseluruhan ${SEKTOR_ASRAMA.length} Sektor)</option>
                             <option value="admin_kantor">Admin Kantor Asrama (Pusat / Stempel Izin)</option>
                         </select>
                         <p id="add-p-role-note" class="text-[10px] text-emerald-300/80 mt-1">Murobbi bertugas membina kamar dan santri di lantainya.</p>
@@ -3888,7 +3888,7 @@
                         <select id="edit-p-role" onchange="handleRoleSelectionChange('edit-p')" class="w-full border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="murobbi" ${curRole === 'murobbi' ? 'selected' : ''}>Murobbi Kamar</option>
                             <option value="ketua_sektor" ${curRole === 'ketua_sektor' ? 'selected' : ''}>Murobbi Kamar + Ketua Sektor (1 Lantai)</option>
-                            <option value="ketua_asrama" ${curRole === 'ketua_asrama' ? 'selected' : ''}>Ketua Asrama Nusantara (Keseluruhan 6 Sektor)</option>
+                            <option value="ketua_asrama" ${curRole === 'ketua_asrama' ? 'selected' : ''}>${_isSiapMode ? 'Ketua Asrama Putra' : 'Ketua Asrama Nusantara'} (Keseluruhan ${SEKTOR_ASRAMA.length} Sektor)</option>
                             <option value="admin_kantor" ${curRole === 'admin_kantor' ? 'selected' : ''}>Admin Kantor Asrama (Pusat / Stempel Izin)</option>
                         </select>
                         <p id="edit-p-role-note" class="text-[10px] text-emerald-300/80 mt-1">Ketua Sektor tetap memegang kamar binaan sebagai Murobbi kamar.</p>
