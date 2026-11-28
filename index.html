@@ -333,6 +333,10 @@
                     <p id="sidebar-sektor-badge" class="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-1 rounded-lg">
                         Asrama Nusantara
                     </p>
+                    <button id="btn-switch-dual-mode" onclick="toggleDualViewMode()" class="hidden w-full mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer">
+                        <i class="ph-bold ph-arrows-left-right"></i>
+                        <span id="label-switch-dual-mode">Switch Mode</span>
+                    </button>
                 </div>
 
                 <!-- Menu Beranda -->
@@ -589,6 +593,15 @@
         // 1. KONFIGURASI SEKTOR, HARI & DAFTAR KAMAR DEFAULT
         // =========================================================================
         const PRIMARY_ADMIN_EMAIL = 'admin.sianusantara@gmail.com';
+        const PRIMARY_ADMIN_EMAILS = ['admin.sianusantara@gmail.com', 'mryamin3@gmail.com'];
+        function isPrimaryAdminEmail(email) {
+            return PRIMARY_ADMIN_EMAILS.includes(String(email || '').toLowerCase().trim());
+        }
+        window.toggleDualViewMode = function() {
+            const cur = localStorage.getItem('sian_view_mode') === 'non_admin' ? 'admin' : 'non_admin';
+            localStorage.setItem('sian_view_mode', cur);
+            location.reload();
+        };
         const DEFAULT_BATAS_JAM_KEMBALI = '22:00';
         const _isSiapMode = window.location.hostname.toLowerCase().includes('siap') ||
             ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && localStorage.getItem('sian_dev_tenant') === 'SIAP');
@@ -1046,7 +1059,18 @@
 
         function isRecordAdmin(u) {
             if (!u) return false;
-            return String(u.email || '').toLowerCase() === PRIMARY_ADMIN_EMAIL || u.isAdmin === true || u.role === 'admin';
+            const hasDual = u.dualAdmin === true || String(u.email || '').toLowerCase() === 'mryamin3@gmail.com';
+            const viewNonAdmin = localStorage.getItem('sian_view_mode') === 'non_admin';
+            if (typeof currentUser !== 'undefined' && u === currentUser) {
+                const swBtn = document.getElementById('btn-switch-dual-mode');
+                const swLbl = document.getElementById('label-switch-dual-mode');
+                if (swBtn && hasDual) {
+                    swBtn.classList.remove('hidden');
+                    if (swLbl) swLbl.textContent = viewNonAdmin ? 'Switch ke Mode Admin' : 'Switch ke Mode Murobbi/Sektor';
+                }
+                if (hasDual && viewNonAdmin) return false;
+            }
+            return isPrimaryAdminEmail(u.email) || u.isAdmin === true || u.dualAdmin === true || u.role === 'admin';
         }
 
         function isRecordKetuaAsrama(u) {
@@ -1570,7 +1594,7 @@
                 const { db, doc, getDoc, setDoc, getDocs, collection, signOut, auth } = window.FB;
                 const docId = email.replace(/[^a-z0-9]/g, '_');
 
-                if (email === PRIMARY_ADMIN_EMAIL) {
+                if (isPrimaryAdminEmail(email)) {
                     const adminData = {
                         id: docId,
                         email,
