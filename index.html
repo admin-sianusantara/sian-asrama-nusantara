@@ -3910,6 +3910,17 @@
                             <option value="kantor" ${p.divisi === 'kantor' || curRole === 'admin_kantor' ? 'selected' : ''}>Admin Kantor Asrama</option>
                         </select>
                     </div>
+                    ${isPrimaryAdminEmail(currentUser?.email) ? `
+                    <div class="pt-2 border-t border-asrama-border">
+                        <label class="flex items-start gap-2.5 cursor-pointer select-none">
+                            <input type="checkbox" id="edit-p-dual-admin" ${p.dualAdmin === true ? 'checked' : ''} class="mt-0.5 rounded border-asrama-border bg-asrama-bg text-amber-500 focus:ring-amber-500">
+                            <span>
+                                <span class="block text-xs font-bold text-amber-300">Pembantu Admin (Bisa Switch Mode)</span>
+                                <span class="block text-[11px] text-slate-400">Izinkan akun ini beralih antara Mode Admin dan Mode Murobbi/Sektor tanpa mengubah sektor & kamar binaannya.</span>
+                            </span>
+                        </label>
+                    </div>
+                    ` : ''}
                 </div>
                 `,
                 `
@@ -3927,6 +3938,7 @@
             const sektor = document.getElementById('edit-p-sektor')?.value || 'Semua Sektor';
             const kamar = document.getElementById('edit-p-kamar')?.value || 'Tanpa Kamar Binaan';
             const rawDivisi = document.getElementById('edit-p-divisi').value;
+            const dualAdminEl = document.getElementById('edit-p-dual-admin');
             if (!nama) return;
 
             const isKa = role === 'ketua_asrama';
@@ -3934,7 +3946,7 @@
             const isKetuaKeb = rawDivisi === 'ketua_kebersihan';
             const finalDivisi = isKa ? 'pimpinan' : (isAk ? 'kantor' : (isKetuaKeb ? 'kebersihan' : rawDivisi));
 
-            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), {
+            const updatePayload = {
                 nama,
                 noHp,
                 role,
@@ -3943,6 +3955,12 @@
                 isKetuaLantai: role === 'ketua_sektor',
                 sektor: (isKa || isAk) ? 'Semua Sektor' : sektor,
                 kamar: (isKa || isAk) ? 'Tanpa Kamar Binaan' : kamar,
+            };
+            if (dualAdminEl) {
+                updatePayload.dualAdmin = dualAdminEl.checked;
+            }
+
+            await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), updatePayload);
                 divisi: finalDivisi,
                 ketuaUtamaDivisi: isKetuaKeb ? 'kebersihan' : '',
                 isKetuaKebersihanAsrama: isKetuaKeb,
