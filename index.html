@@ -3955,17 +3955,16 @@
                 isKetuaLantai: role === 'ketua_sektor',
                 sektor: (isKa || isAk) ? 'Semua Sektor' : sektor,
                 kamar: (isKa || isAk) ? 'Tanpa Kamar Binaan' : kamar,
+                divisi: finalDivisi,
+                ketuaUtamaDivisi: isKetuaKeb ? 'kebersihan' : '',
+                isKetuaKebersihanAsrama: isKetuaKeb,
+                status: 'approved'
             };
             if (dualAdminEl) {
                 updatePayload.dualAdmin = dualAdminEl.checked;
             }
 
             await window.FB.updateDoc(window.FB.doc(window.FB.db, 'pengurus', id), updatePayload);
-                divisi: finalDivisi,
-                ketuaUtamaDivisi: isKetuaKeb ? 'kebersihan' : '',
-                isKetuaKebersihanAsrama: isKetuaKeb,
-                status: 'approved'
-            });
             closeModal();
             showToast('Perubahan role & nomor WhatsApp pengurus disimpan.', 'success');
         }
