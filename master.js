@@ -212,19 +212,28 @@ function resolveKelas(item) {
     return String(santriMatch?.kelas || "").trim();
 }
 
+function resolveTingkatKelas(item) {
+    const k = resolveKelas(item).toUpperCase();
+    if (/^(XII|12)\b/.test(k)) return "XII";
+    if (/^(XI|11)\b/.test(k)) return "XI";
+    if (/^(X|10)\b/.test(k)) return "X";
+    if (/^(IX|9)\b/.test(k)) return "IX";
+    if (/^(VIII|8)\b/.test(k)) return "VIII";
+    if (/^(VII|7)\b/.test(k)) return "VII";
+    return "-";
+}
+
 function populateKelasDropdown() {
     const sel = document.getElementById("filter-kelas");
     if (!sel) return;
-    const kelasSet = new Set();
-    state.santri.forEach((s) => {
-        if (state.filterAsrama !== "ALL" && s.asalAsrama !== state.filterAsrama) return;
-        if (state.filterJenjang !== "ALL" && resolveJenjang(s) !== state.filterJenjang) return;
-        if (s.kelas && String(s.kelas).trim()) kelasSet.add(String(s.kelas).trim());
-    });
-    const sorted = Array.from(kelasSet).sort((a, b) => a.localeCompare(b));
+    const opts = state.filterJenjang === "SMP"
+        ? ["VII", "VIII", "IX"]
+        : state.filterJenjang === "SMA"
+            ? ["X", "XI", "XII"]
+            : ["VII", "VIII", "IX", "X", "XI", "XII"];
     const prev = state.filterKelas;
-    sel.innerHTML = `<option value="ALL">Semua Kelas</option>` + sorted.map((k) => `<option value="${k}" ${k === prev ? "selected" : ""}>${k}</option>`).join("");
-    if (prev !== "ALL" && !kelasSet.has(prev)) {
+    sel.innerHTML = `<option value="ALL">Semua Kelas</option>` + opts.map((k) => `<option value="${k}" ${k === prev ? "selected" : ""}>Kelas ${k}</option>`).join("");
+    if (prev !== "ALL" && !opts.includes(prev)) {
         state.filterKelas = "ALL";
         sel.value = "ALL";
     }
@@ -275,7 +284,7 @@ function getFilteredData() {
         if (state.filterJenjang !== "ALL" && resolveJenjang(item) !== state.filterJenjang) {
             return false;
         }
-        if (state.filterKelas !== "ALL" && resolveKelas(item) !== state.filterKelas) {
+        if (state.filterKelas !== "ALL" && resolveTingkatKelas(item) !== state.filterKelas) {
             return false;
         }
         if (!q) return true;
@@ -382,10 +391,17 @@ document.getElementById("search-santri").addEventListener("input", (e) => {
 document.querySelectorAll(".master-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
         document.querySelectorAll(".master-tab").forEach((b) => {
-            b.className = "master-tab px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white cursor-pointer";
+            b.classList.remove("border-2", "border-sky-500");
+            b.classList.add("border", "border-[#273647]");
         });
-        btn.className = "master-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-500 text-slate-950 cursor-pointer";
+        btn.classList.remove("border", "border-[#273647]");
+        btn.classList.add("border-2", "border-sky-500");
         state.activeTab = btn.dataset.tab;
+        const waBtn = document.getElementById("btn-export-wa");
+        if (waBtn) {
+            if (state.activeTab === "izin") waBtn.classList.remove("hidden");
+            else waBtn.classList.add("hidden");
+        }
         renderTable();
     });
 });
