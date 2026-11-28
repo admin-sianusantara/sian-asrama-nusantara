@@ -30,6 +30,7 @@
     <!-- SheetJS untuk Import & Export Excel (.xlsx) -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
     <script src="./smart-sync.js?v=2" defer></script>
+    <script src="./kelas-walas.js" defer></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -2018,6 +2019,7 @@
                         ${navItem('admin_info', 'ph-buildings', 'Info Kamar & Murobbi', 'text-emerald-400')}
                         ${navItem('admin_santri', 'ph-users-three', 'Data Santri & Import Excel', 'text-sky-400')}
                         ${navItem('smart_sync', 'ph-arrows-clockwise', 'Smart Sync Kelas', 'text-indigo-400')}
+                        ${navItem('kelas_walas', 'ph-chalkboard-teacher', 'Kelas & Walas', 'text-emerald-400')}
                         ${navItem('laporan_absen', 'ph-clipboard-text', 'Laporan Absen Semua Santri', 'text-teal-400')}
                         ${navItem('ketua_acc_santri', 'ph-user-switch', 'ACC Pindah & Hapus Santri', 'text-rose-400')}
                         ${navItem('pimpinan_acc_pulang', 'ph-seal-check', 'ACC Izin Pulang (Keluarga)', 'text-amber-400')}
@@ -2824,6 +2826,7 @@
                 case 'admin_info': container.innerHTML = renderAdminInfoAsrama(); break;
                 case 'admin_santri': container.innerHTML = renderAdminSantri(); break;
                 case 'smart_sync': if (typeof renderSmartSyncPage === 'function') renderSmartSyncPage(); break;
+                case 'kelas_walas': if (typeof renderKelasWalasPage === 'function') renderKelasWalasPage(); break;
                 case 'laporan_absen': container.innerHTML = renderLaporanAbsenSemua(); break;
                 case 'ketua_acc_santri': container.innerHTML = renderKetuaAccSantri(); break;
                 case 'pimpinan_acc_pulang': container.innerHTML = renderPimpinanAccPulang(); break;
@@ -3452,6 +3455,7 @@
                 case 'admin_info': container.innerHTML = renderAdminInfoAsrama(); break;
                 case 'admin_santri': container.innerHTML = renderAdminSantri(); break;
                 case 'smart_sync': if (typeof renderSmartSyncPage === 'function') renderSmartSyncPage(); break;
+                case 'kelas_walas': if (typeof renderKelasWalasPage === 'function') renderKelasWalasPage(); break;
                 case 'laporan_absen': container.innerHTML = renderLaporanAbsenSemua(); break;
                 case 'ketua_acc_santri': container.innerHTML = renderKetuaAccSantri(); break;
                 case 'pimpinan_acc_pulang': container.innerHTML = renderPimpinanAccPulang(); break;
