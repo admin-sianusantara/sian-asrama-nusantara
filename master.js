@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getAuth, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { FIREBASE_SIAN, FIREBASE_SIAP } from "./config.js";
 
@@ -34,6 +34,31 @@ const connStatus = document.getElementById("master-connection-status");
 function showError(msg) {
     loginError.textContent = msg;
     loginError.classList.remove("hidden");
+}
+
+// Auto-login (Quick Login) jika sesi Firebase sudah aktif
+let autoLoginTriggered = false;
+onAuthStateChanged(authSIAN, async (userSIAN) => {
+    if (userSIAN && !autoLoginTriggered) {
+        if (!authSIAP || authSIAP.currentUser) {
+            autoLoginTriggered = true;
+            document.getElementById("master-user-info").textContent = `Login sebagai: ${userSIAN.email || "Pimpinan"}`;
+            loginView.classList.add("hidden");
+            dashboardView.classList.remove("hidden");
+            await fetchAllMasterData();
+        }
+    }
+});
+if (authSIAP) {
+    onAuthStateChanged(authSIAP, async (userSIAP) => {
+        if (userSIAP && authSIAN.currentUser && !autoLoginTriggered) {
+            autoLoginTriggered = true;
+            document.getElementById("master-user-info").textContent = `Login sebagai: ${authSIAN.currentUser.email || "Pimpinan"}`;
+            loginView.classList.add("hidden");
+            dashboardView.classList.remove("hidden");
+            await fetchAllMasterData();
+        }
+    });
 }
 
 // Login 1 Pintu (Promise.all ke kedua Firebase)
