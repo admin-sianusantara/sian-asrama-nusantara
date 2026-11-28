@@ -191,7 +191,14 @@ async function fetchAllMasterData() {
     state.santri = [...santriSIAN, ...santriSIAP];
     state.absensi = [...absensiSIAN, ...absensiSIAP];
     state.izin = [...izinSIAN, ...izinSIAP];
-    state.pelanggaran = [...pelanggaranSIAN, ...pelanggaranSIAP];
+    // Hanya tampilkan pelanggaran berat / keamanan (kecualikan telat & tidak ikut kegiatan)
+    state.pelanggaran = [...pelanggaranSIAN, ...pelanggaranSIAP].filter((p) => {
+        const jenis = String(p.jenis || p.kategori || p.keterangan || "").toLowerCase();
+        if (jenis.includes("terlambat") || jenis.includes("tidak ikut kegiatan") || jenis === "telat" || jenis === "alpa") {
+            return false;
+        }
+        return true;
+    });
 
     connStatus.innerHTML = isSiapConfigured
         ? `<span class="text-emerald-400 font-semibold">Terhubung ke SIAN & SIAP</span> • Terakhir diperbarui: ${new Date().toLocaleTimeString("id-ID")}`
@@ -204,7 +211,7 @@ async function fetchAllMasterData() {
 
 function resolveKelas(item) {
     if (item.kelas) return String(item.kelas).trim();
-    const nama = String(item.nama || item.namaSantri || "").trim().toLowerCase();
+    const nama = String(item.nama || item.santriNama || item.namaSantri || "").trim().toLowerCase();
     const santriMatch = state.santri.find((s) =>
         (item.santriId && s.id === item.santriId) ||
         (nama && String(s.nama || "").trim().toLowerCase() === nama && s.asalAsrama === item.asalAsrama)
@@ -261,7 +268,7 @@ function updateSummaryCards() {
 
 function resolveJenjang(item) {
     if (item.jenjang) return String(item.jenjang).toUpperCase();
-    const nama = String(item.nama || item.namaSantri || "").trim().toLowerCase();
+    const nama = String(item.nama || item.santriNama || item.namaSantri || "").trim().toLowerCase();
     const santriMatch = state.santri.find((s) =>
         (item.santriId && s.id === item.santriId) ||
         (nama && String(s.nama || "").trim().toLowerCase() === nama && s.asalAsrama === item.asalAsrama)
@@ -326,7 +333,7 @@ function renderTable() {
             ? "bg-sky-500/15 text-sky-300 border-sky-500/30"
             : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
         const badge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeClass}">${item.asalAsrama}</span>`;
-        const nama = item.nama || item.namaSantri || "-";
+        const nama = item.nama || item.santriNama || item.namaSantri || "-";
 
         if (state.activeTab === "santri") {
             return `<tr class="hover:bg-[#1c2b3c]/60">
@@ -416,7 +423,7 @@ document.getElementById("btn-export-wa").addEventListener("click", () => {
     }
     const header = `*LAPORAN SIMA (${state.activeTab.toUpperCase()})*\nAsrama: ${state.filterAsrama === "ALL" ? "Semua" : state.filterAsrama} | Jenjang: ${state.filterJenjang === "ALL" ? "Semua" : state.filterJenjang} | Kelas: ${state.filterKelas === "ALL" ? "Semua" : state.filterKelas}\nTotal: ${rows.length} data\n\n`;
     const lines = rows.slice(0, 40).map((item, i) => {
-        const nama = item.nama || item.namaSantri || "-";
+        const nama = item.nama || item.santriNama || item.namaSantri || "-";
         const kls = resolveKelas(item) || "-";
         const info = state.activeTab === "izin" ? (item.alasan || item.keterangan || item.status || "-")
             : state.activeTab === "absensi" ? (item.kegiatan || item.status || "-")
