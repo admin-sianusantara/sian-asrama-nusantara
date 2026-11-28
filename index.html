@@ -5749,13 +5749,22 @@
             showToast(`Berhasil mengunduh ${fileName} (${filteredSantri.length} santri, ${kamarRows.length} kamar).`, 'success');
         }
 
+        let adminSantriJenjangFilter = 'ALL';
+        function getJenjangSantri(s) {
+            if (s.jenjang) return String(s.jenjang).toUpperCase();
+            const k = String(s.kelas || '').trim().toUpperCase();
+            if (/^(VII|VIII|IX)\b/.test(k) || /^[789]\b/.test(k)) return 'SMP';
+            if (/^(X|XI|XII)\b/.test(k) || /^(10|11|12)\b/.test(k)) return 'SMA';
+            return '-';
+        }
         function renderAdminSantri() {
             const kamarOpts = adminSantriSektorFilter !== 'ALL' ? (kamarBySektor[adminSantriSektorFilter] || []) : [];
             const filtered = santriList.filter(s => {
                 const matchSec = adminSantriSektorFilter === 'ALL' || isSameSektor(s.sektor, adminSantriSektorFilter);
                 const matchKam = adminSantriKamarFilter === 'ALL' || s.kamar === adminSantriKamarFilter;
-                const matchQ = !globalSearchQuery || String(s.nama || '').toLowerCase().includes(globalSearchQuery) || String(s.kamar || '').toLowerCase().includes(globalSearchQuery) || String(s.kelas || '').toLowerCase().includes(globalSearchQuery);
-                return matchSec && matchKam && matchQ;
+                const matchJenjang = adminSantriJenjangFilter === 'ALL' || getJenjangSantri(s) === adminSantriJenjangFilter;
+                const matchQ = !globalSearchQuery || String(s.nama || '').toLowerCase().includes(globalSearchQuery) || String(s.nama_lama || '').toLowerCase().includes(globalSearchQuery) || String(s.nis || '').toLowerCase().includes(globalSearchQuery) || String(s.kamar || '').toLowerCase().includes(globalSearchQuery) || String(s.kelas || '').toLowerCase().includes(globalSearchQuery);
+                return matchSec && matchKam && matchJenjang && matchQ;
             });
 
             return `
@@ -5782,7 +5791,12 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                        <select onchange="adminSantriJenjangFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${adminSantriJenjangFilter === 'ALL' ? 'selected' : ''}>Semua Jenjang (SMP & SMA)</option>
+                            <option value="SMP" ${adminSantriJenjangFilter === 'SMP' ? 'selected' : ''}>Jenjang SMP</option>
+                            <option value="SMA" ${adminSantriJenjangFilter === 'SMA' ? 'selected' : ''}>Jenjang SMA</option>
+                        </select>
                         <select onchange="adminSantriSektorFilter = this.value; adminSantriKamarFilter = 'ALL'; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="ALL" ${adminSantriSektorFilter === 'ALL' ? 'selected' : ''}>Semua Sektor Lantai</option>
                             ${SEKTOR_ASRAMA.map(sec => `<option value="${sec}" ${adminSantriSektorFilter === sec ? 'selected' : ''}>${sec}</option>`).join('')}
@@ -6757,7 +6771,12 @@
                     </div>
 
                     <!-- Filter & Search Bar -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                        <select onchange="adminSantriJenjangFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${adminSantriJenjangFilter === 'ALL' ? 'selected' : ''}>Semua Jenjang (SMP & SMA)</option>
+                            <option value="SMP" ${adminSantriJenjangFilter === 'SMP' ? 'selected' : ''}>Jenjang SMP</option>
+                            <option value="SMA" ${adminSantriJenjangFilter === 'SMA' ? 'selected' : ''}>Jenjang SMA</option>
+                        </select>
                         <input type="text" value="${escapeHtml(mutasiSantriSearchQuery)}" oninput="mutasiSantriSearchQuery = this.value; renderCurrentPage();" placeholder="Cari nama santri / kamar / murobbi..." class="border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-emerald-400">
                         <select onchange="mutasiSantriStatusFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs bg-asrama-bg focus:border-emerald-400">
                             <option value="ALL" ${mutasiSantriStatusFilter === 'ALL' ? 'selected' : ''}>Semua Status</option>
@@ -7235,7 +7254,12 @@
                         <p class="text-xs text-slate-300">Persetujuan izin pulang karena acara keluarga hanya dapat di-ACC oleh <strong>Ketua Sektor</strong> terkait atau <strong>Ketua Asrama Nusantara</strong>.</p>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                        <select onchange="adminSantriJenjangFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${adminSantriJenjangFilter === 'ALL' ? 'selected' : ''}>Semua Jenjang (SMP & SMA)</option>
+                            <option value="SMP" ${adminSantriJenjangFilter === 'SMP' ? 'selected' : ''}>Jenjang SMP</option>
+                            <option value="SMA" ${adminSantriJenjangFilter === 'SMA' ? 'selected' : ''}>Jenjang SMA</option>
+                        </select>
                         <input type="text" value="${escapeHtml(pimpinanPulangSearchQuery)}" oninput="pimpinanPulangSearchQuery = this.value; renderCurrentPage();" placeholder="Cari nama santri / kamar / alasan..." class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
                         <select onchange="pimpinanPulangStatusFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="ALL" ${pimpinanPulangStatusFilter === 'ALL' ? 'selected' : ''}>Semua Status ACC</option>
@@ -8528,7 +8552,12 @@
                         <p class="text-xs text-slate-300">Persetujuan izin pulang karena sakit, pengaturan jam/hari batas kembali (default <strong>22:00 WIB</strong>), serta penghapusan pengajuan disertai notifikasi ke Murobbi kamar.</p>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-asrama-card border border-asrama-border rounded-2xl p-4">
+                        <select onchange="adminSantriJenjangFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
+                            <option value="ALL" ${adminSantriJenjangFilter === 'ALL' ? 'selected' : ''}>Semua Jenjang (SMP & SMA)</option>
+                            <option value="SMP" ${adminSantriJenjangFilter === 'SMP' ? 'selected' : ''}>Jenjang SMP</option>
+                            <option value="SMA" ${adminSantriJenjangFilter === 'SMA' ? 'selected' : ''}>Jenjang SMA</option>
+                        </select>
                         <input type="text" value="${escapeHtml(keamananSearchQuery)}" oninput="keamananSearchQuery = this.value; renderCurrentPage();" placeholder="Cari nama santri / kamar / alasan..." class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
                         <select onchange="keamananStatusFilter = this.value; renderCurrentPage();" class="border border-asrama-border rounded-xl px-3 py-2 text-xs">
                             <option value="ALL" ${keamananStatusFilter === 'ALL' ? 'selected' : ''}>Semua Status ACC</option>
