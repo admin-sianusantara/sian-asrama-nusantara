@@ -124,6 +124,57 @@
         const isAdmin = window.isRecordAdmin && window.isRecordAdmin(window.currentUser);
         const santriList = window.getSantriList ? window.getSantriList() : [];
 
+        // Mode khusus Murobbi Kamar / Ketua Sektor: tampilkan hanya kelas & walas dari santri binaannya
+        if (!isAdmin) {
+            const u = window.currentUser || {};
+            const mySantri = santriList.filter((s) => {
+                if (u.kamar && u.kamar !== "Semua Kamar" && u.kamar !== "Tanpa Kamar Binaan") {
+                    return window.isSameSektor(s.sektor, u.sektor) && s.kamar === u.kamar;
+                }
+                return window.isSameSektor(s.sektor, u.sektor);
+            });
+
+            container.innerHTML = `
+                <div class="space-y-5 pb-12">
+                    <div>
+                        <h2 class="text-xl font-extrabold text-white flex items-center gap-2">
+                            <i class="ph-bold ph-chalkboard-teacher text-emerald-400"></i>
+                            Walas Santri Binaan
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Daftar Wali Kelas sesuai kelas santri di ${u.kamar && u.kamar !== "Semua Kamar" ? u.kamar : u.sektor || "kamar Anda"}.</p>
+                    </div>
+                    <div class="bg-asrama-card border border-asrama-border rounded-2xl overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead class="bg-asrama-sidebar text-[11px] uppercase text-slate-400 border-b border-asrama-border">
+                                <tr>
+                                    <th class="px-4 py-3">Nama Santri</th>
+                                    <th class="px-4 py-3">Kelas</th>
+                                    <th class="px-4 py-3">Wali Kelas</th>
+                                    <th class="px-4 py-3">Hubungi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-asrama-border">
+                                ${mySantri.map((s) => {
+                                    const w = window.KelasWalas.getWalasForKelas(s.kelas);
+                                    return `
+                                        <tr class="hover:bg-asrama-cardHover/40">
+                                            <td class="px-4 py-3 font-bold text-white">${s.nama}</td>
+                                            <td class="px-4 py-3 text-sky-300 font-semibold">${s.kelas || "-"}</td>
+                                            <td class="px-4 py-3 text-slate-200">${w ? w.nama : '<span class="text-slate-500 italic">Belum terdaftar</span>'}</td>
+                                            <td class="px-4 py-3">
+                                                ${w?.no_wa ? `<a href="https://wa.me/${w.no_wa}" target="_blank" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold"><i class="ph-bold ph-whatsapp-logo"></i> Chat Walas</a>` : '<span class="text-slate-500">-</span>'}
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join("") || `<tr><td colspan="4" class="px-4 py-8 text-center text-slate-400">Belum ada data santri di kamar Anda.</td></tr>`}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
         const countUnit = (u) => {
             const k = u === "ALL" ? kwState.kelasList.length : kwState.kelasList.filter((x) => x.unit === u).length;
             const w = u === "ALL" ? kwState.walasList.length : kwState.walasList.filter((x) => x.unit === u).length;
