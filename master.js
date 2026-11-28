@@ -68,25 +68,46 @@ loginForm.addEventListener("submit", async (e) => {
     }
 });
 
-// Opsi 2: Login dengan Google (ke SIAN & SIAP)
+// Opsi 2: Login dengan Google (ke SIAN & SIAP, aman dari popup blocker)
 const googleLoginBtn = document.getElementById("btn-master-google-login");
+let googleStep = 1;
+let lastGoogleEmail = "";
+
 if (googleLoginBtn) {
     googleLoginBtn.addEventListener("click", async () => {
         loginError.classList.add("hidden");
         googleLoginBtn.disabled = true;
-        googleLoginBtn.textContent = "Menghubungkan akun Google...";
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
 
         try {
-            const provider = new GoogleAuthProvider();
-            provider.setCustomParameters({ prompt: "select_account" });
+            if (googleStep === 1) {
+                googleLoginBtn.textContent = "Menghubungkan Google (SIAN)...";
+                const resSIAN = await signInWithPopup(authSIAN, provider);
+                lastGoogleEmail = resSIAN.user?.email || "Akun Google";
 
-            const resSIAN = await signInWithPopup(authSIAN, provider);
-            if (authSIAP) {
+                if (authSIAP) {
+                    try {
+                        googleLoginBtn.textContent = "Menghubungkan Google (SIAP)...";
+                        await signInWithPopup(authSIAP, provider);
+                    } catch (errSIAP) {
+                        if (errSIAP.code === "auth/popup-blocked") {
+                            googleStep = 2;
+                            showError("SIAN berhasil! Klik tombol di bawah sekali lagi untuk menyelesaikan login Google SIAP.");
+                            googleLoginBtn.disabled = false;
+                            googleLoginBtn.innerHTML = `<i class="ph-bold ph-google-logo text-amber-300 text-base"></i> Lanjutkan Login Google (SIAP)`;
+                            return;
+                        }
+                        throw errSIAP;
+                    }
+                }
+            } else {
+                googleLoginBtn.textContent = "Menghubungkan Google (SIAP)...";
                 await signInWithPopup(authSIAP, provider);
+                googleStep = 1;
             }
 
-            const email = resSIAN.user?.email || "Akun Google";
-            document.getElementById("master-user-info").textContent = `Login sebagai: ${email}`;
+            document.getElementById("master-user-info").textContent = `Login sebagai: ${lastGoogleEmail}`;
             loginView.classList.add("hidden");
             dashboardView.classList.remove("hidden");
 
@@ -94,9 +115,12 @@ if (googleLoginBtn) {
         } catch (err) {
             console.error("Login Google SIMA gagal:", err);
             showError(`Login Google gagal: ${err.message}`);
+            googleStep = 1;
         } finally {
             googleLoginBtn.disabled = false;
-            googleLoginBtn.innerHTML = `<i class="ph-bold ph-google-logo text-amber-300 text-base"></i> Masuk dengan Google`;
+            if (googleStep === 1) {
+                googleLoginBtn.innerHTML = `<i class="ph-bold ph-google-logo text-amber-300 text-base"></i> Masuk dengan Google`;
+            }
         }
     });
 }
