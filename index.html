@@ -1598,7 +1598,7 @@
                 const { db, doc, getDoc, setDoc, getDocs, collection, signOut, auth } = window.FB;
                 const docId = email.replace(/[^a-z0-9]/g, '_');
 
-                if (email === PRIMARY_ADMIN_EMAIL) {
+                if (email === PRIMARY_ADMIN_EMAIL || (_isSiapMode && isPrimaryAdminEmail(email))) {
                     const adminData = {
                         id: docId,
                         email,
