@@ -14,6 +14,33 @@
     };
 
     // ------------------------------------------------------------------------
+    // 0. KONEKSI DATABASE PUSAT (SIAN) UNTUK MASTER_WALAS & MASTER_KELAS
+    // ------------------------------------------------------------------------
+    let _masterDb = null;
+    async function getMasterDb() {
+        if (_masterDb) return _masterDb;
+        if (!window.ACTIVE_CONFIG || window.ACTIVE_CONFIG.kode !== "SIAP") {
+            _masterDb = window.FB?.db || null;
+            return _masterDb;
+        }
+        try {
+            const [{ initializeApp, getApps }, { getFirestore }, { FIREBASE_SIAN }] = await Promise.all([
+                import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"),
+                import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"),
+                import("./config.js")
+            ]);
+            const existing = getApps().find((a) => a.name === "SIAN_MASTER");
+            const masterApp = existing || initializeApp(FIREBASE_SIAN, "SIAN_MASTER");
+            _masterDb = getFirestore(masterApp);
+            return _masterDb;
+        } catch (err) {
+            console.warn("Fallback ke DB aktif untuk master_walas/master_kelas:", err);
+            _masterDb = window.FB?.db || null;
+            return _masterDb;
+        }
+    }
+
+    // ------------------------------------------------------------------------
     // 1. UTILITAS NORMALISASI WA & HELPER
     // ------------------------------------------------------------------------
     function normalizeWa(raw) {
@@ -47,11 +74,12 @@
         return `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${colors[unit] || "bg-slate-500/15 text-slate-300 border-slate-500/30"}">${unit}</span>`;
     }
 
-    async function commitBatchedOps(ops) {
-        if (!window.FB || !window.FB.ready || !ops.length) return;
+    async function commitBatchedOps(ops, targetDb = null) {
+        const db = targetDb || window.FB?.db;
+        if (!window.FB || !window.FB.ready || !db || !ops.length) return;
         const CHUNK = 400;
         for (let i = 0; i < ops.length; i += CHUNK) {
-            const batch = window.FB.writeBatch(window.FB.db);
+            const batch = window.FB.writeBatch(db);
             ops.slice(i, i + CHUNK).forEach((op) => {
                 if (op.type === "set") batch.set(op.ref, op.data, op.options || {});
                 else if (op.type === "update") batch.update(op.ref, op.data);
@@ -67,9 +95,10 @@
     async function loadKelasWalasData() {
         if (!window.FB || !window.FB.ready) return;
         try {
+            const masterDb = await getMasterDb();
             const [wSnap, kSnap] = await Promise.all([
-                window.FB.getDocs(window.FB.collection(window.FB.db, "master_walas")),
-                window.FB.getDocs(window.FB.collection(window.FB.db, "master_kelas"))
+                window.FB.getDocs(window.FB.collection(masterDb, "master_walas")),
+                window.FB.getDocs(window.FB.collection(masterDb, "master_kelas"))
             ]);
             kwState.walasList = wSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
             kwState.kelasList = kSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
