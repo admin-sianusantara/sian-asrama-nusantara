@@ -411,8 +411,8 @@
         if (!container) return;
 
         const santriList = window.getSantriList ? window.getSantriList() : [];
-        const sektors = window.SEKTOR_ASRAMA || [];
-        const kamarMap = window.kamarBySektor || {};
+        const sektors = window.getSektorAsrama ? window.getSektorAsrama() : [];
+        const kamarMap = window.getKamarBySektor ? window.getKamarBySektor() : {};
 
         // Filter sektor jika Ketua Sektor
         const isAdmin = window.isRecordAdmin && window.isRecordAdmin(window.currentUser);
