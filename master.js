@@ -20,6 +20,7 @@ const state = {
     pelanggaran: [],
     activeTab: "santri",
     filterAsrama: "ALL",
+    filterJenjang: "ALL",
     searchQuery: ""
 };
 
@@ -219,12 +220,29 @@ function updateSummaryCards() {
         `SIAN: ${countBy(state.pelanggaran, "Asrama Nusantara")} • SIAP: ${countBy(state.pelanggaran, "Asrama Putra")}`;
 }
 
+function resolveJenjang(item) {
+    if (item.jenjang) return String(item.jenjang).toUpperCase();
+    const nama = String(item.nama || item.namaSantri || "").trim().toLowerCase();
+    const santriMatch = state.santri.find((s) =>
+        (item.santriId && s.id === item.santriId) ||
+        (nama && String(s.nama || "").trim().toLowerCase() === nama && s.asalAsrama === item.asalAsrama)
+    );
+    const kelas = String(item.kelas || santriMatch?.kelas || "").trim().toUpperCase();
+    if (santriMatch?.jenjang) return String(santriMatch.jenjang).toUpperCase();
+    if (/^(VII|VIII|IX)\b/.test(kelas) || /^[789]\b/.test(kelas)) return "SMP";
+    if (/^(X|XI|XII)\b/.test(kelas) || /^(10|11|12)\b/.test(kelas)) return "SMA";
+    return "-";
+}
+
 function getFilteredData() {
     const list = state[state.activeTab] || [];
     const q = state.searchQuery.toLowerCase();
 
     return list.filter((item) => {
         if (state.filterAsrama !== "ALL" && item.asalAsrama !== state.filterAsrama) {
+            return false;
+        }
+        if (state.filterJenjang !== "ALL" && resolveJenjang(item) !== state.filterJenjang) {
             return false;
         }
         if (!q) return true;
@@ -308,6 +326,11 @@ function renderTable() {
 // Event Listeners UI
 document.getElementById("filter-asrama").addEventListener("change", (e) => {
     state.filterAsrama = e.target.value;
+    renderTable();
+});
+
+document.getElementById("filter-jenjang").addEventListener("change", (e) => {
+    state.filterJenjang = e.target.value;
     renderTable();
 });
 

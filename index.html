@@ -7035,6 +7035,16 @@
         // =========================================================================
         // 10. MONITOR SEMUA IZIN SAKIT & PULANG + MONITORING PULANG + ACC PIMPINAN
         // =========================================================================
+        let adminIzinJenjangFilter = 'ALL';
+        function getJenjangIzin(p) {
+            if (p.jenjang) return String(p.jenjang).toUpperCase();
+            const sObj = santriList.find(s => (p.santriId && s.id === p.santriId) || (p.santriNama && s.nama === p.santriNama));
+            if (sObj && sObj.jenjang) return String(sObj.jenjang).toUpperCase();
+            const k = String((sObj && sObj.kelas) || p.kelas || '').trim().toUpperCase();
+            if (/^(VII|VIII|IX)\b/.test(k) || /^[789]\b/.test(k)) return 'SMP';
+            if (/^(X|XI|XII)\b/.test(k) || /^(10|11|12)\b/.test(k)) return 'SMA';
+            return '-';
+        }
         function renderAdminIzin() {
             const kamarOpts = adminIzinSektorFilter !== 'ALL' ? (kamarBySektor[adminIzinSektorFilter] || []) : [];
             if (adminIzinKamarFilter !== 'ALL' && kamarOpts.length > 0 && !kamarOpts.some(k => k.nama === adminIzinKamarFilter)) {
@@ -7053,8 +7063,9 @@
                 const mKeg = adminIzinKegiatanFilter === 'ALL' || !isSakit || kegTxt.includes(adminIzinKegiatanFilter.toLowerCase());
                 const mDate = matchIzinDateFilter(p, adminIzinDateFilter);
                 const mSt = adminIzinStatusFilter === 'ALL' || p.status === adminIzinStatusFilter;
+                const mJenjang = adminIzinJenjangFilter === 'ALL' || getJenjangIzin(p) === adminIzinJenjangFilter;
                 const mQ = !q || String(p.santriNama || '').toLowerCase().includes(q) || String(p.kamar || '').toLowerCase().includes(q) || String(p.kategori || '').toLowerCase().includes(q);
-                return mJenis && mSec && mKam && mKeg && mDate && mSt && mQ;
+                return mJenis && mSec && mKam && mKeg && mDate && mSt && mJenjang && mQ;
             });
 
             return `
@@ -7063,6 +7074,9 @@
                         <div>
                             <h2 class="text-xl font-extrabold text-white">Monitor Semua Izin Sakit & Pulang Santri</h2>
                             <p class="text-xs text-slate-300">Pantau seluruh santri yang izin sakit tidak masuk kegiatan maupun izin pulang dengan filter lengkap (${perizinanList.length} total riwayat).</p>
+                            <div class="flex flex-wrap gap-1.5 mt-2">
+                                ${['ALL', 'SMP', 'SMA'].map(j => `<button type="button" onclick="adminIzinJenjangFilter='${j}'; renderCurrentPage();" class="px-3 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${adminIzinJenjangFilter === j ? 'bg-sky-500 text-slate-950' : 'bg-asrama-card border border-asrama-border text-slate-300 hover:text-white'}">${j === 'ALL' ? 'Semua Jenjang' : j}</button>`).join('')}
+                            </div>
                         </div>
                         <button onclick="exportIzinExcel()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer self-start">
                             <i class="ph-bold ph-file-xls"></i> Ekspor Excel (.xlsx)
